@@ -1,0 +1,10 @@
+{
+  "name": "classroom-assistant",
+  "private": true,
+  "scripts": {
+    "dev:server": "pnpm --filter @classroom/server dev",
+    "dev:dashboard": "pnpm --filter @classroom/dashboard dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  }
+}
