@@ -14,7 +14,7 @@ function record(overrides: Partial<StudentRecord> & { events: StoredEvent[] }): 
 }
 
 function err(ts: number, subtype: string): StoredEvent {
-  return { ts, eventType: "run", success: false, subtype, knowledge: "k", rawMessage: "m" };
+  return { ts, eventType: "run", success: false, subtype, category: "其他", knowledge: "k", rawMessage: "m" };
 }
 
 describe("computeStatus（spec §5 状态色）", () => {
@@ -84,7 +84,7 @@ describe("computeScore（spec §5 优先级分）", () => {
   it("成功运行后（最后事件是成功）：不加「未解决」20 分", () => {
     const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
     const events = ts.map(t => err(t, "缺少冒号"));
-    events.push({ ts: NOW - 5 * MIN, eventType: "run", success: true, subtype: null, knowledge: null, rawMessage: "ok" });
+    events.push({ ts: NOW - 5 * MIN, eventType: "run", success: true, subtype: null, category: "运行成功", knowledge: null, rawMessage: "ok" });
     const r = record({
       events,
       lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,

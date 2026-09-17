@@ -49,7 +49,7 @@ async function callRealLLM(input: ExplainInput): Promise<Explanation> {
     const body = await resp.text().catch(() => "");
     throw new Error(`LLM API error (${resp.status}): ${body.slice(0, 200)}`);
   }
-  const data = await resp.json();
+  const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const content = data.choices?.[0]?.message?.content || "";
   const parsed = parseLLMResponse(content);
   if (!parsed) throw new Error("LLM 输出无法解析为三字段 JSON");

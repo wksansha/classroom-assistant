@@ -31,6 +31,7 @@ export interface AlertItem {
 
 export interface AggItem {
   subtype: string;
+  category: string;
   knowledge: string;
   /** 涉及人数（不是事件数） */
   count: number;

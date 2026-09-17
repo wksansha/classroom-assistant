@@ -89,7 +89,7 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     getEventStats() {
       const total = (db.prepare("SELECT COUNT(*) AS c FROM events").get() as { c: number }).c;
-      const byCategory = db.prepare("SELECT category, COUNT(*) AS count FROM events GROUP BY category ORDER BY count DESC").all();
+      const byCategory = db.prepare("SELECT category, COUNT(*) AS count FROM events GROUP BY category ORDER BY count DESC").all() as { category: string; count: number }[];
       const today = new Date().toISOString().slice(0, 10);
       const todayCount = (db.prepare("SELECT COUNT(*) AS c FROM events WHERE DATE(timestamp) = ?").get(today) as { c: number }).c;
       return { total, todayCount, byCategory };
