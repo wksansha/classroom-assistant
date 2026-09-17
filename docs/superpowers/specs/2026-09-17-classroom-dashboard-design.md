@@ -210,12 +210,13 @@ V1 顶部仅保留系统标题；当前任务/在线人数/计时/匿名投屏�
 - diag 事件上报 samples 文本，error_type 写死 "DiagnosticError"
 - **runSuccess（exit_code=0）在 L1 中已产生（runListener.ts），但 reporter 只放行 execution_error，成功运行被过滤未上报**
 - 不上报任何代码内容；teacherUrl 默认 localhost
+- **2026-09-17 补充核查（同日已修复）：教师上报管道曾编译不通过**（`reporter.ts` 的 `buildPayload` 引用不在作用域内的变量；`extension.ts` 的 `secrets.get` 未 `await`）——已由用户修复：`buildPayload` 显式接收 deps 传参、`applyTeacherReporter` 改 async 并支持配置变化动态开关、移除 profile 视图，`npx tsc --noEmit` 通过。差距 #2（runSuccess）仍待改，纳入实现计划 Task 21
 
 **差距与修改方案：**
 
 | # | 差距 | 影响 | 修改方案 | 改动侧 | 建议时点 |
 |---|------|------|---------|--------|---------|
-| 1 | student_name 兜底 Unknown、class_id 兜底 default | 矩阵 20 格全是 Unknown/默认班 | 部署时批量配置 `pylearner.student.name/classId` | 部署配置 | V1 必须 |
+| 1 | student_name 兜底 Unknown、class_id 兜底 default | 矩阵 20 格全是 Unknown/默认班 | **暂缓定案（2026-09-17 用户决定）**：取值来源为扩展内 SecretStorage（settings.json 不生效），批量配置方案后续决定；未配置时服务端兜底显示 Unknown/默认班 | 待定 | 后续决定 |
 | 2 | 成功运行不上报（reporter 过滤 runSuccess） | 绿色分不清"没在用"和"用得顺" | reporter 放开 runSuccess（约 5 行），服务器记为活动信号 | learner 小改 | V1 强烈建议 |
 | 3 | 无代码上下文（code_line/full_code） | 知识点解释做不了个性化（"totl 应该是 total"） | run 事件补 code_line（按 file+line 读行）与 full_code（截断）；服务端 prompt 已预留字段，learner 加字段零服务端改动 | learner | V2 |
 | 4 | diag 无真实 error_type（写死 DiagnosticError，仅占位） | 静态映射无法覆盖课堂中无限种样本 | diag 样本交 LLM 输出 category/subtype/knowledge（JSON），不维护样本映射表；真实 trace 样本仅作 prompt 格式参考 | 服务端 | V1 做（learner 零改） |
