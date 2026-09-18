@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/__tests__/classroom.test.ts","./src/__tests__/helpers.ts","./src/__tests__/sse.test.ts","./src/__tests__/time.test.ts","./src/api/sse.ts","./src/composables/time.ts","./src/stores/classroom.ts","./src/app.vue"],"version":"5.9.3"}
