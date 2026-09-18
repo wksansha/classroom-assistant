@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import StudentMatrix from "../components/StudentMatrix.vue";
 import { makeSnapshot, mountWithStore } from "./helpers";
+import type { StudentState, StatusColor } from "@classroom/shared";
 
-const students = [
-  { studentId: "stu001", studentName: "张三", status: "red", priorityScore: 70, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 3, recentErrors: [{ ts: 1, subtype: "缺少冒号", knowledge: "k", rawMessage: "m" }] },
-  { studentId: "stu002", studentName: "李四", status: "yellow", priorityScore: 15, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 1, recentErrors: [] },
-  { studentId: "stu003", studentName: "王五", status: "green", priorityScore: 0, lastActivityAt: 1, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
+const students: StudentState[] = [
+  { studentId: "stu001", studentName: "张三", status: "red" as StatusColor, priorityScore: 70, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 3, recentErrors: [{ ts: 1, subtype: "缺少冒号", knowledge: "k", rawMessage: "m" }] },
+  { studentId: "stu002", studentName: "李四", status: "yellow" as StatusColor, priorityScore: 15, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 1, recentErrors: [] },
+  { studentId: "stu003", studentName: "王五", status: "green" as StatusColor, priorityScore: 0, lastActivityAt: 1, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
 ];
 
 describe("StudentMatrix", () => {

@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import SuggestionBar from "../components/SuggestionBar.vue";
 import { makeSnapshot, mountWithStore } from "./helpers";
+import type { SuggestionItem, SuggestionKind } from "@classroom/shared";
 
-const suggestions = [
-  { id: "class-review:缺少冒号", kind: "class-review", text: "⚠️ 8 人卡在「缺少冒号」，建议全班讲评", acked: false },
-  { id: "individual:stu001", kind: "individual", text: "🙋 张三 连续报错，建议单独辅导", acked: false },
-  { id: "group-discuss:意外缩进", kind: "group-discuss", text: "💡 2 人遇到「意外缩进」，可小组讨论", acked: true },
+const suggestions: SuggestionItem[] = [
+  { id: "class-review:缺少冒号", kind: "class-review" as SuggestionKind, text: "⚠️ 8 人卡在「缺少冒号」，建议全班讲评", acked: false },
+  { id: "individual:stu001", kind: "individual" as SuggestionKind, text: "🙋 张三 连续报错，建议单独辅导", acked: false },
+  { id: "group-discuss:意外缩进", kind: "group-discuss" as SuggestionKind, text: "💡 2 人遇到「意外缩进」，可小组讨论", acked: true },
 ];
 
 describe("SuggestionBar", () => {
