@@ -8,6 +8,7 @@ export interface StoredEvent {
   category: string;
   knowledge: string | null;
   rawMessage: string;
+  codeSnippet?: string;
 }
 
 export interface StudentRecord {
@@ -52,6 +53,7 @@ export function createStateManager(): StateManager {
         category: ev.success ? "运行成功" : (explanation?.category ?? "其他"),
         knowledge: ev.success ? null : (explanation?.knowledge ?? null),
         rawMessage: ev.rawMessage,
+        codeSnippet: ev.codeSnippet,
       });
       if (r.events.length > MAX_EVENTS) r.events.splice(0, r.events.length - MAX_EVENTS);
       r.lastActivityAt = Math.max(r.lastActivityAt, ev.ts);

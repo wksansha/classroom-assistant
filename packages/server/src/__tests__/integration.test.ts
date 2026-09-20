@@ -11,6 +11,7 @@ const flatError = {
   timestamp: new Date().toISOString(), event_type: "run",
   raw_message: "division by zero", error_type: "ZeroDivisionError",
   error_message: "division by zero", exit_code: 1,
+  code_snippet: "def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))",
 };
 const flatSuccess = {
   student_id: "stu001", student_name: "张三", class_id: "3A",
@@ -28,6 +29,7 @@ describe("POST /api/events 主流程（测试环境无 LLM_API_KEY → mock 兜�
     const events = (await request(a).get("/api/events").expect(200)).body;
     expect(events[0].category).toBe("运算错误");
     expect(events[0].subtype).toBe("除数为0");
+    expect(events[0].code_snippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
   });
 
   it("runSuccess → 200，不产生解释（category=运行成功），学生绿色", async () => {
@@ -51,6 +53,7 @@ describe("GET /api/student/:id", () => {
     await request(a).post("/api/events").send(flatError);
     const d = (await request(a).get("/api/student/stu001").expect(200)).body;
     expect(d.events[0].subtype).toBe("除数为0");
+    expect(d.events[0].codeSnippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
     await request(a).get("/api/student/nope").expect(404);
   });
 });

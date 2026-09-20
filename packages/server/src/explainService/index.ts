@@ -14,7 +14,11 @@ export function createExplainService(cache: Cache): ExplainService {
         return { category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确" };
       }
       const llm = await cache.getExplanation(ev.cacheKey, () =>
-        callLLM({ errorType: ev.errorType ?? "DiagnosticError", errorMessage: ev.rawMessage || ev.errorMessage || "" }),
+        callLLM({
+          errorType: ev.errorType ?? "DiagnosticError",
+          errorMessage: ev.rawMessage || ev.errorMessage || "",
+          codeSnippet: ev.codeSnippet,
+        }),
       );
       if (ev.eventType === "run") {
         // run：category 静态映射覆盖（确定性高），subtype/knowledge 采纳 LLM

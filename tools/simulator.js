@@ -16,6 +16,41 @@ const SUCCESS_RATIO = parseFloat(args["success-ratio"] || "0.3");
 
 const NAMES = ["张三","李四","王五","赵六","钱七","孙八","周九","吴十","郑一","王二","冯三","陈四","褚五","卫六","蒋七","沈八","韩九","杨十","朱一","秦二"];
 
+// 错误代码片段（围绕错误行前后 3 行）
+const CODE_SNIPPETS = {
+  "expected \":\"": [
+    "def greet():",
+    "    print(\"Hello\")",
+    "if __name__ = \"__main__\":",
+    "    greet()",
+  ].join("\n"),
+  "division by zero": [
+    "def divide(a, b):",
+    "    return a / b",
+    "",
+    "print(divide(10, 0))",
+  ].join("\n"),
+  "expected an indented block": [
+    "def hello():",
+    "print(\"Hello\")",
+    "",
+    "hello()",
+  ].join("\n"),
+  "name 'totl' is not defined": [
+    "def calculate():",
+    "    result = totl + 1",
+    "    return result",
+    "",
+    "calculate()",
+  ].join("\n"),
+  "can only concatenate str (not \"int\") to str": [
+    "def greet(name):",
+    "    print(\"Hello \" + name + 1)",
+    "",
+    "greet(\"Alice\")",
+  ].join("\n"),
+};
+
 // 真实样本（沿用 demo，来自 pylearner 实际记录）
 const DIAG_SAMPLES = [
   '应为 ":"',
@@ -33,6 +68,10 @@ const RUN_ERRORS = [
 ];
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+function codeSnippetFor(rawMessage) {
+  return CODE_SNIPPETS[rawMessage] ?? "（未捕获到代码片段）";
+}
 
 async function post(body) {
   const res = await fetch(`${URL}/api/events`, {
@@ -56,10 +95,10 @@ function nextEvent() {
   }
   if (Math.random() < 0.5) {
     const sample = pick(DIAG_SAMPLES);
-    return { ...student, event_type: "diag", raw_message: sample, samples: [sample], file_path: "simple_functions.py" };
+    return { ...student, event_type: "diag", raw_message: sample, samples: [sample], file_path: "simple_functions.py", code_snippet: codeSnippetFor(sample) };
   }
   const e = pick(RUN_ERRORS);
-  return { ...student, event_type: "run", raw_message: e.error_message, error_type: e.error_type, error_message: e.error_message, exit_code: 1, file_path: e.file, line_no: e.line, command: "python simple_functions.py", source: "terminal" };
+  return { ...student, event_type: "run", raw_message: e.error_message, error_type: e.error_type, error_message: e.error_message, exit_code: 1, file_path: e.file, line_no: e.line, command: "python simple_functions.py", source: "terminal", code_snippet: codeSnippetFor(e.error_message) };
 }
 
 let sent = 0;

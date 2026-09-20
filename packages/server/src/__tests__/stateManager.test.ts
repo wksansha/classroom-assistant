@@ -9,7 +9,7 @@ function errorEvent(studentId: string, ts: number, subtype = "除数为0"): Norm
     studentId, studentName: `学生${studentId}`, classId: "3A", eventType: "run", success: false,
     errorType: "ZeroDivisionError", errorMessage: "division by zero", samples: [],
     rawMessage: "division by zero", cacheKey: "ZeroDivisionError: division by zero",
-    exitCode: 1, ts,
+    exitCode: 1, ts, codeSnippet: "def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))",
   };
 }
 
@@ -30,6 +30,7 @@ describe("stateManager（内存课堂状态）", () => {
     expect(r[0]).toMatchObject({ studentId: "stu001", studentName: "学生stu001", consecutiveErrors: 1, lastErrorAt: 1000, lastActivityAt: 1000 });
     expect(r[0].events[0].subtype).toBe("除数为0");
     expect(r[0].events[0].category).toBe("运算错误");
+    expect(r[0].events[0].codeSnippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
   });
 
   it("成功运行清零 consecutiveErrors（spec §5：绿色=最近有成功运行）", () => {

@@ -14,6 +14,7 @@ export interface FlatReport {
   file_path?: string;
   line_no?: number;
   source?: string;
+  code_snippet?: string;      // 错误行周围的代码片段（可选）
 }
 
 /** LLM 解释结果（spec §5 三字段，缓存值同构） */
@@ -38,6 +39,8 @@ export interface NormalizedEvent {
   samples: string[];
   /** 展示用：diag 取首样本；run 取 error_message */
   rawMessage: string;
+  /** 错误行前后几行的代码片段（可选，用于教学解释） */
+  codeSnippet?: string;
   /** run: `${error_type}: ${error_message}`；diag: 最短样本；成功事件为 null */
   cacheKey: string | null;
   command?: string;

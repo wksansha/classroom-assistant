@@ -3,6 +3,7 @@ export interface ExplainInput {
   errorMessage: string;
   codeLine?: string;
   fullCode?: string;
+  codeSnippet?: string;
 }
 
 export function buildExplainPrompt(input: ExplainInput): string {
@@ -21,7 +22,8 @@ export function buildExplainPrompt(input: ExplainInput): string {
     `错误类型：${input.errorType}`,
     `错误信息：${input.errorMessage}`,
   ];
-  if (input.codeLine) lines.push(`出错代码行：${input.codeLine}`);
-  if (input.fullCode) lines.push(`完整代码：\n${input.fullCode}`);
+  if (input.codeSnippet) lines.push(`错误代码片段：\n${input.codeSnippet}`);
+  else if (input.fullCode) lines.push(`完整代码：\n${input.fullCode}`);
+  else if (input.codeLine) lines.push(`出错代码行：${input.codeLine}`);
   return lines.join("\n");
 }

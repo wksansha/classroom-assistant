@@ -6,7 +6,7 @@ import { fmtTime, fmtAgo } from "../composables/time";
 const store = useClassroom();
 const detail = ref<{
   studentId: string; studentName: string;
-  events: { ts: number; eventType: string; success: boolean; subtype: string | null; knowledge: string | null; rawMessage: string }[];
+  events: { ts: number; eventType: string; success: boolean; subtype: string | null; knowledge: string | null; rawMessage: string; codeSnippet?: string }[];
   lastActivityAt: number; lastErrorAt: number | null;
 } | null>(null);
 
@@ -43,6 +43,7 @@ watch(
           <strong>{{ e.success ? "运行成功" : e.subtype }}</strong>
           <span class="k">{{ e.knowledge ?? "" }}</span>
           <code>{{ e.rawMessage }}</code>
+          <pre v-if="e.codeSnippet" class="snippet">{{ e.codeSnippet }}</pre>
         </li>
       </ul>
       <button disabled title="V2 开放">发提示</button>
@@ -67,4 +68,5 @@ header h3 { margin: 0; flex: 1; }
 .history .t { color: var(--muted); font-size: 12px; }
 .history .k { color: var(--muted); }
 .history code { font-size: 12px; color: var(--accent); word-break: break-all; }
+  .history .snippet { margin: 6px 0; padding: 8px; background: var(--bg-alt); border-radius: 4px; font-size: 11px; color: var(--text); white-space: pre-wrap; word-break: break-all; }
 </style>

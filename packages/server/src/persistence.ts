@@ -15,6 +15,7 @@ export interface EventRow {
   lineNo: number | null;
   exitCode: number | null;
   timestamp: string;
+  codeSnippet?: string | null;
 }
 
 export interface Persistence {
@@ -55,7 +56,8 @@ export function createPersistence(dbPath?: string): Persistence {
       line_no INTEGER,
       exit_code INTEGER,
       timestamp DATETIME NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      code_snippet TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_events_student ON events(student_id);
     CREATE INDEX IF NOT EXISTS idx_events_class_time ON events(class_id, timestamp);
@@ -80,9 +82,9 @@ export function createPersistence(dbPath?: string): Persistence {
         .run(id, name, classId, name, classId);
     },
     insertEvent(r) {
-      db.prepare(`INSERT INTO events (student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(r.studentId, r.classId, r.eventType, r.rawMessage, r.category, r.subtype, r.knowledge, r.filePath, r.lineNo, r.exitCode, r.timestamp);
+      db.prepare(`INSERT INTO events (student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp, code_snippet)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(r.studentId, r.classId, r.eventType, r.rawMessage, r.category, r.subtype, r.knowledge, r.filePath, r.lineNo, r.exitCode, r.timestamp, r.codeSnippet ?? null);
     },
     getRecentEvents(limit) {
       return db.prepare("SELECT * FROM events ORDER BY created_at DESC, id DESC LIMIT ?").all(limit);

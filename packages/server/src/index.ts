@@ -60,6 +60,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       filePath: ev.filePath ?? null, lineNo: ev.lineNo ?? null,
       exitCode: ev.exitCode ?? null,
       timestamp: new Date(ev.ts).toISOString(),
+      codeSnippet: ev.codeSnippet ?? null,
     });
 
     hub.publish(buildSnapshot());

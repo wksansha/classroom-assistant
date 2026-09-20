@@ -8,7 +8,7 @@ const errorRow: EventRow = {
   rawMessage: "division by zero", category: "运算错误",
   subtype: "除数为0", knowledge: "除法运算：除数不能为 0",
   filePath: "a.py", lineNo: 30, exitCode: 1,
-  timestamp: "2026-09-17T02:00:00.000Z",
+  timestamp: "2026-09-17T02:00:00.000Z", codeSnippet: "def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))",
 };
 
 describe("persistence（SQLite，:memory:）", () => {
@@ -20,7 +20,7 @@ describe("persistence（SQLite，:memory:）", () => {
     p.upsertStudent("stu001", "张三", "3A");
   });
 
-  it("insertEvent → getRecentEvents 读回，字段完整", () => {
+  it("insertEvent → getRecentEvents 读回，字段完整（含 code_snippet）", () => {
     p.insertEvent(errorRow);
     const rows = p.getRecentEvents(10);
     expect(rows).toHaveLength(1);
@@ -28,6 +28,14 @@ describe("persistence（SQLite，:memory:）", () => {
     expect(rows[0].category).toBe("运算错误");
     expect(rows[0].subtype).toBe("除数为0");
     expect(rows[0].exit_code).toBe(1);
+    expect(rows[0].code_snippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
+  });
+
+  it("code_snippet 为 undefined 时落库为 null", () => {
+    const row = { ...errorRow, codeSnippet: undefined };
+    p.insertEvent(row);
+    const rows = p.getRecentEvents(1);
+    expect(rows[0].code_snippet).toBeNull();
   });
 
   it("runSuccess 事件：category 存「运行成功」，subtype/knowledge 为空", () => {
