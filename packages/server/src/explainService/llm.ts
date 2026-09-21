@@ -1,4 +1,5 @@
 import { buildExplainPrompt, type ExplainInput, type Explanation } from "@classroom/shared";
+import { logEvent } from "../logger";
 
 // ── 配置（沿用 demo 环境变量）─────────────────────────
 const API_KEY = process.env.LLM_API_KEY || "";
@@ -35,33 +36,71 @@ export function parseLLMResponse(text: string): Explanation | null {
 }
 
 async function callRealLLM(input: ExplainInput): Promise<Explanation> {
+  const startTime = Date.now();
+  const prompt = buildExplainPrompt(input); // 只构建一次（日志长度与请求体共用）
+  logEvent({ event: "llm.request_started", level: "debug", data: {
+    model: MODEL,
+    promptLength: prompt.length,
+    hasCodeSnippet: !!input.codeSnippet,
+    errorType: input.errorType,
+    errorMessageLength: input.errorMessage?.length ?? 0,
+  } });
+
   const resp = await fetch(`${BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: "user", content: buildExplainPrompt(input) }],
+      messages: [{ role: "user", content: prompt }],
       stream: false,
       temperature: 0.3,
     }),
   });
+
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
+    logEvent({ event: "llm.api_error", level: "error", data: {
+      status: resp.status,
+      body: body.slice(0, 200),
+      model: MODEL,
+    }, durationMs: Date.now() - startTime });
     throw new Error(`LLM API error (${resp.status}): ${body.slice(0, 200)}`);
   }
+
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const content = data.choices?.[0]?.message?.content || "";
   const parsed = parseLLMResponse(content);
-  if (!parsed) throw new Error("LLM 输出无法解析为三字段 JSON");
+
+  if (!parsed) {
+    logEvent({ event: "llm.parse_failed", level: "error", data: {
+      model: MODEL,
+      responsePreview: content.slice(0, 200),
+    }, durationMs: Date.now() - startTime });
+    throw new Error("LLM 输出无法解析为三字段 JSON");
+  }
+
+  logEvent({ event: "llm.request_completed", level: "debug", data: {
+    model: MODEL,
+    result: parsed,
+  }, durationMs: Date.now() - startTime });
+
   return parsed;
 }
 
 export async function callLLM(input: ExplainInput): Promise<Explanation> {
-  if (!API_KEY) return mockExplain(input);
+  if (!API_KEY) {
+    logEvent({ event: "llm.mock_fallback", level: "debug", data: { reason: "no_api_key" } });
+    return mockExplain(input);
+  }
+
   try {
     return await callRealLLM(input);
   } catch (err) {
-    console.error("[LLM] 调用失败，使用 mock 兜底:", err instanceof Error ? err.message : err);
+    logEvent({ event: "llm.mock_fallback", level: "warn", data: {
+      reason: "api_error",
+      error: err instanceof Error ? err.message : String(err),
+      model: MODEL,
+    } });
     return mockExplain(input);
   }
 }

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import type { Explanation } from "@classroom/shared";
+import { logEvent } from "./logger";
 
 export interface EventRow {
   studentId: string;
@@ -85,6 +86,13 @@ export function createPersistence(dbPath?: string): Persistence {
       db.prepare(`INSERT INTO events (student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp, code_snippet)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(r.studentId, r.classId, r.eventType, r.rawMessage, r.category, r.subtype, r.knowledge, r.filePath, r.lineNo, r.exitCode, r.timestamp, r.codeSnippet ?? null);
+      logEvent({ event: "db.insert_event", level: "debug", data: {
+        studentId: r.studentId,
+        classId: r.classId,
+        eventType: r.eventType,
+        category: r.category,
+        hasCodeSnippet: r.codeSnippet != null,
+      } });
     },
     getRecentEvents(limit) {
       return db.prepare("SELECT * FROM events ORDER BY created_at DESC, id DESC LIMIT ?").all(limit);
@@ -96,6 +104,7 @@ export function createPersistence(dbPath?: string): Persistence {
       const todayCount = (db.prepare("SELECT COUNT(*) AS c FROM events WHERE DATE(timestamp) = ?").get(today) as { c: number }).c;
       return { total, todayCount, byCategory };
     },
+    // 缓存命中/未命中/写入由 explainService/cache.ts 统一记录（cache.* 事件），此处不再重复打日志
     getCachedExplanation(rawHash) {
       const row = db.prepare("SELECT category, subtype, knowledge FROM error_cache WHERE raw_hash = ?").get(rawHash) as Explanation | undefined;
       if (!row) return null;

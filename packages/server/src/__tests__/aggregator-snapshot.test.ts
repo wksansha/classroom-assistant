@@ -29,12 +29,13 @@ describe("recompute：完整快照", () => {
     expect(snap.students[0].recentErrors[0].subtype).toBe("子类4");
   });
 
-  it("告警取前 5 名 + alertSummary", () => {
+  it("告警取前 5 名 + alertSummary（未进榜的报警学生不计入「正常」）", () => {
     const recs = Array.from({ length: 7 }, (_, i) =>
       student(`stu00${i + 1}`, `学生${i}`, [err(NOW - MIN, "缺少冒号")]));
     const snap = createAggregator().recompute(recs, NOW);
     expect(snap.alerts).toHaveLength(5);
-    expect(snap.alertSummary).toBe("其余 2 人正常");
+    // 7 人全部报错（分数>0），top5 之外的 2 人不是「正常」→ 正常人数为 0
+    expect(snap.alertSummary).toBe("其余 0 人正常");
     expect(snap.alerts[0].subtype).toBe("缺少冒号");
   });
 

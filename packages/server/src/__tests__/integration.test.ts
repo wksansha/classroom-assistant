@@ -45,6 +45,13 @@ describe("POST /api/events 主流程（测试环境无 LLM_API_KEY → mock 兜�
   it("无效 body → 400", async () => {
     await request(app()).post("/api/events").send({ foo: 1 }).expect(400);
   });
+
+  it("缺少 student_id → 400（不落库、不调 LLM）", async () => {
+    await request(app())
+      .post("/api/events")
+      .send({ event_type: "run", raw_message: "x", error_type: "NameError", error_message: "x" })
+      .expect(400, { error: "缺少 student_id" });
+  });
 });
 
 describe("GET /api/student/:id", () => {

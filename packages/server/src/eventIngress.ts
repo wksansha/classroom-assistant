@@ -1,22 +1,29 @@
 import type { NormalizedEvent } from "@classroom/shared";
+import { logEvent } from "./logger";
 
 type AnyBody = Record<string, any>;
 
 export function normalize(body: unknown): NormalizedEvent | null {
-  if (!body || typeof body !== "object") return null;
+  if (!body || typeof body !== "object") {
+    logEvent({ event: "event.invalid_body", level: "debug", data: { body } });
+    return null;
+  }
   const b = body as AnyBody;
   const ts = toMs(b.ts ?? b.timestamp);
 
   // L1 格式（simulator）：{ surface, kind, ts, payload }
   if (b.surface && b.payload) {
     const p = b.payload as AnyBody;
-    if (b.surface !== "diag" && b.surface !== "run") return null;
+    if (b.surface !== "diag" && b.surface !== "run") {
+      logEvent({ event: "event.invalid_surface", level: "debug", data: { surface: b.surface } });
+      return null;
+    }
     const eventType = b.surface;
     const exitCode = typeof p.exit_code === "number" ? p.exit_code : undefined;
     const success = eventType === "run" && exitCode === 0;
     const samples: string[] = Array.isArray(p.samples) ? p.samples : [];
     const errorType = eventType === "diag" ? null : (p.error_type ?? null);
-    return {
+    const normalizedEvent: NormalizedEvent = {
       studentId: p.student_id ?? b.student_id ?? null,
       studentName: p.student_name ?? b.student_name ?? p.student_id ?? b.student_id ?? "unknown",
       classId: p.class_id ?? b.class_id ?? "default",
@@ -34,6 +41,17 @@ export function normalize(body: unknown): NormalizedEvent | null {
       lineNo: p.line,
       ts,
     };
+
+    logEvent({ event: "event.normalized", level: "debug", data: {
+      format: "l1",
+      eventType: normalizedEvent.eventType,
+      success: normalizedEvent.success,
+      errorType: normalizedEvent.errorType,
+      cacheKey: normalizedEvent.cacheKey,
+      studentId: normalizedEvent.studentId,
+    } });
+
+    return normalizedEvent;
   }
 
   // flat 格式（reporter.ts）
@@ -43,7 +61,7 @@ export function normalize(body: unknown): NormalizedEvent | null {
     const success = eventType === "run" && (exitCode === 0 || b.error_type === "RunSuccess");
     const samples: string[] = Array.isArray(b.samples) ? b.samples : [];
     const errorType = eventType === "diag" ? null : (b.error_type ?? null);
-    return {
+    const normalizedEvent: NormalizedEvent = {
       studentId: b.student_id ?? null,
       studentName: b.student_name ?? b.student_id ?? "unknown",
       classId: b.class_id ?? "default",
@@ -61,8 +79,20 @@ export function normalize(body: unknown): NormalizedEvent | null {
       lineNo: b.line_no,
       ts,
     };
+
+    logEvent({ event: "event.normalized", level: "debug", data: {
+      format: "flat",
+      eventType: normalizedEvent.eventType,
+      success: normalizedEvent.success,
+      errorType: normalizedEvent.errorType,
+      cacheKey: normalizedEvent.cacheKey,
+      studentId: normalizedEvent.studentId,
+    } });
+
+    return normalizedEvent;
   }
 
+  logEvent({ event: "event.unrecognized", level: "debug", data: { body } });
   return null;
 }
 

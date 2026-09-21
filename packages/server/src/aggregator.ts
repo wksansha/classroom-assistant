@@ -3,6 +3,7 @@ import type {
 } from "@classroom/shared";
 import type { StatusColor } from "@classroom/shared";
 import type { StudentRecord, StoredEvent } from "./stateManager";
+import { logEvent } from "./logger";
 
 const FIVE_MIN = 5 * 60_000;
 const TWO_MIN = 2 * 60_000;
@@ -55,6 +56,7 @@ export function createAggregator(): Aggregator {
 
   return {
     recompute(records, now) {
+      const startTime = Date.now();
       // ── 学生状态 ────────────────────────────────
       const students: StudentState[] = records.map((r) => {
         const errors = r.events.filter((e) => !e.success);
@@ -90,7 +92,9 @@ export function createAggregator(): Aggregator {
           lastErrorAt: r.lastErrorAt ?? now,
         };
       });
-      const alertSummary = `其余 ${records.length - alerts.length} 人正常`;
+      // 「正常」= 优先级分为 0 的学生（不能简单用总数减 top5，否则未进榜的报警学生被误计为正常）
+      const normalCount = students.filter((s) => s.priorityScore === 0).length;
+      const alertSummary = `其余 ${normalCount} 人正常`;
 
       // ── 聚合（按 subtype，count=人数）─────────────
       const groups = new Map<string, SubtypeGroup>();
@@ -147,6 +151,17 @@ export function createAggregator(): Aggregator {
         }
       }
 
+      const durationMs = Date.now() - startTime;
+      logEvent({ event: "aggregator.recompute", level: "debug", data: {
+        studentCount: records.length,
+        alertCount: alerts.length,
+        aggregateCount: aggregates.length,
+        suggestionCount: suggestions.length,
+        redCount: students.filter((s) => s.status === "red").length,
+        yellowCount: students.filter((s) => s.status === "yellow").length,
+        greenCount: students.filter((s) => s.status === "green").length,
+        durationMs,
+      } });
       return { students, alerts, alertSummary, aggregates, suggestions };
     },
 

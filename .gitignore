@@ -4,6 +4,7 @@ dist/
 *.db-wal
 *.db-shm
 .env
+*.log
 .tsbuildinfo/
 *.tsbuildinfo
 tsconfig.app.tsbuildinfo
