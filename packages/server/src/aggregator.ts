@@ -28,12 +28,12 @@ export function computeStatus(r: StudentRecord, now: number): StatusColor {
 
 export function computeScore(r: StudentRecord, now: number): number {
   if (r.lastErrorAt === null) return 0;
-  const repeat = maxSubtypeRepeat(r.events, now);
-  const minutesSinceError = Math.floor((now - r.lastErrorAt) / 60_000);
+  // 分数只反映「当前是否还有未解决的错」：最后一次事件是成功 = 已解决 → 0 分。
+  // 旧公式用 minutesSinceError*5 让分数随时间一直涨，学生自己修好后反而越来越靠前。
   const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件是错误
-  const stale = now - r.lastErrorAt > THREE_MIN;        // 距上次报错>3 分钟（与公式一致）
-  let score = repeat * 10 + minutesSinceError * 5;
-  if (stale && unresolved) score += 20;
+  if (!unresolved) return 0;
+  const repeat = maxSubtypeRepeat(r.events, now);
+  let score = 10 + repeat * 10;
   if (r.consecutiveErrors >= 5) score += 30;
   return score;
 }
@@ -80,10 +80,12 @@ export function createAggregator(): Aggregator {
       const alerts: AlertItem[] = scored.slice(0, 5).map(({ r, score }) => {
         const lastErr = [...r.events].reverse().find((e) => !e.success);
         const repeat = maxSubtypeRepeat(r.events, now);
+        const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件仍是错误
         const reason =
           r.consecutiveErrors >= 5 ? `连续报错 ${r.consecutiveErrors} 次`
           : repeat >= 3 ? `同一错误 5 分钟内 ${repeat} 次`
-          : `报错后 ${Math.floor((now - (r.lastErrorAt ?? now)) / 60_000)} 分钟无进展`;
+          : unresolved ? `报错后 ${Math.floor((now - (r.lastErrorAt ?? now)) / 60_000)} 分钟无进展`
+          : `报错已解决，仍在关注`;
         return {
           studentId: r.studentId, studentName: r.studentName, score,
           reason,

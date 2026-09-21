@@ -60,7 +60,7 @@ describe("computeScore（spec §5 优先级分）", () => {
   it("无错误 → 0", () => {
     expect(computeScore(record({ events: [] }), NOW)).toBe(0);
   });
-  it("3 次重复 + 距上次报错 4 分钟 + 距上次事件>3 分钟且未解决 = 30+20+20 = 70", () => {
+  it("3 次重复 + 未解决（最后一次事件仍是错误）= 10 + 3×10 = 40", () => {
     // 3 次同类错误都落在 5 分钟窗口内（4.9/4.5/4 分钟前）
     const ts = [NOW - 4.9 * MIN, NOW - 4.5 * MIN, NOW - 4 * MIN];
     const r = record({
@@ -69,7 +69,7 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastErrorAt: NOW - 4 * MIN,
       consecutiveErrors: 3,
     });
-    expect(computeScore(r, NOW)).toBe(70);
+    expect(computeScore(r, NOW)).toBe(40);
   });
   it("连续错误 ≥5 额外 +30", () => {
     const ts = [1, 2, 3, 4, 5].map(i => NOW - i * MIN);
@@ -78,10 +78,10 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN,
       consecutiveErrors: 5,
     });
-    // 重复 1×10 + 距上次报错 1 分钟×5=5 + 未解决加分（距上次事件仅 1 分钟 <3，不加）+ 连续 30 = 45
-    expect(computeScore(r, NOW)).toBe(45);
+    // 10(基础未解决) + 1×10(重复) + 30(连续) = 50
+    expect(computeScore(r, NOW)).toBe(50);
   });
-  it("成功运行后（最后事件是成功）：不加「未解决」20 分", () => {
+  it("成功运行后（最后事件是成功）：问题已解决 → 分数清 0", () => {
     const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
     const events = ts.map(t => err(t, "缺少冒号"));
     events.push({ ts: NOW - 5 * MIN, eventType: "run", success: true, subtype: null, category: "运行成功", knowledge: null, rawMessage: "ok" });
@@ -90,7 +90,6 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,
       consecutiveErrors: 0,
     });
-    // 3 次重复(5 分钟窗口内? 9/8/7 分钟前都超窗 → 0) 0×10 + floor(7 分钟)×5=35，无未解决加分 = 35
-    expect(computeScore(r, NOW)).toBe(35);
+    expect(computeScore(r, NOW)).toBe(0);
   });
 });
