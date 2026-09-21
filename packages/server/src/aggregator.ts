@@ -8,8 +8,8 @@ import { logEvent } from "./logger";
 const FIVE_MIN = 5 * 60_000;
 const TWO_MIN = 2 * 60_000;
 const THREE_MIN = 3 * 60_000;
-/** 课堂窗口：只聚合/统计这个时间窗口内的事件（默认 90 分钟=一节课，可用 CLASS_WINDOW_MIN 环境变量覆盖） */
-const CLASS_WINDOW_MS = (Number(process.env.CLASS_WINDOW_MIN) || 90) * 60_000;
+/** 课堂窗口：只聚合/统计这个时间窗口内的事件（默认 120 分钟，可用 CLASS_WINDOW_MIN 环境变量覆盖） */
+const CLASS_WINDOW_MS = (Number(process.env.CLASS_WINDOW_MIN) || 120) * 60_000;
 
 /** 事件是否落在当前课堂窗口内（默认 90 分钟，可通过 CLASS_WINDOW_MIN 环境变量覆盖） */
 function isWithinClassWindow(ts: number, now: number): boolean {
