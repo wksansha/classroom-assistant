@@ -8,12 +8,14 @@ const alerts = [
 ];
 
 describe("AlertPanel", () => {
-  it("渲染告警（姓名/分数/reason/subtype）与 alertSummary", async () => {
+  it("渲染告警（序号/姓名/reason/subtype）与 alertSummary，不显示分数", async () => {
     const { wrapper, store } = mountWithStore(AlertPanel);
     store.applySnapshot(makeSnapshot({ alerts, alertSummary: "其余 3 人正常" }));
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain("张三");
-    expect(wrapper.text()).toContain("70");
+    const seqs = wrapper.findAll(".seq").map((n) => n.text());
+    expect(seqs).toEqual(["1", "2"]); // 按排序显示序号 1、2…
+    expect(wrapper.text()).not.toContain("70"); // 不再显示原始分数
     expect(wrapper.text()).toContain("同一错误 5 分钟内 3 次");
     expect(wrapper.text()).toContain("缺少冒号");
     expect(wrapper.text()).toContain("其余 3 人正常");
