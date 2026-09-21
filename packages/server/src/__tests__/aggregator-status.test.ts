@@ -22,19 +22,19 @@ describe("computeStatus（spec §5 状态色）", () => {
     const r = record({ events: [] });
     expect(computeStatus(r, NOW)).toBe("green");
   });
-  it("2 分钟内 1 次错误 → 黄", () => {
-    const r = record({ events: [err(NOW - 1 * MIN, "缺少冒号")], lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 1 });
+  it("2 分钟内 1 次错误且未解决 → 黄", () => {
+    const r = record({ events: [err(NOW - 1 * MIN, "缺少冒号")], lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 1 });
     expect(computeStatus(r, NOW)).toBe("yellow");
   });
   it("错误超过 2 分钟前 → 绿（未达红）", () => {
     const r = record({ events: [err(NOW - 3 * MIN, "缺少冒号")], lastErrorAt: NOW - 3 * MIN, consecutiveErrors: 1 });
     expect(computeStatus(r, NOW)).toBe("green");
   });
-  it("同一 subtype 5 分钟内 3 次 → 红", () => {
+  it("同一 subtype 5 分钟内 3 次且未解决 → 红", () => {
     const ts = [NOW - 4 * MIN, NOW - 3 * MIN, NOW - 2 * MIN];
     const r = record({
       events: ts.map(t => err(t, "缺少冒号")),
-      lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
+      lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
     });
     expect(computeStatus(r, NOW)).toBe("red");
   });
@@ -42,7 +42,7 @@ describe("computeStatus（spec §5 状态色）", () => {
     const ts = [NOW - 6 * MIN, NOW - 3 * MIN, NOW - 2 * MIN];
     const r = record({
       events: ts.map(t => err(t, "缺少冒号")),
-      lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
+      lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
     });
     expect(computeStatus(r, NOW)).toBe("yellow");
   });
@@ -50,7 +50,7 @@ describe("computeStatus（spec §5 状态色）", () => {
     const ts = [1, 2, 3, 4, 5].map(i => NOW - i * MIN);
     const r = record({
       events: ts.map((t, i) => err(t, `子类${i}`)),
-      lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 5,
+      lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 5,
     });
     expect(computeStatus(r, NOW)).toBe("red");
   });
@@ -101,7 +101,7 @@ describe("computeScore（spec §5 优先级分）", () => {
     expect(computeScore(r, NOW)).toBe(0);
     expect(computeStatus(r, NOW)).toBe("green");
   });
-  it("报错在 120 分钟内但未解决 → 计入", () => {
+  it("报错在 120 分钟内但未解决 → 计入且状态为黄", () => {
     const r = record({
       events: [err(NOW - 119 * MIN, "缺少冒号")],
       lastActivityAt: NOW - 119 * MIN, lastErrorAt: NOW - 119 * MIN,
@@ -109,6 +109,6 @@ describe("computeScore（spec §5 优先级分）", () => {
     });
     // 10(基础) + 0×10(119 分钟远超 5 分钟重复窗) = 10
     expect(computeScore(r, NOW)).toBe(10);
-    expect(computeStatus(r, NOW)).toBe("green");
+    expect(computeStatus(r, NOW)).toBe("yellow");
   });
 });

@@ -27,9 +27,9 @@ function maxSubtypeRepeat(events: StoredEvent[], now: number): number {
 }
 
 export function computeStatus(r: StudentRecord, now: number): StatusColor {
-  if (r.consecutiveErrors >= 5 || maxSubtypeRepeat(r.events, now) >= 3) return "red";
-  const recentError = r.events.some((e) => !e.success && now - e.ts <= TWO_MIN);
-  if (recentError) return "yellow";
+  const score = computeScore(r, now);
+  if (score >= 40) return "red";
+  if (score > 0) return "yellow";
   return "green";
 }
 
