@@ -20,6 +20,7 @@ function toggle(subtype: string) {
     <div class="group" v-for="g in store.snapshot.aggregates" :key="g.subtype">
       <div class="bar-row" @click="toggle(g.subtype)">
         <div class="bar" :style="{ width: `${(g.count / maxCount) * 100}%` }" />
+        <span class="category">{{ g.category }}</span>
         <span class="label">{{ g.subtype }} {{ g.count }} 人</span>
       </div>
       <p class="knowledge">{{ g.knowledge }}</p>
@@ -38,6 +39,7 @@ function toggle(subtype: string) {
 .bar-row { display: flex; align-items: center; gap: 8px; cursor: pointer; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .bar { height: 22px; background: var(--accent); opacity: 0.75; border-radius: 4px 0 0 4px; }
 .label { font-size: 13px; padding: 0 8px; white-space: nowrap; }
+.category { font-size: 11px; padding: 1px 5px; border-radius: 3px; background: var(--muted); color: #fff; opacity: 0.85; }
 .knowledge { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
 .names { margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--text); }
 .empty { color: var(--muted); font-size: 13px; }
