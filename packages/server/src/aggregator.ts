@@ -8,8 +8,15 @@ import { logEvent } from "./logger";
 const FIVE_MIN = 5 * 60_000;
 const TWO_MIN = 2 * 60_000;
 const THREE_MIN = 3 * 60_000;
+/** 课堂窗口：只聚合/统计这个时间窗口内的事件（默认 90 分钟=一节课，可用 CLASS_WINDOW_MIN 环境变量覆盖） */
+const CLASS_WINDOW_MS = (Number(process.env.CLASS_WINDOW_MIN) || 90) * 60_000;
 
-/** 窗口内错误事件按 subtype 计数，返回最高重复次数 */
+/** 事件是否落在当前课堂窗口内（默认 90 分钟，可通过 CLASS_WINDOW_MIN 环境变量覆盖） */
+function isWithinClassWindow(ts: number, now: number): boolean {
+  return now - ts <= CLASS_WINDOW_MS;
+}
+
+/** 窗口内错误事件按 subtype 计数，返回最高重复次数（沿用 spec 的 5 分钟口径） */
 function maxSubtypeRepeat(events: StoredEvent[], now: number): number {
   const counts = new Map<string, number>();
   for (const e of events) {
@@ -30,8 +37,10 @@ export function computeScore(r: StudentRecord, now: number): number {
   if (r.lastErrorAt === null) return 0;
   // 分数只反映「当前是否还有未解决的错」：最后一次事件是成功 = 已解决 → 0 分。
   // 旧公式用 minutesSinceError*5 让分数随时间一直涨，学生自己修好后反而越来越靠前。
+  // 超过课堂窗口的「老旧报错」也不再计入（不会被聚合看到）。
   const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件是错误
   if (!unresolved) return 0;
+  if (!isWithinClassWindow(r.lastErrorAt, now)) return 0;
   const repeat = maxSubtypeRepeat(r.events, now);
   let score = 10 + repeat * 10;
   if (r.consecutiveErrors >= 5) score += 30;
@@ -59,7 +68,7 @@ export function createAggregator(): Aggregator {
       const startTime = Date.now();
       // ── 学生状态 ────────────────────────────────
       const students: StudentState[] = records.map((r) => {
-        const errors = r.events.filter((e) => !e.success);
+        const errors = r.events.filter((e) => !e.success && isWithinClassWindow(e.ts, now));
         const recentErrors: RecentError[] = [...errors]
           .slice(-3).reverse()
           .map((e) => ({ ts: e.ts, subtype: e.subtype ?? "未知错误", knowledge: e.knowledge ?? "", rawMessage: e.rawMessage }));
@@ -78,7 +87,7 @@ export function createAggregator(): Aggregator {
         .filter((x) => x.score > 0)
         .sort((a, b) => b.score - a.score);
       const alerts: AlertItem[] = scored.slice(0, 5).map(({ r, score }) => {
-        const lastErr = [...r.events].reverse().find((e) => !e.success);
+        const lastErr = [...r.events].reverse().find((e) => !e.success && isWithinClassWindow(e.ts, now));
         const repeat = maxSubtypeRepeat(r.events, now);
         const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件仍是错误
         const reason =
@@ -98,11 +107,11 @@ export function createAggregator(): Aggregator {
       const normalCount = students.filter((s) => s.priorityScore === 0).length;
       const alertSummary = `其余 ${normalCount} 人正常`;
 
-      // ── 聚合（按 subtype，count=人数）─────────────
+      // ── 聚合（按 subtype，count=人数，仅课堂窗口内）─────────────
       const groups = new Map<string, SubtypeGroup>();
       for (const r of records) {
         for (const e of r.events) {
-          if (e.success || !e.subtype) continue;
+          if (e.success || !e.subtype || !isWithinClassWindow(e.ts, now)) continue;
           let g = groups.get(e.subtype);
           if (!g) {
             g = { subtype: e.subtype, category: e.category ?? "其他", knowledge: "", latestTs: -1, students: [] };
@@ -122,8 +131,8 @@ export function createAggregator(): Aggregator {
         .map((g) => ({ subtype: g.subtype, category: g.category, knowledge: g.knowledge, count: g.students.length, students: g.students }))
         .sort((a, b) => b.count - a.count);
 
-      // ── 建议（分母 = 上报过错误的学生数）──────────
-      const errorStudents = records.filter((r) => r.events.some((e) => !e.success)).length;
+      // ── 建议（分母 = 课堂窗口内上报过错误的学生数）──────────
+      const errorStudents = records.filter((r) => r.events.some((e) => !e.success && isWithinClassWindow(e.ts, now))).length;
       const suggestions: SuggestionItem[] = [];
       if (errorStudents > 0) {
         for (const g of groups.values()) {
@@ -142,7 +151,11 @@ export function createAggregator(): Aggregator {
             });
           }
         }
-        const stuck = records.filter((r) => r.consecutiveErrors >= 3);
+        // 连续报错只认课堂窗口内
+        const stuck = records.filter((r) =>
+          r.events.some((e) => !e.success && isWithinClassWindow(e.ts, now)) &&
+          r.consecutiveErrors >= 3
+        );
         if (stuck.length > 0) {
           const id = `individual:${stuck.map((s) => s.studentId).sort().join(",")}`;
           suggestions.push({

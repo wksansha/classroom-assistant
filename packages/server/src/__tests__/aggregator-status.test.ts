@@ -92,4 +92,23 @@ describe("computeScore（spec §5 优先级分）", () => {
     });
     expect(computeScore(r, NOW)).toBe(0);
   });
+  it("报错超过 90 分钟（不在本堂课）→ 分数清 0", () => {
+    const r = record({
+      events: [err(NOW - 91 * MIN, "缺少冒号")],
+      lastActivityAt: NOW - 91 * MIN, lastErrorAt: NOW - 91 * MIN,
+      consecutiveErrors: 1,
+    });
+    expect(computeScore(r, NOW)).toBe(0);
+    expect(computeStatus(r, NOW)).toBe("green");
+  });
+  it("报错在 90 分钟内但未解决 → 计入", () => {
+    const r = record({
+      events: [err(NOW - 89 * MIN, "缺少冒号")],
+      lastActivityAt: NOW - 89 * MIN, lastErrorAt: NOW - 89 * MIN,
+      consecutiveErrors: 1,
+    });
+    // 10(基础) + 0×10(89 分钟远超 5 分钟重复窗) = 10
+    expect(computeScore(r, NOW)).toBe(10);
+    expect(computeStatus(r, NOW)).toBe("green");
+  });
 });
