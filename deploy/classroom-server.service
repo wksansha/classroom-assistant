@@ -1,0 +1,21 @@
+[Unit]
+Description=Classroom Assistant Server (AI 助教后端)
+After=network.target
+
+[Service]
+Type=simple
+# 按实际解压路径调整
+WorkingDirectory=/opt/classroom/packages/server
+# --import tsx 直接跑 TS 源码，无需预编译；cwd=packages/server 使
+# dotenv 读取同目录 .env、数据库缺省落在同目录 data/ 下
+ExecStart=/opt/classroom/node/bin/node --import tsx src/main.ts
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+# 需要覆盖时取消注释（.env 中的同名变量以 dotenv 加载，二者取其一即可）
+# Environment=PORT=3000
+# Environment=DB_PATH=/opt/classroom/data/assistant.db
+# Environment=LOG_LEVEL=info
+
+[Install]
+WantedBy=multi-user.target
