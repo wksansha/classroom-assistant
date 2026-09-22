@@ -7,6 +7,7 @@ import StudentMatrix from "./components/StudentMatrix.vue";
 import ErrorAggPanel from "./components/ErrorAggPanel.vue";
 import SuggestionBar from "./components/SuggestionBar.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
+import ClassOverview from "./components/ClassOverview.vue";
 
 const store = useClassroom();
 let stopSse: (() => void) | null = null;
@@ -23,6 +24,7 @@ onUnmounted(() => stopSse?.());
       </span>
     </header>
     <SuggestionBar />
+    <ClassOverview />
     <AlertPanel />
     <main>
       <StudentMatrix />
