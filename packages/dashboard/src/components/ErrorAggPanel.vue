@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
 import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js";
 import { useClassroom } from "../stores/classroom";
 
@@ -10,8 +10,8 @@ const expanded = ref<string | null>(null);
 const chartRef = ref<HTMLCanvasElement | null>(null);
 let chart: Chart | null = null;
 
-onMounted(() => {
-  if (!chartRef.value) return;
+function initChart() {
+  if (!chartRef.value || chart) return;
   chart = new Chart(chartRef.value, {
     type: "bar",
     data: {
@@ -34,6 +34,22 @@ onMounted(() => {
       },
     },
   });
+}
+
+function updateChart(aggregates: any[]) {
+  if (!chart) return;
+  chart.data.labels = aggregates.map((g) => `${g.category} · ${g.subtype}`);
+  chart.data.datasets[0].data = aggregates.map((g) => g.count);
+  chart.update();
+}
+
+onMounted(async () => {
+  // Wait for canvas to be in DOM (when v-else becomes true)
+  await nextTick();
+  initChart();
+  if (store.snapshot?.aggregates.length) {
+    updateChart(store.snapshot.aggregates);
+  }
 });
 
 onBeforeUnmount(() => { chart?.destroy(); });
@@ -41,10 +57,9 @@ onBeforeUnmount(() => { chart?.destroy(); });
 watch(
   () => store.snapshot?.aggregates,
   (aggregates) => {
-    if (!chart) return;
-    chart.data.labels = aggregates.map((g) => `${g.category} · ${g.subtype}`);
-    chart.data.datasets[0].data = aggregates.map((g) => g.count);
-    chart.update();
+    if (!aggregates?.length) return;
+    initChart(); // ensure chart exists
+    updateChart(aggregates);
   },
   { deep: true },
 );
