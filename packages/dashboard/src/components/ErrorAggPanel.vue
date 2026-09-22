@@ -57,20 +57,22 @@ function toggle(subtype: string) {
 <template>
   <section class="agg" v-if="store.snapshot">
     <h2>错误聚合</h2>
-    <div class="chart-wrap" v-if="store.snapshot.aggregates.length">
-      <canvas ref="chartRef" />
-    </div>
-    <p v-if="store.snapshot.aggregates.length === 0" class="empty">暂无聚合数据</p>
-    <div v-else class="group" v-for="g in store.snapshot.aggregates" :key="g.subtype">
-      <div class="bar-row" @click="toggle(g.subtype)">
-        <span class="category">{{ g.category }}</span>
-        <span class="label">{{ g.subtype }} {{ g.count }} 人</span>
+    <p v-if="!store.snapshot.aggregates.length" class="empty">暂无聚合数据</p>
+    <template v-else>
+      <div class="chart-wrap">
+        <canvas ref="chartRef" />
       </div>
-      <p class="knowledge">{{ g.knowledge }}</p>
-      <ul v-if="expanded === g.subtype" class="names">
-        <li v-for="s in g.students" :key="s.studentId">{{ s.studentName }}</li>
-      </ul>
-    </div>
+      <div class="group" v-for="g in store.snapshot.aggregates" :key="g.subtype">
+        <div class="bar-row" @click="toggle(g.subtype)">
+          <span class="category">{{ g.category }}</span>
+          <span class="label">{{ g.subtype }} {{ g.count }} 人</span>
+        </div>
+        <p class="knowledge">{{ g.knowledge }}</p>
+        <ul v-if="expanded === g.subtype" class="names">
+          <li v-for="s in g.students" :key="s.studentId">{{ s.studentName }}</li>
+        </ul>
+      </div>
+    </template>
   </section>
 </template>
 

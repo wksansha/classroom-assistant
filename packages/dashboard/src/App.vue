@@ -23,6 +23,7 @@ onUnmounted(() => stopSse?.());
       </span>
     </header>
     <SuggestionBar />
+    <AlertPanel />
     <main>
       <StudentMatrix />
       <ErrorAggPanel />
