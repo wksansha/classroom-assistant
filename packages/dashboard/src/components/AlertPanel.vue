@@ -12,7 +12,6 @@ const store = useClassroom();
       <div class="body">
         <strong>{{ a.studentName }}</strong>
         <span class="reason">{{ a.reason }}</span>
-        <span class="subtype">{{ a.subtype }} · {{ a.knowledge }}</span>
       </div>
       <button class="view" @click="store.openDrawer(a.studentId)">查看</button>
       <button disabled title="V2 开放">发提示</button>
@@ -29,6 +28,5 @@ const store = useClassroom();
 .seq { min-width: 36px; text-align: center; background: var(--red); color: #fff; border-radius: 4px; padding: 2px 6px; font-weight: 600; }
 .body { display: flex; flex-direction: column; flex: 1; font-size: 13px; }
 .reason { color: var(--muted); }
-.subtype { color: var(--accent); font-size: 12px; }
 .summary { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 </style>
