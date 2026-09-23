@@ -41,9 +41,11 @@ async function callRealLLM(input: ExplainInput): Promise<Explanation> {
   logEvent({ event: "llm.request_started", level: "debug", data: {
     model: MODEL,
     promptLength: prompt.length,
-    hasCodeSnippet: !!input.codeSnippet,
     errorType: input.errorType,
-    errorMessageLength: input.errorMessage?.length ?? 0,
+    errorMessage: input.errorMessage,
+    codeSnippet: input.codeSnippet?.slice(0, 500),
+    fullCode: input.fullCode?.slice(0, 500),
+    codeLine: input.codeLine,
   } });
 
   const resp = await fetch(`${BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
@@ -69,6 +71,7 @@ async function callRealLLM(input: ExplainInput): Promise<Explanation> {
 
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const content = data.choices?.[0]?.message?.content || "";
+  logEvent({ event: "llm.raw_response", level: "debug", data: { model: MODEL, raw: content } });
   const parsed = parseLLMResponse(content);
 
   if (!parsed) {

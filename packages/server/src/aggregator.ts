@@ -93,7 +93,7 @@ export function createAggregator(): Aggregator {
         const reason =
           r.consecutiveErrors >= 5 ? `连续报错 ${r.consecutiveErrors} 次`
           : repeat >= 3 ? `同一错误 5 分钟内 ${repeat} 次`
-          : unresolved ? `报错后 ${Math.floor((now - (r.lastErrorAt ?? now)) / 60_000)} 分钟无进展`
+          : unresolved ? `错误待处理`
           : `报错已解决，仍在关注`;
         return {
           studentId: r.studentId, studentName: r.studentName, score,

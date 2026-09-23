@@ -56,9 +56,10 @@ onBeforeUnmount(() => { chart?.destroy(); });
 
 watch(
   () => store.snapshot?.aggregates,
-  (aggregates) => {
+  async (aggregates) => {
     if (!aggregates?.length) return;
-    initChart(); // ensure chart exists
+    await nextTick(); // 等待 v-if 渲染 canvas
+    initChart();
     updateChart(aggregates);
   },
   { deep: true },
