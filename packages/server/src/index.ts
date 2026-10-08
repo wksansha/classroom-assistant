@@ -209,7 +209,9 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
 
   // —— 启动钩子（T8）：git 克隆 + 定时同步自动启动；补扫 review 为空的提交（A29）——
   if (git && sync && deps.syncAutoStart !== false) {
-    void git.ensureClone().then(() => sync.start());
+    // clone 失败（URL 错/鉴权失败/断网）只记错误，不让服务器启动即崩溃（A12：监控流零侵入不受影响）
+    void git.ensureClone().then(() => sync.start())
+      .catch((err) => logEvent({ event: "git.startup_clone_error", level: "error", data: { error: String(err) } }));
   }
   void rescanPendingReviews(submissionDeps).catch(() => {});
 
