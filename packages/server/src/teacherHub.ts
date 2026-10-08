@@ -5,6 +5,7 @@ import { logger, logEvent } from "./logger";
 export interface TeacherHub {
   handleStream(req: Request, res: Response): void;
   publish(snapshot: TeacherSnapshot): void;
+  publishMessage(msg: SSEMessage): void;
   startHeartbeat(): void;
   clientCount(): number;
 }
@@ -48,6 +49,14 @@ export function createTeacherHub(getSnapshot: () => TeacherSnapshot): TeacherHub
         } catch {
           clients.delete(client);
         }
+      }
+    },
+
+    publishMessage(msg) {
+      const payload = `data: ${JSON.stringify(msg)}\n\n`;
+      logEvent({ event: "sse.publish_message", level: "debug", data: { type: msg.type } });
+      for (const client of clients) {
+        try { client.write(payload); } catch { clients.delete(client); }
       }
     },
 
