@@ -1,4 +1,4 @@
-import type { TeacherSnapshot } from "@classroom/shared";
+import type { ReviewCompleteData, SubmissionReceivedData, TeacherSnapshot } from "@classroom/shared";
 
 interface StoreLike {
   applySnapshot(s: TeacherSnapshot): void;
@@ -10,6 +10,8 @@ export interface SseDeps {
   createEventSource?: (url: string) => EventSource;
   fetchSummary?: () => Promise<TeacherSnapshot>;
   retryDelayMs?: number;
+  /** A21/A29：作业消息（submission_received / review_complete）转发，不进监控 store */
+  onAssignmentMessage?: (msg: SubmissionReceivedData | ReviewCompleteData) => void;
 }
 
 export function connectClassroom(store: StoreLike, deps: SseDeps = {}) {
@@ -40,7 +42,11 @@ export function connectClassroom(store: StoreLike, deps: SseDeps = {}) {
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "snapshot") store.applySnapshot(msg.data);
-      else store.applyUpdate(msg.data);
+      else if (msg.type === "update") store.applyUpdate(msg.data);
+      else if (msg.type === "submission_received" || msg.type === "review_complete") {
+        deps.onAssignmentMessage?.(msg.data);
+      }
+      // 其他未知类型：静默忽略（A29）
     };
     es.onerror = () => {
       store.sseConnected = false;
