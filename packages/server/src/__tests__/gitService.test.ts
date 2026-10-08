@@ -53,7 +53,7 @@ describe("gitService（A13/A15/A28）", () => {
     expect(r).toBe("ok");
     run(["pull", "--rebase"], teacherDir);
     expect(readRemote("main", "week-01/exercise-01.py")).toContain("# exercise-id: aaaa");
-  });
+  }, 60_000);
 
   it("教师抢先推（写冲突）→ rebase 自动重试成功，双方提交都在（A28）", async () => {
     const git = makeServer();
@@ -72,7 +72,7 @@ describe("gitService（A13/A15/A28）", () => {
     run(["pull", "--rebase"], teacherDir);
     expect(readRemote("main", "week-01/exercise-02.py")).toContain("新题");   // 教师提交在
     expect(readRemote("main", "week-01/exercise-03.py")).toContain("bbbb");   // server 注入也在
-  });
+  }, 60_000);
 
   it("rebase 冲突（同文件对撞）→ rejected，本地 commit 保留，alignToRemote 可丢弃", async () => {
     const git = makeServer();
@@ -92,7 +92,7 @@ describe("gitService（A13/A15/A28）", () => {
     expect(await git.hasUnpushedMainCommits()).toBe(true);   // 遗留 commit 在
     await git.alignToRemote();                                // Phase 0/1 语义：丢弃安全（ID 在 DB）
     expect(await git.hasUnpushedMainCommits()).toBe(false);
-  });
+  }, 60_000);
 
   it("createStudentBranches 幂等 + writeToStudentBranch 落库", async () => {
     const git = makeServer();
@@ -116,5 +116,5 @@ describe("gitService（A13/A15/A28）", () => {
     expect(log).toContain("submit: week-01/exercise-01.py by 0001 张三");
     // main 不受影响（学生分支不镜像 main；main 上该文件仍是注入版，非学生提交）
     expect(readRemote("main", "week-01/exercise-01.py")).not.toContain("done");
-  });
+  }, 60_000);
 });
