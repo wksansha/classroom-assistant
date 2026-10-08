@@ -1,3 +1,5 @@
+import type { ReviewResult } from "./assignment";
+
 export type StatusColor = "green" | "yellow" | "red";
 
 export interface RecentError {
@@ -61,6 +63,20 @@ export interface TeacherSnapshot {
   suggestions: SuggestionItem[];
 }
 
+export interface SubmissionReceivedData {
+  submissionId: string;
+  exerciseId: string;
+  studentId: string;
+  assignmentId: string;
+  submittedAt: number;
+}
+
+export interface ReviewCompleteData extends SubmissionReceivedData {
+  review: ReviewResult;
+}
+
 export type SSEMessage =
   | { type: "snapshot"; data: TeacherSnapshot }
-  | { type: "update"; data: TeacherSnapshot };
+  | { type: "update"; data: TeacherSnapshot }
+  | { type: "submission_received"; data: SubmissionReceivedData }
+  | { type: "review_complete"; data: ReviewCompleteData };
