@@ -40,8 +40,8 @@ export function registerAssignmentRoutes(app: Express, deps: AssignmentRouteDeps
     logEvent({ event: "api.publish", level: "info", data: { id: req.params.id, publish } });
     res.json({ ok: true });
   });
-  app.get("/api/exercises/:id/content", (req, res) => {
-    const r = readExerciseContent(deps.persistence, deps.repoDir, req.params.id);
+  app.get("/api/exercises/:id/content", async (req, res) => {
+    const r = await readExerciseContent(deps.persistence, deps.repoDir, deps.git, req.params.id);
     if (!r.ok) return res.status(r.status).json({ error: r.error });
     res.setHeader("Content-Type", "text/x-python; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${r.filename}"`);

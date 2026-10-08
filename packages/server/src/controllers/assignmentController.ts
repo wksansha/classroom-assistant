@@ -27,14 +27,23 @@ export function buildPublishedList(p: Persistence): PublishedAssignment[] {
     }));
 }
 
-/** /content：未发布/下线 404（A20）；内容读自工作克隆 main 检出（A29） */
-export function readExerciseContent(p: Persistence, repoDir: string, exerciseId: string):
-  { ok: true; filename: string; content: string } | { ok: false; status: 404; error: string } {
+/** /content：未发布/下线 404（A20）；内容读自 main ref（T7-2：git show 规避工作树检出竞态），无 git 时读工作树兜底 */
+export async function readExerciseContent(p: Persistence, repoDir: string, git: GitService | null, exerciseId: string):
+  Promise<{ ok: true; filename: string; content: string } | { ok: false; status: 404; error: string }> {
   const exercise = p.getExercise(exerciseId);
   if (!exercise || !exercise.isActive) return { ok: false, status: 404, error: "练习不存在或已下线" };
   const assignment = p.getAssignment(exercise.assignmentId);
   if (!assignment || !assignment.isPublished) return { ok: false, status: 404, error: "练习未发布" };
-  const abs = path.join(repoDir, `week-${String(assignment.week).padStart(2, "0")}`, exercise.filename);
+  // relPath 用 POSIX 分隔符（与 gitService.writeToStudentBranch 的构造方式一致）
+  const rel = `week-${String(assignment.week).padStart(2, "0")}/${exercise.filename}`;
+  if (git) {
+    try {
+      return { ok: true, filename: exercise.filename, content: await git.readFileFromMain(rel) };
+    } catch {
+      return { ok: false, status: 404, error: "文件不存在" };
+    }
+  }
+  const abs = path.join(repoDir, rel);
   if (!fs.existsSync(abs)) return { ok: false, status: 404, error: "文件不存在" };
   return { ok: true, filename: exercise.filename, content: fs.readFileSync(abs, "utf8") };
 }

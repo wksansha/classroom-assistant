@@ -6,6 +6,8 @@ import { createReviewCache } from "./cache";
 import { callReviewLLM, type ReviewLlmOptions } from "./llm";
 import { logEvent } from "../logger";
 
+export type { ReviewLlmOptions };
+
 export type ReviewableExercise = Pick<Exercise, "id" | "versionHash" | "problemStatement" | "testCases">;
 
 export interface ReviewService {

@@ -41,7 +41,8 @@ export function createSubmission(deps: SubmissionDeps, input: SubmissionInput): 
   if (existing) {
     // A30：终态直接返回；unreviewed（瞬态）重新入队评审
     if (!existing.review || existing.review.status === "unreviewed") {
-      void runReviewAndPublish(deps, existing).catch(() => {});
+      void runReviewAndPublish(deps, existing).catch((err) =>
+        logEvent({ event: "review.resubmit_error", level: "warn", data: { submissionId: existing.id, error: String(err) } }));
     }
     return { ok: true, created: false, submission: existing };
   }
@@ -88,12 +89,16 @@ export async function runReviewAndPublish(deps: SubmissionDeps, submission: Subm
     assignmentId: assignment.id, submittedAt: submission.submittedAt, review } });
 }
 
-/** 启动补扫（A29）：review_json IS NULL 的提交重新入队评审 */
+/** 启动补扫（A29）：review_json IS NULL 的提交重新入队评审（单条失败不中断整体补扫） */
 export async function rescanPendingReviews(deps: SubmissionDeps): Promise<number> {
   let n = 0;
   for (const sub of deps.persistence.getPendingReviewSubmissions()) {
-    await runReviewAndPublish(deps, sub);
-    n++;
+    try {
+      await runReviewAndPublish(deps, sub);
+      n++;
+    } catch (err) {
+      logEvent({ event: "review.rescan_error", level: "warn", data: { submissionId: sub.id, error: String(err) } });
+    }
   }
   return n;
 }

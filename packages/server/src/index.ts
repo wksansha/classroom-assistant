@@ -11,6 +11,14 @@ import { createAggregator } from "./aggregator";
 import { createTeacherHub, type TeacherHub } from "./teacherHub";
 import { logEvent } from "./logger";
 import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./llmProxy";
+import type { ReviewLlmOptions } from "./reviewService";
+import { createReviewService } from "./reviewService";
+import { createGitService, type GitService } from "./gitService";
+import { createSyncService, type SyncService } from "./syncService";
+import { registerRosterRoutes } from "./routes/roster";
+import { registerAssignmentRoutes } from "./routes/assignments";
+import { registerSubmissionRoutes } from "./routes/submissions";
+import { rescanPendingReviews, type SubmissionDeps } from "./controllers/submissionController";
 
 export interface AppDeps {
   /** 测试传 ":memory:"；缺省 data/assistant.db（相对 server 包） */
@@ -19,9 +27,15 @@ export interface AppDeps {
   staticDir?: string | null;
   /** LLM 聊天代理配置；缺省读环境变量（LLM_API_KEY 等为空则不启用代理），测试可注入假上游 */
   llmConfig?: LlmProxyConfig | null;
+  /** git 集成：undefined=读 env GIT_REPO_URL；null=显式禁用 */
+  git?: { repoDir: string; remoteUrl: string; authorEmailDomain?: string; syncIntervalMs?: number } | null;
+  /** 评审 LLM 注入（测试传 fetchImpl）；缺省读环境变量，无 key 时 mock 兜底 */
+  reviewConfig?: ReviewLlmOptions | null;
+  /** 默认 true：ensureClone + 定时同步自动启动；测试传 false 手动控制 */
+  syncAutoStart?: boolean;
 }
 
-export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
+export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; sync: SyncService | null; git: GitService | null } {
   const persistence = createPersistence(deps.dbPath);
   const stateManager = createStateManager();
   const cache = createCache(persistence);
@@ -36,6 +50,27 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   };
 
   const hub = createTeacherHub(buildSnapshot);
+
+  // —— 作业评审模块装配（T8）——
+  const reviewService = createReviewService(persistence, deps.reviewConfig ?? undefined);
+  const gitDeps = deps.git !== undefined
+    ? deps.git
+    : (process.env.GIT_REPO_URL
+        ? {
+            repoDir: process.env.GIT_REPO_DIR ?? path.join(process.cwd(), "data", "exercises-repo"),
+            remoteUrl: process.env.GIT_REPO_URL,
+            syncIntervalMs: Number(process.env.GIT_SYNC_INTERVAL_MS) || 60_000,
+          }
+        : null);
+  const git: GitService | null = gitDeps ? createGitService(gitDeps) : null;
+  const sync: SyncService | null = git && gitDeps
+    ? createSyncService({ persistence, git, repoDir: gitDeps.repoDir, intervalMs: gitDeps.syncIntervalMs })
+    : null;
+
+  const submissionDeps: SubmissionDeps = {
+    persistence, reviewService, git,
+    publish: (msg) => hub.publishMessage(msg),
+  };
 
   const app = express();
   app.use(cors());
@@ -158,6 +193,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     res.json(stats);
   });
 
+  // 作业评审路由（roster / assignments / submissions，T7）
+  registerRosterRoutes(app, { persistence });
+  registerAssignmentRoutes(app, { persistence, git, repoDir: gitDeps?.repoDir ?? "", sync });
+  registerSubmissionRoutes(app, { ...submissionDeps, persistence });
+
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
 
@@ -167,5 +207,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     app.get("/", (_req, res) => res.sendFile(path.join(deps.staticDir!, "index.html")));
   }
 
-  return { app, hub };
+  // —— 启动钩子（T8）：git 克隆 + 定时同步自动启动；补扫 review 为空的提交（A29）——
+  if (git && sync && deps.syncAutoStart !== false) {
+    void git.ensureClone().then(() => sync.start());
+  }
+  void rescanPendingReviews(submissionDeps).catch(() => {});
+
+  return { app, hub, sync, git };
 }

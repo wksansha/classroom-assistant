@@ -22,6 +22,8 @@ export interface GitService {
   commitAndPushMain(files: { path: string; content: string }[], message: string): Promise<GitPushResult>;
   createStudentBranches(studentIds: string[]): Promise<void>;
   writeToStudentBranch(args: { studentId: string; studentName: string; week: number; filename: string; content: string }): Promise<GitPushResult>;
+  /** 从本地 main ref 读取文件内容（T7-2：不依赖工作树检出状态，规避学生分支检出竞态；relPath 用 POSIX 分隔符） */
+  readFileFromMain(relPath: string): Promise<string>;
 }
 
 export function createGitService(deps: GitServiceDeps): GitService {
@@ -164,6 +166,10 @@ export function createGitService(deps: GitServiceDeps): GitService {
           return "ok";
         }
       });
+    },
+    async readFileFromMain(relPath) {
+      // 只读 ref 操作，不入 mutex：git 引用读取原子，与写操作并发安全
+      return git(["show", `main:${relPath}`]);
     },
   };
 }
