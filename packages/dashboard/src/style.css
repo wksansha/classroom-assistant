@@ -61,3 +61,25 @@ main.assignments-main { display: block; }
 .assignment-detail { display: flex; align-items: flex-start; gap: 12px; }
 .assignment-detail .submission-matrix { flex: 1; }
 .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+
+/* —— 隐藏管理页（#/admin，A23）—— */
+.admin-view { display: flex; flex-direction: column; gap: 16px; padding: 16px; max-width: 860px; margin: 0 auto; }
+.admin-view h2 { margin: 0; font-size: 18px; }
+.admin-view h3 { margin: 0 0 8px; font-size: 15px; }
+.admin-view .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.admin-view .toolbar button { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 13px; cursor: pointer; }
+.admin-view .toolbar button.sync { color: var(--accent); border-color: var(--accent); }
+.admin-view .sync-result { font-size: 13px; color: var(--muted); }
+.admin-view .warning { display: block; color: #b45309; font-size: 13px; }
+.admin-view .assignment-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.admin-view .assignment-row .published { color: var(--green); }
+.admin-view .assignment-row .draft { color: var(--muted); }
+.admin-view .assignment-row label { margin-left: auto; font-size: 12px; color: var(--muted); }
+.admin-view .assignment-row button { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 12px; cursor: pointer; }
+.admin-view .assignment-row button.publish { color: var(--accent); border-color: var(--accent); }
+.roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.roster-panel textarea { width: 100%; font-family: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.roster-panel .import-roster { align-self: flex-start; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--card); color: var(--accent); font-size: 13px; cursor: pointer; }
+.roster-panel .msg { font-size: 13px; color: var(--muted); }
+.roster-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.roster-table th, .roster-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }

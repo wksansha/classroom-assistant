@@ -9,6 +9,7 @@ import ErrorAggPanel from "./components/ErrorAggPanel.vue";
 import SuggestionBar from "./components/SuggestionBar.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
 import AssignmentsView from "./views/AssignmentsView.vue";
+import AdminView from "./views/AdminView.vue";
 
 const store = useClassroom();
 const assignmentsStore = useAssignmentsStore();
@@ -31,14 +32,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <AdminView v-if="isAdmin" />
+  <div class="app" v-else>
     <header class="app-header">
       <h1>课堂教学实时助教</h1>
       <span class="conn" :class="store.sseConnected ? 'on' : 'off'">
         {{ store.sseConnected ? "已连接" : "连接中断，重试中…" }}
       </span>
     </header>
-    <!-- AdminView 分支在 T12 提交时加入（isAdmin 检测已就位） -->
     <header class="tabs" v-if="!isAdmin">
       <button :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'">实时监控</button>
       <button :class="{ active: tab === 'assignments' }" @click="tab = 'assignments'">作业矩阵</button>

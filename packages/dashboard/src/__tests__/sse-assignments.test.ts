@@ -29,7 +29,7 @@ describe("connectClassroom 消息分发（A29/A21）", () => {
     const store = makeStore();
     const onAssignment = vi.fn();
     connectClassroom(store as never, {
-      createEventSource: (url) => { void url; return new FakeEventSource() as unknown as EventSource; },
+      createEventSource: (url) => { void url; return new FakeEventSource("") as unknown as EventSource; },
       fetchSummary: async () => emptySnapshot,
       onAssignmentMessage: onAssignment,
     });
@@ -43,7 +43,7 @@ describe("connectClassroom 消息分发（A29/A21）", () => {
   it("未知类型静默忽略；snapshot/update 照旧", async () => {
     const store = makeStore();
     connectClassroom(store as never, {
-      createEventSource: () => new FakeEventSource() as unknown as EventSource,
+      createEventSource: () => new FakeEventSource("") as unknown as EventSource,
       fetchSummary: async () => emptySnapshot,
     });
     await vi.advanceTimersByTimeAsync(0);

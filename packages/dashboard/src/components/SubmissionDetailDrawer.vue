@@ -2,7 +2,7 @@
 import type { Submission } from "@classroom/shared";
 import { fmtTime } from "../composables/time";
 
-const props = defineProps<{ submission: Submission | null; history: Submission[] }>();
+defineProps<{ submission: Submission | null; history: Submission[] }>();
 const emit = defineEmits<{ close: []; pick: [submissionId: string] }>();
 
 const STATUS_TEXT: Record<string, string> = { pass: "✅ 通过", fail: "❌ 未通过", unreviewed: "⚪ 未评审" };
