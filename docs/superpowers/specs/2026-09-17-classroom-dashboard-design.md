@@ -81,6 +81,8 @@ score = 重复次数×10 + 距上次报错分钟数×5
       + 20（距上次事件 >3 分钟且有未解决错误）
       + 30（连续错误 ≥5）
 ```
+说明：`距上次报错分钟数×5` 表示"距离现在越久越需要帮助"——最近报错的学生优先级更低，教学侧重"长时间卡住未动"的学生。
+
 告警条取 score 前 5 名，其余一句话概括（"其余 N 人正常"）。
 
 **教学建议生成规则（V1）：**
@@ -176,7 +178,29 @@ V1 顶部仅保留系统标题；当前任务/在线人数/计时/匿名投屏�
 - 教师端 SSE 断线 → 5 秒重连，重连成功先拉 `/api/summary` 对齐快照
 - 服务重启 → 课堂状态清零（一节课内可接受），历史事件在 SQLite 可查
 - 学生离线 → V1 不展示（视为绿色「顺利」），V2 连接表上线后矩阵灰色「离线」
-- 上报缺学生/班级字段 → 服务端填默认值（unknown/default），前端兜底显示「未知学生/未知班级」
+- 上报缺学生/班级字段 → **V1 生产环境不允许缺字段（启动时已强制填写）**，服务端缺字段返回 400；前端异常兜底显示「未知学生/未知班级」
+
+### 8.1 学生身份验证（V1 新增，方案 C）
+
+**目标**：确保每台学生机在首次上报前完成姓名 + 班级填写，生产环境不再出现「Unknown/default」。
+
+**流程**：
+1. 扩展激活时读取 SecretStorage 中的 `pylearner.student.name` 与 `pylearner.student.classId`
+2. 任一缺失 → 弹出模态（VS Code `showInputBox` 或轻量 Webview），依次要求填写：
+   - 学生姓名：1–20 字，中文/字母，必填
+   - 班级：1–30 字，中文/数字，必填
+3. 非空/长度校验通过 → 写入 SecretStorage → 激活聊天面板与上报
+4. 用户取消或未填完整 → 显示阻塞提示，扩展 UI 保持灰显，阻止对话与上报
+5. 首次成功上报一条事件后 → 身份字段锁死，禁止修改，避免中途改名造成教师端信噪比问题
+6. 已配置者跳过弹窗，直接进入聊天
+
+**实现要点**：
+- `ensureStudentIdentity(secrets)` 异步函数，激活时调用
+- 写入失败时重试一次，仍失败则保留提示
+- 网络不可用时仍允许本地激活，但首次上报前需校验 teacherUrl 可达（可选）
+- 服务端 eventIngress 对缺姓名/班级字段的 payload 返回 400，作为最后一道防线
+
+**迁移路径**：已上线学生机（SecretStorage 已有有效值）跳过弹窗；无有效值者首次启动补填。
 
 ## 9. 分期计划
 
@@ -187,8 +211,8 @@ V1 顶部仅保留系统标题；当前任务/在线人数/计时/匿名投屏�
 4. 新建 stateManager + aggregator：状态色、优先级、聚合、建议
 5. teacherHub：快照+增量 SSE
 6. dashboard：AlertPanel / StudentMatrix / ErrorAggPanel / SuggestionBar / StudentDrawer（发提示按钮禁用占位）
-7. learner 零改造接入验证（现 simulator 亦可压测）；**强烈建议附带小改：reporter 放开 runSuccess 上报（约 5 行），否则状态色"绿色"分不清"没在用"和"用得顺"**
-8. 部署配置清单：每台学生机配置 `pylearner.student.name/classId` 与 `pylearner.teacher.url`（指向教师机 IP）
+7. learner 启动时身份验证（方案 C）：**首次启动弹模态要求填写学生姓名 + 班级**，写入 SecretStorage，验证通过后才激活上报与聊天；首次事件上报后锁死身份字段禁止修改；已配置者跳过。**同时附带小改：reporter 放开 runSuccess 上报（约 5 行），否则状态色"绿色"分不清"没在用"和"用得顺"**
+8. 部署配置清单：每台学生机配置 `pylearner.teacher.url`（指向教师机 IP）；学生身份由首次启动模态采集，无需额外部署配置
 
 **V2 下行闭环**：studentHub、learner 加 SSE + 通知 UI、发提示、任务广播、顶部栏（当前任务/在线 N/计时）、离线判定改连接表
 **V2 同步**：learner 补 code_line/full_code 代码上下文上报（服务端 prompt 已预留，加字段零改动）
@@ -216,7 +240,7 @@ V1 顶部仅保留系统标题；当前任务/在线人数/计时/匿名投屏�
 
 | # | 差距 | 影响 | 修改方案 | 改动侧 | 建议时点 |
 |---|------|------|---------|--------|---------|
-| 1 | student_name 兜底 Unknown、class_id 兜底 default | 矩阵 20 格全是 Unknown/默认班 | **暂缓定案（2026-09-17 用户决定）**：取值来源为扩展内 SecretStorage（settings.json 不生效），批量配置方案后续决定；未配置时服务端兜底显示 Unknown/默认班 | 待定 | 后续决定 |
+| 1 | student_name 兜底 Unknown、class_id 兜底 default | 矩阵 20 格全是 Unknown/默认班 | **方案 C（已确认）：启动时强制弹窗填写姓名 + 班级**，写入 SecretStorage，非空/长度校验，首次事件上报后锁死；生产环境移除 Unknown/default 兜底 | learner 小改 | **V1 部署前（第 7 项）** |
 | 2 | 成功运行不上报（reporter 过滤 runSuccess） | 绿色分不清"没在用"和"用得顺" | reporter 放开 runSuccess（约 5 行），服务器记为活动信号 | learner 小改 | V1 强烈建议 |
 | 3 | 无代码上下文（code_line/full_code） | 知识点解释做不了个性化（"totl 应该是 total"） | run 事件补 code_line（按 file+line 读行）与 full_code（截断）；服务端 prompt 已预留字段，learner 加字段零服务端改动 | learner | V2 |
 | 4 | diag 无真实 error_type（写死 DiagnosticError，仅占位） | 静态映射无法覆盖课堂中无限种样本 | diag 样本交 LLM 输出 category/subtype/knowledge（JSON），不维护样本映射表；真实 trace 样本仅作 prompt 格式参考 | 服务端 | V1 做（learner 零改） |

@@ -510,7 +510,6 @@ export interface AlertItem {
 
 export interface AggItem {
   subtype: string;
-  category: string;
   knowledge: string;
   /** 涉及人数（不是事件数） */
   count: number;
@@ -914,25 +913,21 @@ describe("normalize：L1 / flat 双格式 → NormalizedEvent", () => {
     expect(ev).toMatchObject({ eventType: "run", success: true, cacheKey: null });
   });
 
-  it("缺学生字段：兜底 unknown/default", () => {
+  it("flat 格式 student_id 缺失 → studentId 为 null（让路由层返回 400），studentName 兜底 unknown", () => {
+    const ev = normalize({ event_type: "run", raw_message: "x", error_type: "NameError", error_message: "x" });
+    expect(ev).toMatchObject({ studentId: null, studentName: "unknown", classId: "default" });
+  });
+
+  it("L1 格式 student_id 缺失 → studentId 为 null（让路由层返回 400）", () => {
     const ev = normalize({ surface: "run", kind: "execution_error", ts: TS, payload: { error_type: "NameError", error_message: "x" } });
-    expect(ev).toMatchObject({ studentId: "unknown", classId: "default" });
+    expect(ev).toMatchObject({ studentId: null, classId: "default" });
   });
 
   it("无效上报（无 surface/payload 也无 event_type）：返回 null", () => {
     expect(normalize({ foo: 1 })).toBeNull();
-    expect(normalize({ event_type: "run" })).toBeNull(); // 有 event_type 但无 student_id
-  });
-});
-```
-
-注意最后一个用例：`event_type: "run"` 但没有 `student_id` —— normalize 对 flat 格式兜底 `unknown`，因此它不是 null。修正断言为：`expect(normalize({ event_type: "run" })).toMatchObject({ studentId: "unknown" })`，只保留 `{ foo: 1 }` → null 的断言（无效 = 既不是 L1 也不是 flat 结构）。**以修正后的断言为准**：
-
-```ts
-  it("无效上报：既非 L1 也非 flat 结构 → null", () => {
-    expect(normalize({ foo: 1 })).toBeNull();
     expect(normalize(null)).toBeNull();
   });
+});
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -964,7 +959,7 @@ export function normalize(body: unknown): NormalizedEvent | null {
     const samples: string[] = Array.isArray(p.samples) ? p.samples : [];
     const errorType = eventType === "diag" ? null : (p.error_type ?? null);
     return {
-      studentId: p.student_id ?? b.student_id ?? "unknown",
+      studentId: p.student_id ?? b.student_id ?? null,
       studentName: p.student_name ?? b.student_name ?? p.student_id ?? b.student_id ?? "unknown",
       classId: p.class_id ?? b.class_id ?? "default",
       eventType,
@@ -990,7 +985,7 @@ export function normalize(body: unknown): NormalizedEvent | null {
     const samples: string[] = Array.isArray(b.samples) ? b.samples : [];
     const errorType = eventType === "diag" ? null : (b.error_type ?? null);
     return {
-      studentId: b.student_id ?? "unknown",
+      studentId: b.student_id ?? null,
       studentName: b.student_name ?? b.student_id ?? "unknown",
       classId: b.class_id ?? "default",
       eventType,
@@ -1473,7 +1468,7 @@ git commit -m "feat(server): 解释取用规则——run 静态映射覆盖 cate
 **Interfaces:**
 - Consumes: `NormalizedEvent`、`Explanation`（Task 3）
 - Produces（Task 10/11/13 依赖，逐字使用）：
-  - `interface StoredEvent { ts: number; eventType: "diag" | "run"; success: boolean; subtype: string | null; knowledge: string | null; rawMessage: string }`
+  - `interface StoredEvent { ts: number; eventType: "diag" | "run"; success: boolean; subtype: string | null; category: string; knowledge: string | null; rawMessage: string }`
   - `interface StudentRecord { studentId: string; studentName: string; classId: string; events: StoredEvent[]; lastActivityAt: number; lastErrorAt: number | null; consecutiveErrors: number }`
   - `createStateManager(): StateManager`；`interface StateManager { apply(ev: NormalizedEvent, explanation: Explanation | null): void; listRecords(): StudentRecord[]; getStudentDetail(id: string): { studentId: string; studentName: string; events: StoredEvent[]; lastActivityAt: number; lastErrorAt: number | null } | null }`
 
@@ -1513,6 +1508,7 @@ describe("stateManager（内存课堂状态）", () => {
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ studentId: "stu001", studentName: "学生stu001", consecutiveErrors: 1, lastErrorAt: 1000, lastActivityAt: 1000 });
     expect(r[0].events[0].subtype).toBe("除数为0");
+    expect(r[0].events[0].category).toBe("运算错误");
   });
 
   it("成功运行清零 consecutiveErrors（spec §5：绿色=最近有成功运行）", () => {
@@ -1525,6 +1521,7 @@ describe("stateManager（内存课堂状态）", () => {
     expect(r.consecutiveErrors).toBe(0);
     expect(r.lastErrorAt).toBe(2000);       // 成功不清除 lastErrorAt
     expect(r.lastActivityAt).toBe(3000);
+    expect(r.events[2].category).toBe("运行成功"); // success 事件 category
   });
 
   it("事件序列上限 200，超出保留最新", () => {
@@ -1564,6 +1561,7 @@ export interface StoredEvent {
   eventType: "diag" | "run";
   success: boolean;
   subtype: string | null;
+  category: string;
   knowledge: string | null;
   rawMessage: string;
 }
@@ -1607,6 +1605,7 @@ export function createStateManager(): StateManager {
       r.events.push({
         ts: ev.ts, eventType: ev.eventType, success: ev.success,
         subtype: ev.success ? null : (explanation?.subtype ?? null),
+        category: ev.success ? "运行成功" : (explanation?.category ?? "其他"),
         knowledge: ev.success ? null : (explanation?.knowledge ?? null),
         rawMessage: ev.rawMessage,
       });
@@ -1663,7 +1662,7 @@ git commit -m "feat(server): 课堂状态内存管理（学生记录、连续错
 - 红：同一 subtype 错误 5 分钟内 ≥3 次，或 `consecutiveErrors ≥ 5`（spec 的「同一错误」取 subtype 粒度，与聚合面板分组一致）
 - 黄：最近 2 分钟内有错误事件，且未达红
 - 绿：其余（含从未上报——V1 无离线判定）
-- 分数（仅有错误的学生）：`score = 最高频 subtype 的 5 分钟内次数×10 + floor(距上次报错分钟数)×5 + 20（距上次事件>3 分钟且最后一次事件是错误）+ 30（连续错误≥5）`
+- 分数（仅有错误的学生）：`score = 最高频 subtype 的 5 分钟内次数×10 + floor(距上次报错分钟数)×5 + 20（距上次报错>3 分钟且最后一次事件是错误）+ 30（连续错误≥5）`
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1807,7 +1806,7 @@ export function computeScore(r: StudentRecord, now: number): number {
   const repeat = maxSubtypeRepeat(r.events, now);
   const minutesSinceError = Math.floor((now - r.lastErrorAt) / 60_000);
   const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件是错误
-  const stale = now - r.lastActivityAt > THREE_MIN;
+  const stale = now - r.lastErrorAt > THREE_MIN;        // 距上次报错>3 分钟（与公式一致）
   let score = repeat * 10 + minutesSinceError * 5;
   if (stale && unresolved) score += 20;
   if (r.consecutiveErrors >= 5) score += 30;
@@ -1858,8 +1857,8 @@ import type { StudentRecord, StoredEvent } from "../stateManager";
 const NOW = Date.parse("2026-09-17T04:00:00.000Z");
 const MIN = 60_000;
 
-function err(ts: number, subtype: string): StoredEvent {
-  return { ts, eventType: "run", success: false, subtype, knowledge: "知识点", rawMessage: "m" };
+function err(ts: number, subtype: string, category = "类型错误"): StoredEvent {
+  return { ts, eventType: "run", success: false, subtype, category, knowledge: "知识点", rawMessage: "m" };
 }
 
 function student(id: string, name: string, events: StoredEvent[], consecutiveErrors = events.filter(e => !e.success).length): StudentRecord {
@@ -2012,7 +2011,7 @@ export function createAggregator(): Aggregator {
           if (e.success || !e.subtype) continue;
           let g = groups.get(e.subtype);
           if (!g) {
-            g = { subtype: e.subtype, category: "", knowledge: "", latestTs: -1, students: [] };
+            g = { subtype: e.subtype, category: e.category ?? "其他", knowledge: "", latestTs: -1, students: [] };
             groups.set(e.subtype, g);
           }
           if (!g.students.some((s) => s.studentId === r.studentId)) {
@@ -2024,9 +2023,7 @@ export function createAggregator(): Aggregator {
           }
         }
       }
-      // category：run 从静态映射拿最准，但这里只有 subtype；取该组任一学生最新事件的 knowledge 即可，
-      // category 由 explainService 已写入事件流 —— 聚合层用 subtype 反查不到 category 时留 subtype 本身。
-      // 简化实现：group.category 置空字符串，前端展示以 subtype/knowledge 为主（spec 聚合面板只要求 subtype+人数+知识点）。
+      // category 由 explainService 写入 StoredEvent（run 用静态映射，diag 来自 LLM），聚合层直接从事件读取。
       const aggregates: AggItem[] = [...groups.values()]
         .map((g) => ({ subtype: g.subtype, category: g.category, knowledge: g.knowledge, count: g.students.length, students: g.students }))
         .sort((a, b) => b.count - a.count);
@@ -2070,7 +2067,7 @@ export function createAggregator(): Aggregator {
 }
 ```
 
-注：`maxSubtypeRepeat` 是 Task 10 已在文件内定义的私有函数，直接复用；`AggItem.category` 本版置空（spec §5 聚合面板展示要素为 subtype+人数+知识点翻译，category 非必需），如后续需要，可在 StoredEvent 中冗余存储 category。
+注：`maxSubtypeRepeat` 是 Task 10 已在文件内定义的私有函数，直接复用；`AggItem.category` 从 StoredEvent.category 读取（run 用静态映射，diag 来自 LLM），spec §5 聚合面板展示要素为 subtype+人数+知识点。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -2424,6 +2421,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   const buildSnapshot = (): TeacherSnapshot => {
     const now = Date.now();
     const records = stateManager.listRecords();
+    // V1 单班级：records[0]?.classId 作为 classId 来源（未来多班级需改为聚合所有班级）
     return { ts: now, classId: records[0]?.classId ?? "default", ...aggregator.recompute(records, now) };
   };
 
@@ -3152,8 +3150,8 @@ import ErrorAggPanel from "../components/ErrorAggPanel.vue";
 import { makeSnapshot, mountWithStore } from "./helpers";
 
 const aggregates = [
-  { subtype: "缺少冒号", category: "", knowledge: "函数定义末尾要加冒号", count: 8, students: [{ studentId: "stu001", studentName: "张三" }, { studentId: "stu002", studentName: "李四" }] },
-  { subtype: "意外缩进", category: "", knowledge: "缩进规则：Python 靠缩进划分代码块", count: 5, students: [{ studentId: "stu003", studentName: "王五" }] },
+  { subtype: "缺少冒号", category: "语法错误", knowledge: "函数定义末尾要加冒号", count: 8, students: [{ studentId: "stu001", studentName: "张三" }, { studentId: "stu002", studentName: "李四" }] },
+  { subtype: "意外缩进", category: "运算错误", knowledge: "缩进规则：Python 靠缩进划分代码块", count: 5, students: [{ studentId: "stu003", studentName: "王五" }] },
 ];
 
 describe("ErrorAggPanel", () => {
@@ -3945,6 +3943,6 @@ git commit -m "docs: V1 部署指南与端到端验收清单"
 - 跨仓库（Task 21）payload 字段与 Task 5 flat 格式解析一一对应（error_type:"RunSuccess"、exit_code:0）✓
 - flush 检查：Task 6 测试中 `应为 ":"` 依赖 mock 关键词「应为」，关键词表已含 ✓；Task 13 集成测试在无 LLM_API_KEY 环境下断言 mock 兜底值「除数为0」，与 Task 6 MOCK_RULES 一致 ✓
 
-**已知取舍**（非缺陷，已在对应任务注明）：V1 SSE update 为全量重算推送（Task 12）；聚合 AggItem.category 置空（Task 11）；建议 ack 内存态（spec §6 预期）。
+**已知取舍**（非缺陷，已在对应任务注明）：V1 SSE update 为全量重算推送（Task 12）；AggItem.category 从 StoredEvent 读取（Task 11）；建议 ack 内存态（spec §6 预期）。
 
 > 执行提示（Task 22 Step 1）：deploy.md 内容中带 `​`（零宽字符）的围栏是为避免与本文档嵌套冲突的占位——写入实际文件时替换为普通的三反引号。
