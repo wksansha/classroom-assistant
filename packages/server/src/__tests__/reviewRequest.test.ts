@@ -75,10 +75,19 @@ describe("运行触发评审（reviews/request）", () => {
   });
 
   it("校验链：名册/未发布/项目缺 files", async () => {
-    const { deps } = makeDeps("pass");
+    const { p, deps } = makeDeps("pass");
+    // 1) 名册未命中
     expect((await requestReview(deps, { ...baseInput, studentId: "999" })).ok).toBe(false);
-    const d2 = makeDeps("pass");
-    d2.p.upsertAssignment({ id: "a2", title: "t", week: 9, isPublished: false, createdAt: 1 });
+    // 2) 练习未发布：a2 未发布 + 关联练习 ep2（写入 makeDeps 自己的持久层）
+    p.upsertAssignment({ id: "a2", title: "t", week: 9, isPublished: false, createdAt: 1 });
+    p.upsertExercise({ id: "ep2", assignmentId: "a2", order: 1, filename: "x.py",
+      problemStatement: "s", starterCode: "", testCases: [], versionHash: "v", isActive: true, createdAt: 1,
+      kind: "project", dir: "app9", entry: "main.py" });
+    const unpublished = await requestReview(deps, { studentId: "2025001", exerciseId: "ep2", code: "m", files });
+    expect(unpublished.ok).toBe(false);
+    if (unpublished.ok) return;
+    expect(unpublished.error).toBe("练习未发布");
+    // 3) 项目练习缺 files
     expect((await requestReview(deps, { ...baseInput, files: undefined })).ok).toBe(false);
   });
 });
