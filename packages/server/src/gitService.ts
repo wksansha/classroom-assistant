@@ -21,9 +21,14 @@ export interface GitService {
   pushMain(): Promise<GitPushResult>;
   commitAndPushMain(files: { path: string; content: string }[], message: string): Promise<GitPushResult>;
   createStudentBranches(studentIds: string[]): Promise<void>;
-  writeToStudentBranch(args: { studentId: string; studentName: string; week: number; filename: string; content: string }): Promise<GitPushResult>;
+  writeToStudentBranch(args: {
+    studentId: string; studentName: string; week: number; filename: string; content: string;
+    files?: { path: string; content: string }[];   // V2.0 项目：filename=目录名
+  }): Promise<GitPushResult>;
   /** 从本地 main ref 读取文件内容（T7-2：不依赖工作树检出状态，规避学生分支检出竞态；relPath 用 POSIX 分隔符） */
   readFileFromMain(relPath: string): Promise<string>;
+  /** 列出 main ref 下某目录的全部文件（V2.0 项目 content；只读 ref 不入 mutex） */
+  listFilesFromMain(dirRel: string): Promise<string[]>;
 }
 
 export function createGitService(deps: GitServiceDeps): GitService {
@@ -143,11 +148,21 @@ export function createGitService(deps: GitServiceDeps): GitService {
         } catch {
           /* 远端尚无此分支（首提）→ 忽略 */
         }
-        const rel = `week-${String(args.week).padStart(2, "0")}/${args.filename}`;
-        writeFiles([{ path: rel, content: args.content }]);
+        let message: string;
+        if (args.files) {
+          // 项目归档：删除式重写 week-XX/<dir>/（学生分支服务端独占，安全）
+          const relDir = `week-${String(args.week).padStart(2, "0")}/${args.filename}`;
+          fs.rmSync(path.join(deps.repoDir, relDir), { recursive: true, force: true });
+          writeFiles(args.files.map((f) => ({ path: `${relDir}/${f.path}`, content: f.content })));
+          message = `submit: ${relDir}/ (project) by ${args.studentId} ${args.studentName}`;
+        } else {
+          const rel = `week-${String(args.week).padStart(2, "0")}/${args.filename}`;
+          writeFiles([{ path: rel, content: args.content }]);
+          message = `submit: ${rel} by ${args.studentId} ${args.studentName}`;
+        }
         await git(["add", "-A"]);
         await git(["commit",
-          "-m", `submit: ${rel} by ${args.studentId} ${args.studentName}`,
+          "-m", message,
           `--author=${args.studentId} ${args.studentName} <${args.studentId}@${domain}>`,
         ]);
         try {
@@ -170,6 +185,11 @@ export function createGitService(deps: GitServiceDeps): GitService {
     async readFileFromMain(relPath) {
       // 只读 ref 操作，不入 mutex：git 引用读取原子，与写操作并发安全
       return git(["show", `main:${relPath}`]);
+    },
+    async listFilesFromMain(dirRel) {
+      // 只读 ref 操作，不入 mutex（与 readFileFromMain 同理）
+      const out = await git(["ls-tree", "-r", "--name-only", `main:${dirRel}`]);
+      return out.split("\n").map((s) => s.trim()).filter(Boolean);
     },
   };
 }
