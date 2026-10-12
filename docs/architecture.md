@@ -294,7 +294,6 @@ StoredEvent {
 ```
 学生 Reporter → POST /api/events → [Express]
   → eventIngress.normalize() → NormalizedEvent
-  → persistence.upsertStudent()
   → [成功？skip LLM / 失败？] explainService.explain()
       → cache.getExplanation()
           → 内存命中？返回

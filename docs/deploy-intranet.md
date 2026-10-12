@@ -1,16 +1,17 @@
 # 内网部署指南（x86_64 Linux 服务器）
 
-场景：服务器在隔离内网（不能出外网），已部署本地大模型；学生机（麒麟 arm64）跑 VS Code 扩展上报；教师端浏览器打开仪表盘。
+场景：服务器在隔离内网（不能出外网），已部署本地大模型；教师机与学生机均为麒麟系统（服务器 x86_64，学生机 arm64）。监控流走扩展上报；作业系统经服务器内置 Gitea 仓库发布题目、归档学生提交；教师端浏览器打开仪表盘。
 
 > 与《内网离线开发环境手册》（Verdaccio npm 私服 :4873 / PyPI 镜像 :8080 / ARM Node 运行时）的关系：
 > 基础设施按该手册搭建，**本项目应用本身推荐用第二节的独立部署包**（自带 linux-x64 node_modules，不依赖私服内容）。
 > 想改走私服安装见第二节方式 C 的兼容性清单。学生端的 Python 包安装走 PyPI 镜像，与本应用无关。
 
 ```text
-学生机 ×N ──HTTP POST /api/events──▶ ┌──────────────────┐ ◀──浏览器 http://IP:3000── 教师机
-（VS Code 扩展，     │  内网 x86 服务器  │
- 无需装 Node）       │  Node.js + SQLite │──本地调用──▶ 本地大模型服务
-                     └──────────────────┘            （OpenAI 兼容接口）
+学生机 ×N ──HTTP 上报/拉作业──▶ ┌─────────────────────┐ ◀──浏览器 http://IP:3000── 教师机
+（VS Code 扩展，     │  内网 x86 服务器     │──本地调用──▶ 本地大模型服务
+ 无需装 Node）       │  Node.js + SQLite   │
+                     │  + Gitea :3001      │◀──git push 出题──── 教师机（麒麟）
+                     └─────────────────────┘
 ```
 
 ## 一、服务器装 Node.js（离线）
@@ -109,7 +110,93 @@ LLM_MODEL=<启动时 --served-model-name 指定的名字>
 > 改完 .env 必须 `systemctl restart classroom-server`。
 > 三层缓存（内存→SQLite→LLM）：同一错误只调一次模型，日志没有 llm.request_started 不代表没生效。
 
-## 五、验收清单
+## 五、作业系统（Gitea 仓库 + .env 配置）
+
+作业系统需要一个 git 仓库作为题目入口和学生提交归档。推荐在服务器上自建 **Gitea**（单个 Go 静态二进制，SQLite 存储，麒麟 x86_64 直接运行，无外部依赖）：教师经网页/PyCharm 推送题目，服务端从 Gitea 同步题目并把学生提交归档到学生分支。**学生机不装 git、不需要 Gitea 账号。**
+
+### 1. 离线安装 Gitea
+
+外网准备机下载单文件二进制（注意与服务器架构匹配，x86_64 选 amd64）：
+
+> https://dl.gitea.com/gitea/release/latest/ → `gitea-<版本>-linux-amd64`
+
+拷入服务器后：
+
+```bash
+sudo mkdir -p /opt/classroom/gitea/{custom,data,log}
+sudo mv gitea-*-linux-amd64 /opt/classroom/gitea/gitea
+sudo chmod +x /opt/classroom/gitea/gitea
+sudo useradd -r -s /sbin/nologin gitea
+sudo chown -R gitea:gitea /opt/classroom/gitea
+```
+
+systemd unit `/etc/systemd/system/gitea.service`：
+
+```ini
+[Unit]
+Description=Gitea
+After=network.target
+
+[Service]
+User=gitea
+Group=gitea
+WorkingDirectory=/opt/classroom/gitea
+ExecStart=/opt/classroom/gitea/gitea web --port 3001
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now gitea
+sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload
+```
+
+### 2. 初始化（浏览器 http://<服务器IP>:3001）
+
+1. 安装向导：数据库选 **SQLite3**，其余默认
+2. 安装页底部「管理员账号设置」创建教师管理员账号
+3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化仓库）
+
+### 3. 服务端专用账号（重要）
+
+服务端要**读写**该仓库（同步题目 + 注入 exercise-id + 归档学生分支），不要复用教师账号：
+
+1. 管理员创建用户 `classroom-server`，加为 `classroom/exercises` 仓库协作者（可写）
+2. 用该账号登录 → 设置 → 应用 → 生成 **token**（权限选仓库读写）
+
+`/opt/classroom/packages/server/.env` 增加：
+
+```ini
+GIT_REPO_URL=http://classroom-server:<token>@127.0.0.1:3001/classroom/exercises.git
+GIT_SYNC_INTERVAL_MS=60000
+```
+
+改完 `systemctl restart classroom-server`。首轮同步自动 clone，并给题目文件注入 exercise-id 后回推仓库。
+
+### 4. 教师出题流程（教师机，麒麟）
+
+```bash
+sudo apt install git          # 或 yum install git，按麒麟版本
+git config --global core.autocrlf input
+git clone http://<服务器IP>:3001/classroom/exercises.git
+cd exercises
+```
+
+1. 新建 `week-01/exercise-01.py`：`#` 注释写题面，`# ===== 代码区 =====` 后写学生初始代码（exercise-id 由服务端自动注入，无需手写）
+2. PyCharm/Trae 里 commit → push
+3. 仪表盘 `#/admin` → 同步 → 导入花名册（每行「学号 姓名」）→ 发布作业
+
+> 服务端会向仓库回推注入提交，教师再次出题前先 `git pull --rebase` 再新建文件。
+
+### 5. 验收
+
+- `journalctl -u classroom-server` 出现 `sync.completed` 且 `importedNew≥1`
+- 仪表盘 `#/admin` 出现「第 1 周作业」、题数正确
+- 发布后学生扩展拉到 `week-01/` 文件，学生提交后 Gitea 仓库出现 `student-<学号>` 分支
+
+## 六、验收清单
 
 ```bash
 # 1. 服务存活 + 快照接口
@@ -127,7 +214,7 @@ journalctl -u classroom-server -f
 
 教师端浏览器：`http://<服务器IP>:3000/` —— 刚上报的学生应出现在「优先帮助」里。
 
-## 六、学生端配置
+## 七、学生端配置
 
 学生机（麒麟 arm64）只需 VS Code + vscode-pylearner 扩展，全部离线安装：
 
@@ -137,19 +224,23 @@ journalctl -u classroom-server -f
 3. 扩展设置里把上报地址改为 `http://<服务器IP>:3000/api/events`
 4. 无需装 Node 或其他依赖（扩展本身是纯 JS）；学生跑 Python 代码所需的第三方包走 PyPI 镜像（手册 :8080）
 
-## 七、日常运维
+## 八、日常运维
 
 | 事项 | 命令/位置 |
 |---|---|
 | 看日志 | `journalctl -u classroom-server -f`（结构化 JSON，事件名见 docs/） |
+| Gitea 运维 | `journalctl -u gitea -f` / `systemctl restart gitea`；仓库数据在 `/opt/classroom/gitea/data` |
 | 数据备份 | SQLite 在 `packages/server/data/assistant.db`（WAL 模式），停服或用 sqlite3 `.backup` 拷贝 |
 | 改配置 | 编辑 .env → `systemctl restart classroom-server` |
 | 升级版本 | 开发机重新打部署包 → 解压覆盖 → 重启（数据库文件别覆盖） |
 | LOG_LEVEL | 默认 info；排查问题时 .env 设 `LOG_LEVEL=debug` 显示全链路事件 |
 
-## 八、常见问题
+## 九、常见问题
 
 - **日志只有 `llm.mock_fallback (no_api_key)`** → .env 里 LLM_API_KEY 为空，或没重启服务
 - **`llm.mock_fallback (reason: api_error)`** → 本地模型地址/模型名不对；先 `curl http://127.0.0.1:11434/v1/models` 验证服务通不通
 - **浏览器打不开 3000** → 防火墙没放行，或服务器只监听了 localhost（默认全接口监听，一般不会）
 - **better-sqlite3 报 ABI/平台错误** → 部署包不是在 linux-x64 环境里制作的，回到第二节重新打包
+- **`sync.failed: authentication failed`** → GIT_REPO_URL 里的 Gitea 账号/token 失效或仓库路径写错；用浏览器能打开 `http://127.0.0.1:3001/classroom/exercises` 验证仓库存在
+- **Gitea 页面打不开 3001** → `systemctl status gitea` 看服务状态，防火墙没放行 3001 也会如此
+- **教师 push 被拒（non-fast-forward）** → 服务端注入了 exercise-id 回推提交，教师先 `git pull --rebase` 再 push
