@@ -1,6 +1,9 @@
 // 作业分发与 LLM 代码评审 DTO + 两仓 wire 契约（spec §2）
 export type ReviewStatus = "pass" | "fail" | "unreviewed";
 
+export type ExerciseKind = "file" | "project";
+export interface SubmissionFile { path: string; content: string }
+
 export interface ReviewResult {
   status: ReviewStatus;
   reason: string;             // ≤100 字
@@ -31,6 +34,9 @@ export interface Exercise {
   testCases?: TestCase[];     // MVP 恒空（A29）
   versionHash: string;        // server 填充：sha256(problem+cases+starter)[:16]
   isActive: boolean;
+  kind?: ExerciseKind;        // 缺省视为 "file"（存量行）
+  dir?: string;               // 项目目录名（kind=project 时必填）
+  entry?: string;             // 入口文件（缺省 "main.py"）
   createdAt: number;
 }
 
@@ -43,11 +49,15 @@ export interface Submission {
   source: "auto" | "manual";
   submittedAt: number;
   review: ReviewResult | null; // 评审完成前 null
+  files?: SubmissionFile[] | null;
 }
 
 export interface RosterEntry { studentId: string; studentName: string; }
 
-export interface PublishedExercise { id: string; filename: string; versionHash: string; }
+export interface PublishedExercise {
+  id: string; filename: string; versionHash: string;
+  kind?: ExerciseKind; dir?: string; entry?: string;
+}
 export interface PublishedAssignment {
   id: string; title: string; week: number; dueAt?: number;
   exercises: PublishedExercise[];
@@ -61,6 +71,16 @@ export interface SubmissionInput {
   code: string;               // ≤ 50KB，服务端校验
   filePath?: string;
   source: "auto" | "manual";
+  files?: SubmissionFile[];
+}
+
+/** learner → server 运行触发评审 wire payload（spec §4.2） */
+export interface ReviewRequestInput {
+  studentId: string;
+  studentName?: string;
+  exerciseId: string;
+  code: string;               // 入口文件内容
+  files?: SubmissionFile[];   // 项目题必填
 }
 
 // —— .py 头部契约（A5）：server（T4）与 learner（T13）各自实现，正则一致 ——

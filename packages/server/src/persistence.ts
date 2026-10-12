@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import type { Assignment, Exercise, Explanation, ReviewResult, RosterEntry, Submission, TestCase } from "@classroom/shared";
+import type { Assignment, Exercise, Explanation, ReviewResult, RosterEntry, Submission, SubmissionFile, TestCase } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 export interface EventRow {
@@ -25,18 +25,22 @@ function toAssignment(r: AssignmentDbRow): Assignment {
   return { id: r.id, title: r.title, week: r.week, dueAt: r.due_at ?? undefined,
     isPublished: r.is_published === 1, createdAt: r.created_at, publishedAt: r.published_at ?? undefined };
 }
-type ExerciseDbRow = { id: string; assignment_id: string; order_no: number; filename: string; problem_statement: string; starter_code: string | null; test_cases_json: string | null; version_hash: string; is_active: number; created_at: number };
+type ExerciseDbRow = { id: string; assignment_id: string; order_no: number; filename: string; problem_statement: string; starter_code: string | null; test_cases_json: string | null; version_hash: string; is_active: number; created_at: number; kind?: string; dir?: string | null; entry?: string | null };
 function toExercise(r: ExerciseDbRow): Exercise {
   return { id: r.id, assignmentId: r.assignment_id, order: r.order_no, filename: r.filename,
     problemStatement: r.problem_statement, starterCode: r.starter_code ?? undefined,
     testCases: r.test_cases_json ? (JSON.parse(r.test_cases_json) as TestCase[]) : [],
-    versionHash: r.version_hash, isActive: r.is_active === 1, createdAt: r.created_at };
+    versionHash: r.version_hash, isActive: r.is_active === 1, createdAt: r.created_at,
+    kind: (r.kind as Exercise["kind"]) ?? "file",
+    dir: r.dir ?? undefined,
+    entry: r.entry ?? undefined };
 }
-type SubmissionDbRow = { id: string; exercise_id: string; student_id: string; student_name: string; code: string; source: string; submitted_at: number; review_json: string | null };
+type SubmissionDbRow = { id: string; exercise_id: string; student_id: string; student_name: string; code: string; source: string; submitted_at: number; review_json: string | null; files_json?: string | null };
 function toSubmission(r: SubmissionDbRow): Submission {
   return { id: r.id, exerciseId: r.exercise_id, studentId: r.student_id, studentName: r.student_name,
     code: r.code, source: r.source as "auto" | "manual", submittedAt: r.submitted_at,
-    review: r.review_json ? JSON.parse(r.review_json) : null };
+    review: r.review_json ? JSON.parse(r.review_json) : null,
+    files: r.files_json ? (JSON.parse(r.files_json) as Submission["files"]) : null };
 }
 
 export interface Persistence {
@@ -68,6 +72,7 @@ export interface Persistence {
   getSubmissionsByStudent(studentId: string): Submission[];
   getUnsyncedSubmissions(): Submission[];
   getPendingReviewSubmissions(): Submission[];
+  getLatestSubmissionByExerciseStudent(exerciseId: string, studentId: string): Submission | null;
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; exerciseId: string; versionHash: string; review: ReviewResult }): void;
 }
@@ -166,6 +171,16 @@ export function createPersistence(dbPath?: string): Persistence {
     );
   `);
 
+  // V2.0 迁移：存量库补列（CREATE TABLE IF NOT EXISTS 不会给旧表加列）
+  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  };
+  addColumnIfMissing("exercises", "kind", "kind TEXT NOT NULL DEFAULT 'file'");
+  addColumnIfMissing("exercises", "dir", "dir TEXT");
+  addColumnIfMissing("exercises", "entry", "entry TEXT");
+  addColumnIfMissing("submissions", "files_json", "files_json TEXT");
+
   return {
     insertEvent(r) {
       db.prepare(`INSERT INTO events (student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp, code_snippet)
@@ -245,13 +260,15 @@ export function createPersistence(dbPath?: string): Persistence {
       return r ? toAssignment(r) : null;
     },
     upsertExercise(e) {
-      db.prepare(`INSERT INTO exercises (id, assignment_id, order_no, filename, problem_statement, starter_code, test_cases_json, version_hash, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO exercises (id, assignment_id, order_no, filename, problem_statement, starter_code, test_cases_json, version_hash, is_active, created_at, kind, dir, entry)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET order_no = excluded.order_no, problem_statement = excluded.problem_statement,
           starter_code = excluded.starter_code, test_cases_json = excluded.test_cases_json,
-          version_hash = excluded.version_hash, is_active = excluded.is_active`)
+          version_hash = excluded.version_hash, is_active = excluded.is_active,
+          kind = excluded.kind, dir = excluded.dir, entry = excluded.entry`)
         .run(e.id, e.assignmentId, e.order, e.filename, e.problemStatement, e.starterCode ?? null,
-          JSON.stringify(e.testCases ?? []), e.versionHash, e.isActive ? 1 : 0, e.createdAt);
+          JSON.stringify(e.testCases ?? []), e.versionHash, e.isActive ? 1 : 0, e.createdAt,
+          e.kind ?? "file", e.dir ?? null, e.entry ?? null);
     },
     getExercises(assignmentId) {
       return (db.prepare("SELECT * FROM exercises WHERE assignment_id = ? ORDER BY order_no").all(assignmentId) as ExerciseDbRow[]).map(toExercise);
@@ -271,9 +288,10 @@ export function createPersistence(dbPath?: string): Persistence {
         (SELECT id FROM assignments WHERE week = ?) AND id NOT IN (${placeholders})`).run(week, ...activeIds);
     },
     insertSubmission(s) {
-      db.prepare(`INSERT INTO submissions (id, exercise_id, student_id, student_name, code, code_hash, source, git_synced, submitted_at, review_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(s.id, s.exerciseId, s.studentId, s.studentName, s.code, s.codeHash, s.source, s.gitSynced ? 1 : 0, s.submittedAt, null);
+      db.prepare(`INSERT INTO submissions (id, exercise_id, student_id, student_name, code, code_hash, source, git_synced, submitted_at, review_json, files_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(s.id, s.exerciseId, s.studentId, s.studentName, s.code, s.codeHash, s.source, s.gitSynced ? 1 : 0, s.submittedAt, null,
+          s.files ? JSON.stringify(s.files) : null);
     },
     findSubmissionByKey(exerciseId, studentId, codeHash) {
       const r = db.prepare("SELECT * FROM submissions WHERE exercise_id = ? AND student_id = ? AND code_hash = ?")
@@ -297,6 +315,11 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     getPendingReviewSubmissions() {
       return (db.prepare("SELECT * FROM submissions WHERE review_json IS NULL").all() as SubmissionDbRow[]).map(toSubmission);
+    },
+    getLatestSubmissionByExerciseStudent(exerciseId, studentId) {
+      const r = db.prepare("SELECT * FROM submissions WHERE exercise_id = ? AND student_id = ? ORDER BY submitted_at DESC LIMIT 1")
+        .get(exerciseId, studentId) as SubmissionDbRow | undefined;
+      return r ? toSubmission(r) : null;
     },
     getCachedReview(cacheKey) {
       const r = db.prepare("SELECT status, reason, source, model FROM review_cache WHERE cache_key = ?").get(cacheKey) as
