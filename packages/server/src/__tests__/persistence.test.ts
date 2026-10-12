@@ -15,11 +15,6 @@ describe("persistence（SQLite，:memory:）", () => {
   let p: ReturnType<typeof createPersistence>;
   beforeEach(() => { p = createPersistence(":memory:"); });
 
-  it("upsertStudent 幂等，重复调用不报错", () => {
-    p.upsertStudent("stu001", "张三", "3A");
-    p.upsertStudent("stu001", "张三", "3A");
-  });
-
   it("insertEvent → getRecentEvents 读回，字段完整（含 code_snippet）", () => {
     p.insertEvent(errorRow);
     const rows = p.getRecentEvents(10);

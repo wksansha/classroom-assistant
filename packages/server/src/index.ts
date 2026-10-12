@@ -110,8 +110,6 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
         hasCodeSnippet: !!ev.codeSnippet,
       } });
 
-      persistence.upsertStudent(ev.studentId, ev.studentName, ev.classId);
-
       // runSuccess 只记活动信号，不调 LLM（spec §5 / §11 差距 #2）
       const explanation = ev.success ? null : await explainService.explain(ev);
 

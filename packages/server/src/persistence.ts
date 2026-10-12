@@ -40,7 +40,6 @@ function toSubmission(r: SubmissionDbRow): Submission {
 }
 
 export interface Persistence {
-  upsertStudent(id: string, name: string, classId: string): void;
   insertEvent(row: EventRow): void;
   getRecentEvents(limit: number): any[];
   getEventStats(): { total: number; todayCount: number; byCategory: { category: string; count: number }[] };
@@ -82,12 +81,6 @@ export function createPersistence(dbPath?: string): Persistence {
   db.pragma("journal_mode = WAL");
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS students (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      class_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       student_id TEXT NOT NULL,
@@ -174,10 +167,6 @@ export function createPersistence(dbPath?: string): Persistence {
   `);
 
   return {
-    upsertStudent(id, name, classId) {
-      db.prepare("INSERT INTO students (id, name, class_id) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = ?, class_id = ?")
-        .run(id, name, classId, name, classId);
-    },
     insertEvent(r) {
       db.prepare(`INSERT INTO events (student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp, code_snippet)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)

@@ -55,7 +55,11 @@ export async function callReviewLLM(
       body: JSON.stringify({ model, temperature: 0.3, stream: false, messages: [{ role: "user", content: prompt }] }),
       signal: controller.signal,
     });
-    if (!res.ok) return mockReview(model);
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      logEvent({ event: "review.llm_http_error", level: "warn", data: { status: res.status, body: bodyText.slice(0, 200) } });
+      return mockReview(model);
+    }
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     const parsed = parseReviewResponse(data.choices?.[0]?.message?.content ?? "");
     if (!parsed) {
@@ -66,6 +70,7 @@ export async function callReviewLLM(
     if (err instanceof Error && err.name === "AbortError") {
       return { status: "unreviewed", reason: "评审超时", reviewedAt: Date.now(), model, source: "timeout" };
     }
+    logEvent({ event: "review.llm_failed", level: "warn", data: { error: err instanceof Error ? err.message : String(err) } });
     return mockReview(model);
   } finally {
     clearTimeout(timer);
