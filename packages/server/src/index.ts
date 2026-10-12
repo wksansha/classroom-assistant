@@ -19,6 +19,8 @@ import { registerRosterRoutes } from "./routes/roster";
 import { registerAssignmentRoutes } from "./routes/assignments";
 import { registerSubmissionRoutes } from "./routes/submissions";
 import { type SubmissionDeps } from "./controllers/submissionController";
+import { registerReviewRoutes } from "./routes/reviews";
+import { type ReviewRequestDeps } from "./controllers/reviewController";
 
 export interface AppDeps {
   /** 测试传 ":memory:"；缺省 data/assistant.db（相对 server 包） */
@@ -196,6 +198,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
   registerRosterRoutes(app, { persistence });
   registerAssignmentRoutes(app, { persistence, git, repoDir: gitDeps?.repoDir ?? "", sync });
   registerSubmissionRoutes(app, { ...submissionDeps, persistence });
+
+  // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
+  const reviewRequestDeps: ReviewRequestDeps = {
+    persistence, reviewService, stateManager,
+    publish: (msg) => hub.publishMessage(msg),
+    publishSnapshot: () => hub.publish(buildSnapshot()),
+  };
+  registerReviewRoutes(app, reviewRequestDeps);
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
