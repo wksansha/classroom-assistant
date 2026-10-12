@@ -134,7 +134,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
           }
         };
         walk(`${dirName}/${sd.name}`);
-        const entryAbs = path.join(repoDir, dirName, sd.name, manifest.entry);
+        const entryAbs = path.join(repoDir, dirName!, sd.name, manifest.entry ?? "main.py");
         if (!fs.existsSync(entryAbs)) {
           result.warnings.push(`week-${week}/${sd.name} 入口文件 ${manifest.entry} 不存在，已忽略`);
           continue;
