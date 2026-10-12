@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Persistence } from "./persistence";
 import type { GitService } from "./gitService";
-import { parseExerciseFile, injectExerciseId, computeExerciseVersionHash } from "./assignmentFiles";
+import { parseExerciseFile, injectExerciseId, computeExerciseVersionHash, isProjectIgnoredEntry, parseExerciseManifest, injectManifestIds, computeProjectVersionHash } from "./assignmentFiles";
 import { logEvent } from "./logger";
 
 export interface SyncResult {
@@ -105,6 +105,73 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
           if (!parsed.exerciseId) injections.push({ path: rel, content: injectExerciseId(content, exercise.id, week) });
         }
       });
+      // V2.0 项目练习：week-N 一级子目录含 exercise.json = 一个 exercise（spec §3）
+      const subdirs = dirName
+        ? fs.readdirSync(path.join(repoDir, dirName), { withFileTypes: true }).filter((e) => e.isDirectory())
+        : [];
+      let dirOrder = files.length;
+      for (const sd of subdirs) {
+        if (isProjectIgnoredEntry(sd.name, true)) continue;
+        const manifestRel = `${dirName}/${sd.name}/exercise.json`;
+        const manifestAbs = path.join(repoDir, manifestRel);
+        if (!fs.existsSync(manifestAbs)) {
+          result.warnings.push(`week-${week}/${sd.name} 不是项目练习（缺 exercise.json），已忽略`);
+          continue;
+        }
+        const manifest = parseExerciseManifest(fs.readFileSync(manifestAbs, "utf8"));
+        if (!manifest) {
+          result.warnings.push(`week-${week}/${sd.name}/exercise.json 不是合法 JSON，已忽略`);
+          continue;
+        }
+        // 递归收集项目文件（忽略清单），路径相对项目目录
+        const projFiles: { path: string; content: string }[] = [];
+        const walk = (relDir: string) => {
+          for (const ent of fs.readdirSync(path.join(repoDir, relDir), { withFileTypes: true })) {
+            if (isProjectIgnoredEntry(ent.name, ent.isDirectory())) continue;
+            const rel = `${relDir}/${ent.name}`;
+            if (ent.isDirectory()) walk(rel);
+            else projFiles.push({ path: rel.slice(`${dirName}/${sd.name}/`.length), content: fs.readFileSync(path.join(repoDir, rel), "utf8") });
+          }
+        };
+        walk(`${dirName}/${sd.name}`);
+        const entryAbs = path.join(repoDir, dirName, sd.name, manifest.entry);
+        if (!fs.existsSync(entryAbs)) {
+          result.warnings.push(`week-${week}/${sd.name} 入口文件 ${manifest.entry} 不存在，已忽略`);
+          continue;
+        }
+        const entryParsed = parseExerciseFile(fs.readFileSync(entryAbs, "utf8"));
+        const versionHash = computeProjectVersionHash(projFiles);
+        dirOrder += 1;
+        // 对账双轨：manifest id 优先，回退 (week, 目录名)——filename = 目录名
+        let exercise = manifest.exerciseId ? persistence.getExercise(manifest.exerciseId) : null;
+        if (!exercise) exercise = persistence.findExerciseByPath(week, sd.name);
+        if (!exercise) {
+          const id = manifest.exerciseId ?? randomUUID();
+          persistence.upsertExercise({
+            id, assignmentId: assignment!.id, order: dirOrder, filename: sd.name,
+            problemStatement: entryParsed.problemStatement, starterCode: entryParsed.starterCode,
+            testCases: [], versionHash, isActive: true, createdAt: Date.now(),
+            kind: "project", dir: sd.name, entry: manifest.entry,
+          });
+          result.importedNew++;
+          seenIds.push(id);
+          if (!manifest.exerciseId) injections.push({ path: manifestRel, content: injectManifestIds(fs.readFileSync(manifestAbs, "utf8"), id, week) });
+        } else {
+          if (exercise.versionHash !== versionHash) {
+            result.updated++;
+            if (assignment!.isPublished && persistence.getSubmissionsByExercise(exercise.id).length > 0) {
+              result.warnings.push(`week-${week}/${sd.name} 已发布且有提交，内容已变更——评审基准已切换，请通知学生（A30）`);
+            }
+          }
+          persistence.upsertExercise({
+            ...exercise, order: dirOrder, problemStatement: entryParsed.problemStatement,
+            starterCode: entryParsed.starterCode, versionHash, isActive: true,
+            kind: "project", dir: sd.name, entry: manifest.entry,
+          });
+          seenIds.push(exercise.id);
+          if (!manifest.exerciseId) injections.push({ path: manifestRel, content: injectManifestIds(fs.readFileSync(manifestAbs, "utf8"), exercise.id, week) });
+        }
+      }
       result.deactivated += activeBefore.filter((id) => !seenIds.includes(id)).length;
       persistence.deactivateMissingExercises(week, seenIds);
     }
