@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { scanExerciseId, type TestCase } from "@classroom/shared";
+import { scanExerciseId, type SubmissionFile, type TestCase } from "@classroom/shared";
 
 const META_START = "# ===== classroom-assistant =====";
 const META_END = "# ===============================";
@@ -64,4 +64,54 @@ export function computeExerciseVersionHash(
     .update(JSON.stringify([problemStatement, testCases ?? [], starterCode ?? ""]))
     .digest("hex")
     .slice(0, 16);
+}
+
+// —— V2.0 项目练习（spec §3）——
+
+const IGNORE_DIRS = new Set(["__pycache__", ".venv", "venv", ".git"]);
+const IGNORE_FILE_NAMES = new Set([".DS_Store"]);
+
+export function isProjectIgnoredEntry(name: string, isDir: boolean): boolean {
+  return isDir ? IGNORE_DIRS.has(name) : IGNORE_FILE_NAMES.has(name) || name.endsWith(".pyc");
+}
+
+export interface ParsedManifest {
+  exerciseId: string | null;
+  week: number | null;
+  title: string | null;
+  entry: string;              // 缺省 "main.py"
+}
+
+export function parseExerciseManifest(content: string): ParsedManifest | null {
+  try {
+    const raw = JSON.parse(content) as Record<string, unknown>;
+    if (typeof raw !== "object" || raw === null) return null;
+    return {
+      exerciseId: typeof raw.exerciseId === "string" ? raw.exerciseId : null,
+      week: typeof raw.week === "number" ? raw.week : null,
+      title: typeof raw.title === "string" ? raw.title : null,
+      entry: typeof raw.entry === "string" && raw.entry ? raw.entry : "main.py",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function injectManifestIds(content: string, exerciseId: string, week: number): string {
+  const raw = JSON.parse(content) as Record<string, unknown>;
+  return JSON.stringify({ ...raw, exerciseId, week }, null, 2) + "\n";
+}
+
+const sortFiles = (files: SubmissionFile[]) =>
+  files.map((f) => ({ path: f.path, content: f.content }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+
+/** 题目版本哈希（server 内部，16-hex，风格同 computeExerciseVersionHash） */
+export function computeProjectVersionHash(files: SubmissionFile[]): string {
+  return crypto.createHash("sha256").update(JSON.stringify(sortFiles(files))).digest("hex").slice(0, 16);
+}
+
+/** 提交幂等内容哈希（两仓 wire 契约，64-hex；与 vscode-pylearner src/submission/projectFiles.ts 逐字一致，改动必须双侧同步） */
+export function canonicalFilesHash(files: SubmissionFile[]): string {
+  return crypto.createHash("sha256").update(JSON.stringify(sortFiles(files))).digest("hex");
 }
