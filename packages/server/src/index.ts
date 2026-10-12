@@ -18,7 +18,7 @@ import { createSyncService, type SyncService } from "./syncService";
 import { registerRosterRoutes } from "./routes/roster";
 import { registerAssignmentRoutes } from "./routes/assignments";
 import { registerSubmissionRoutes } from "./routes/submissions";
-import { rescanPendingReviews, type SubmissionDeps } from "./controllers/submissionController";
+import { type SubmissionDeps } from "./controllers/submissionController";
 
 export interface AppDeps {
   /** 测试传 ":memory:"；缺省 data/assistant.db（相对 server 包） */
@@ -67,8 +67,9 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     ? createSyncService({ persistence, git, repoDir: gitDeps.repoDir, intervalMs: gitDeps.syncIntervalMs })
     : null;
 
+  // V2.0：提交纯归档，reviewService 不再传入（Task 6 的 review 路由装配会接手）
   const submissionDeps: SubmissionDeps = {
-    persistence, reviewService, git,
+    persistence, git,
     publish: (msg) => hub.publishMessage(msg),
   };
 
@@ -205,13 +206,12 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     app.get("/", (_req, res) => res.sendFile(path.join(deps.staticDir!, "index.html")));
   }
 
-  // —— 启动钩子（T8）：git 克隆 + 定时同步自动启动；补扫 review 为空的提交（A29）——
+  // —— 启动钩子（T8）：git 克隆 + 定时同步自动启动；V2.0：纯归档语义，启动不再补扫（review NULL 为合法态）——
   if (git && sync && deps.syncAutoStart !== false) {
     // clone 失败（URL 错/鉴权失败/断网）只记错误，不让服务器启动即崩溃（A12：监控流零侵入不受影响）
     void git.ensureClone().then(() => sync.start())
       .catch((err) => logEvent({ event: "git.startup_clone_error", level: "error", data: { error: String(err) } }));
   }
-  void rescanPendingReviews(submissionDeps).catch(() => {});
 
   return { app, hub, sync, git };
 }

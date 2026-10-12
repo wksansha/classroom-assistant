@@ -6,8 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import { createApp } from "../index";
 import { createPersistence } from "../persistence";
-import { createReviewService } from "../reviewService";
-import { computeCodeHash, rescanPendingReviews } from "../controllers/submissionController";
 
 let base: string;
 let remoteUrl: string;
@@ -50,7 +48,7 @@ function makeApp() {
 }
 
 describe("作业闭环端到端（spec §12 验收 1-9）", () => {
-  it("名册→建题→同步→发布→拉取→提交→评审→归档→幂等→监控回归", async () => {
+  it("名册→建题→同步→发布→拉取→提交→归档→幂等→监控回归（V2.0 纯归档，评审不再自动触发）", async () => {
     const { app, sync, git } = makeApp();
     // 教师推 3 道裸题
     fs.mkdirSync(path.join(teacherDir, "week-01"), { recursive: true });
@@ -92,12 +90,7 @@ describe("作业闭环端到端（spec §12 验收 1-9）", () => {
       .send({ exerciseId: exId, studentId: "0001", studentName: "张三", code: studentCode, source: "auto" })
       .expect(201);
     expect(r1.body.submission.review).toBeNull();
-    // 评审完成（验收 7）
-    await until(async () => {
-      const subs = (await request(app).get(`/api/submissions/exercise/${exId}`)).body;
-      return subs[0]?.review?.status === "pass";
-    });
-    // git 归档（验收 6 后半）：归档与评审并行异步 → 轮询远端分支直到可见（T7 先例）
+    // git 归档（验收 6 后半）：异步归档 → 轮询远端分支直到可见（T7 先例）
     await until(() => {
       try {
         run(["fetch", "origin"], teacherDir);
@@ -118,7 +111,7 @@ describe("作业闭环端到端（spec §12 验收 1-9）", () => {
       .expect(200);
     const subs = (await request(app).get(`/api/submissions/exercise/${exId}`).expect(200)).body;
     expect(subs).toHaveLength(1);
-    expect(subs[0].review.status).toBe("pass");
+    expect(subs[0].review).toBeNull();   // V2.0 纯归档：review NULL 为合法终态
     // 监控零侵入回归（验收 13）
     await request(app).post("/api/events").send({
       student_id: "0001", student_name: "张三", class_id: "3A",
@@ -131,40 +124,3 @@ describe("作业闭环端到端（spec §12 验收 1-9）", () => {
   }, 120_000);
 });
 
-describe("启动补扫（A29，验收 16）", () => {
-  it("review=null 的提交经 rescanPendingReviews 被补扫为 pass", async () => {
-    // :memory: 无法跨实例复用 → 文件 DB 双连接：createApp 装配一把、测试句柄一把
-    const dbPath = path.join(base, "rescan.db");
-    const { app } = createApp({
-      dbPath, staticDir: null, git: null,
-      reviewConfig: { apiKey: "k", fetchImpl: passFetch },
-    });
-    const p = createPersistence(dbPath);
-    p.upsertAssignment({ id: "a-rescan", title: "第 1 周作业", week: 1, isPublished: true, createdAt: Date.now() });
-    p.upsertExercise({
-      id: "e-rescan", assignmentId: "a-rescan", order: 1, filename: "exercise-01.py",
-      problemStatement: "题目：补扫", starterCode: "", testCases: [],
-      versionHash: "0123456789abcdef", isActive: true, createdAt: Date.now(),
-    });
-    p.insertSubmission({
-      id: "s-rescan", exerciseId: "e-rescan", studentId: "0001", studentName: "张三",
-      code: "print(1)", source: "auto", submittedAt: Date.now(), review: null,
-      codeHash: computeCodeHash("print(1)"), gitSynced: false,
-    });
-    expect(p.getPendingReviewSubmissions()).toHaveLength(1);
-
-    const n = await rescanPendingReviews({
-      persistence: p,
-      reviewService: createReviewService(p, { apiKey: "k", fetchImpl: passFetch }),
-      git: null,
-      publish: () => {},
-    });
-    expect(n).toBe(1);
-    expect(p.getPendingReviewSubmissions()).toHaveLength(0);
-    const subs = p.getSubmissionsByExercise("e-rescan");
-    expect(subs[0].review?.status).toBe("pass");
-    // app 侧（同一文件 DB）也能查到补扫结果
-    const viaApp = (await request(app).get("/api/submissions/exercise/e-rescan").expect(200)).body;
-    expect(viaApp[0].review.status).toBe("pass");
-  });
-});

@@ -9,7 +9,6 @@ import type { SSEMessage } from "@classroom/shared";
 import { createPersistence } from "../persistence";
 import { createGitService } from "../gitService";
 import { createSyncService } from "../syncService";
-import { createReviewService } from "../reviewService";
 import { createTeacherHub } from "../teacherHub";
 import { registerRosterRoutes } from "../routes/roster";
 import { registerAssignmentRoutes } from "../routes/assignments";
@@ -41,11 +40,6 @@ afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
 const BARE = `# 题目：两数之和\n# 描述：读取两个整数，输出它们的和。\n# ===== 代码区 =====\nprint(1)\n`;
 
-const passFetch = (async () => ({
-  ok: true,
-  json: async () => ({ choices: [{ message: { content: '{"status":"pass","reason":"代码通过所有测试用例"}' } }] }),
-})) as unknown as typeof fetch;
-
 async function until(cond: () => boolean, ms = 2000) {
   const start = Date.now();
   while (!cond()) {
@@ -54,18 +48,17 @@ async function until(cond: () => boolean, ms = 2000) {
   }
 }
 
-function makeApp(fetchImpl: typeof fetch = passFetch) {
+function makeApp() {
   const persistence = createPersistence(":memory:");
   const repoDir = path.join(base, `server-${Math.random().toString(36).slice(2)}`);
   const git = createGitService({ repoDir, remoteUrl, authorEmailDomain: "classroom" });
-  const reviewService = createReviewService(persistence, { apiKey: "k", fetchImpl });
   const sync = createSyncService({ persistence, git, repoDir });
   const published: SSEMessage[] = [];
   const app: Express = express();
   app.use(express.json({ limit: "2mb" }));
   registerRosterRoutes(app, { persistence });
   registerAssignmentRoutes(app, { persistence, git, repoDir, sync });
-  registerSubmissionRoutes(app, { persistence, reviewService, git, publish: (m) => published.push(m) });
+  registerSubmissionRoutes(app, { persistence, git, publish: (m) => published.push(m) });   // V2.0 纯归档：无 reviewService
   return { app, persistence, repoDir, published };
 }
 
@@ -149,7 +142,7 @@ describe("作业路由（A18/A20/A29）", () => {
 });
 
 describe("提交路由（A7/A9/A15/A30）", () => {
-  it("201 → 异步评审 + SSE 双消息 + git 归档；幂等重交 200 不新建", async () => {
+  it("201 → 纯归档（review 恒 null）+ SSE + git 归档；幂等重交 200 不新建", async () => {
     const { app, published } = makeApp();
     await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200);
     const exId = await seedPublishedExercise(app);
@@ -157,14 +150,11 @@ describe("提交路由（A7/A9/A15/A30）", () => {
     const r1 = await request(app).post("/api/submissions")
       .send({ exerciseId: exId, studentId: "0001", studentName: "张三", code: "print(3)\n", source: "auto" })
       .expect(201);
-    expect(r1.body.submission.review).toBeNull();                                  // 异步（A9）
+    expect(r1.body.submission.review).toBeNull();                                  // V2.0 纯归档
     expect(published.some((m) => m.type === "submission_received")).toBe(true);
-    await until(() => published.some((m) => m.type === "review_complete"));
-    const rc = published.find((m) => m.type === "review_complete")!;
-    if (rc.type !== "review_complete") throw new Error("unreachable");
-    expect(rc.data.review.status).toBe("pass");
+    expect(published.some((m) => m.type === "review_complete")).toBe(false);       // 不触发评审
 
-    // git 归档（A15）：学生分支含提交代码（归档与评审并行异步 → 轮询远端分支直到可见）
+    // git 归档（A15）：学生分支含提交代码（异步归档 → 轮询远端分支直到可见）
     await until(() => {
       try {
         run(["fetch", "origin"], teacherDir);
@@ -182,27 +172,21 @@ describe("提交路由（A7/A9/A15/A30）", () => {
       .expect(200);
     const subs = (await request(app).get(`/api/submissions/exercise/${exId}`).expect(200)).body;
     expect(subs).toHaveLength(1);
-    expect(subs[0].review.status).toBe("pass");
+    expect(subs[0].review).toBeNull();                                             // V2.0：review NULL 为合法终态
   }, 120_000);
 
-  it("A30：unreviewed 幂等命中 → 重新评审（LLM 被再次调用）", async () => {
-    let calls = 0;
-    const badFetch = (async (_u: unknown, _i: any) => {
-      calls++;
-      return { ok: true, json: async () => ({ choices: [{ message: { content: "不可解析的输出" } }] }) };
-    }) as unknown as typeof fetch;
-    const { app, published } = makeApp(badFetch);
+  it("A30（V2.0 纯归档）：幂等命中直接返回，不再触发重评", async () => {
+    const { app, published } = makeApp();
     await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200);
     const exId = await seedPublishedExercise(app);
     await request(app).post("/api/submissions")
       .send({ exerciseId: exId, studentId: "0001", studentName: "张三", code: "print(9)\n", source: "manual" }).expect(201);
-    await until(() => published.some((m) => m.type === "review_complete"));
-    expect(calls).toBe(1);
-    await request(app).post("/api/submissions")                                    // 幂等命中 unreviewed
+    await request(app).post("/api/submissions")                                    // 幂等命中 → 纯返回
       .send({ exerciseId: exId, studentId: "0001", studentName: "张三", code: "print(9)\n", source: "manual" }).expect(200);
-    await until(() => calls === 2);                                                // 自动重评（A30）
     const subs = (await request(app).get(`/api/submissions/exercise/${exId}`).expect(200)).body;
     expect(subs).toHaveLength(1);                                                  // 仍只有一条提交
+    expect(published.filter((m) => m.type === "submission_received")).toHaveLength(1);  // 幂等不重复广播
+    expect(published.some((m) => m.type === "review_complete")).toBe(false);       // 不重评
   }, 120_000);
 
   it("校验链 400：学号不在名册 / 未发布 / 超 50KB / 非法 exerciseId", async () => {
