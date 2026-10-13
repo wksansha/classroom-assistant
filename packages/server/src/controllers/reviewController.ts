@@ -46,7 +46,7 @@ function injectReviewFail(
 }
 
 export async function requestReview(deps: ReviewRequestDeps, input: ReviewRequestInput): Promise<ReviewRequestResult> {
-  if (!input?.studentId || !input.exerciseId || typeof input.code !== "string") {
+  if (!input || typeof input.studentId !== "string" || !input.exerciseId || typeof input.code !== "string") {
     return { ok: false, status: 400, error: "缺少必要字段" };
   }
   const rosterEntry = deps.persistence.getRosterEntry(input.studentId.trim());

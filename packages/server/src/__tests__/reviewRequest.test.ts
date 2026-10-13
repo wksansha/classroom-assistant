@@ -90,4 +90,13 @@ describe("运行触发评审（reviews/request）", () => {
     // 3) 项目练习缺 files
     expect((await requestReview(deps, { ...baseInput, files: undefined })).ok).toBe(false);
   });
+
+  it("畸形输入：studentId 为数字直接 400（防 .trim() TypeError 把路由挂起）", async () => {
+    const { deps } = makeDeps("pass");
+    const r = await requestReview(deps, { ...baseInput, studentId: 123 as unknown as string });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.status).toBe(400);
+    expect(r.error).toBe("缺少必要字段");
+  });
 });
