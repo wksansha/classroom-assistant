@@ -21,6 +21,7 @@ import { registerSubmissionRoutes } from "./routes/submissions";
 import { type SubmissionDeps } from "./controllers/submissionController";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
+import { registerTraceArchiveRoutes } from "./routes/traceArchive";
 
 export interface AppDeps {
   /** 测试传 ":memory:"；缺省 data/assistant.db（相对 server 包） */
@@ -206,6 +207,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     publishSnapshot: () => hub.publish(buildSnapshot()),
   };
   registerReviewRoutes(app, reviewRequestDeps);
+
+  // L1 全量归档（独立于分析链路；<TRACE_DIR>/trace/<classId>/<studentId>/...，与 DB_PATH 同款环境变量约定）
+  registerTraceArchiveRoutes(app, {
+    traceDir: process.env.TRACE_DIR || path.join(process.cwd(), "data"),
+  });
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
