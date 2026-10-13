@@ -20,6 +20,7 @@ export interface Assignment {
   isPublished: boolean;
   createdAt: number;
   publishedAt?: number;
+  weekDir?: string;           // 磁盘实际目录名（如 "week-5"）；缺省 = 补零 week-XX
 }
 
 export interface TestCase { input: string; expectedOutput: string; description?: string; }
@@ -60,6 +61,7 @@ export interface PublishedExercise {
 }
 export interface PublishedAssignment {
   id: string; title: string; week: number; dueAt?: number;
+  weekDir?: string;           // 磁盘实际目录名；缺省 = 补零 week-XX
   exercises: PublishedExercise[];
 }
 

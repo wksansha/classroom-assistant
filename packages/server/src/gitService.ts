@@ -22,7 +22,7 @@ export interface GitService {
   commitAndPushMain(files: { path: string; content: string }[], message: string): Promise<GitPushResult>;
   createStudentBranches(studentIds: string[]): Promise<void>;
   writeToStudentBranch(args: {
-    studentId: string; studentName: string; week: number; filename: string; content: string;
+    studentId: string; studentName: string; week: number; weekDir?: string; filename: string; content: string;
     files?: { path: string; content: string }[];   // V2.0 项目：filename=目录名
   }): Promise<GitPushResult>;
   /** 从本地 main ref 读取文件内容（T7-2：不依赖工作树检出状态，规避学生分支检出竞态；relPath 用 POSIX 分隔符） */
@@ -149,14 +149,16 @@ export function createGitService(deps: GitServiceDeps): GitService {
           /* 远端尚无此分支（首提）→ 忽略 */
         }
         let message: string;
+        // 宽容归一：week_dir 优先（磁盘实际目录名），缺省回退补零 week-XX
+        const weekPart = args.weekDir ?? `week-${String(args.week).padStart(2, "0")}`;
         if (args.files) {
           // 项目归档：删除式重写 week-XX/<dir>/（学生分支服务端独占，安全）
-          const relDir = `week-${String(args.week).padStart(2, "0")}/${args.filename}`;
+          const relDir = `${weekPart}/${args.filename}`;
           fs.rmSync(path.join(deps.repoDir, relDir), { recursive: true, force: true });
           writeFiles(args.files.map((f) => ({ path: `${relDir}/${f.path}`, content: f.content })));
           message = `submit: ${relDir}/ (project) by ${args.studentId} ${args.studentName}`;
         } else {
-          const rel = `week-${String(args.week).padStart(2, "0")}/${args.filename}`;
+          const rel = `${weekPart}/${args.filename}`;
           writeFiles([{ path: rel, content: args.content }]);
           message = `submit: ${rel} by ${args.studentId} ${args.studentName}`;
         }

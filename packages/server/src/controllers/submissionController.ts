@@ -104,7 +104,7 @@ async function archiveToGit(deps: SubmissionDeps, submission: Submission): Promi
   if (!exercise || !assignment) return;
   const r = await deps.git.writeToStudentBranch({
     studentId: submission.studentId, studentName: submission.studentName,
-    week: assignment.week, filename: exercise.filename, content: submission.code,
+    week: assignment.week, weekDir: assignment.weekDir, filename: exercise.filename, content: submission.code,
     files: submission.files ?? undefined,
   });
   if (r === "ok") deps.persistence.setSubmissionGitSynced(submission.id);

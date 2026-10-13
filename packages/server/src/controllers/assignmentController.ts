@@ -20,7 +20,7 @@ export function buildPublishedList(p: Persistence): PublishedAssignment[] {
   return p.getAssignments()
     .filter((a) => a.isPublished)
     .map((a) => ({
-      id: a.id, title: a.title, week: a.week, dueAt: a.dueAt,
+      id: a.id, title: a.title, week: a.week, dueAt: a.dueAt, weekDir: a.weekDir,
       exercises: p.getExercises(a.id)
         .filter((e) => e.isActive)
         .map((e) => ({ id: e.id, filename: e.filename, versionHash: e.versionHash,
@@ -42,7 +42,8 @@ export async function readExerciseContent(p: Persistence, repoDir: string, git: 
   const assignment = p.getAssignment(exercise.assignmentId);
   if (!assignment || !assignment.isPublished) return { ok: false, status: 404, error: "练习未发布" };
   // relPath 用 POSIX 分隔符（与 gitService.writeToStudentBranch 的构造方式一致）
-  const weekDir = `week-${String(assignment.week).padStart(2, "0")}`;
+  // 宽容归一：优先使用磁盘实际目录名（week_dir），缺省回退补零 week-XX
+  const weekDir = assignment.weekDir ?? `week-${String(assignment.week).padStart(2, "0")}`;
 
   if ((exercise.kind ?? "file") === "project" && exercise.dir) {
     const dirRel = `${weekDir}/${exercise.dir}`;

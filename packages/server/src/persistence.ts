@@ -20,10 +20,11 @@ export interface EventRow {
 }
 
 // —— 行映射（作业/练习/提交，snake_case DB 行 → camelCase 领域对象）——
-type AssignmentDbRow = { id: string; title: string; week: number; due_at: number | null; is_published: number; created_at: number; published_at: number | null };
+type AssignmentDbRow = { id: string; title: string; week: number; due_at: number | null; is_published: number; created_at: number; published_at: number | null; week_dir?: string | null };
 function toAssignment(r: AssignmentDbRow): Assignment {
   return { id: r.id, title: r.title, week: r.week, dueAt: r.due_at ?? undefined,
-    isPublished: r.is_published === 1, createdAt: r.created_at, publishedAt: r.published_at ?? undefined };
+    isPublished: r.is_published === 1, createdAt: r.created_at, publishedAt: r.published_at ?? undefined,
+    weekDir: r.week_dir ?? undefined };
 }
 type ExerciseDbRow = { id: string; assignment_id: string; order_no: number; filename: string; problem_statement: string; starter_code: string | null; test_cases_json: string | null; version_hash: string; is_active: number; created_at: number; kind?: string; dir?: string | null; entry?: string | null };
 function toExercise(r: ExerciseDbRow): Exercise {
@@ -57,6 +58,7 @@ export interface Persistence {
   upsertAssignment(a: Assignment): void;
   updateAssignmentMeta(id: string, patch: { title?: string; dueAt?: number | null }): void;
   setAssignmentPublished(id: string, published: boolean, publishedAt: number | null): void;
+  setAssignmentWeekDir(id: string, weekDir: string): void;
   getAssignments(): Assignment[];
   getAssignment(id: string): Assignment | null;
   upsertExercise(e: Exercise): void;
@@ -180,6 +182,7 @@ export function createPersistence(dbPath?: string): Persistence {
   addColumnIfMissing("exercises", "dir", "dir TEXT");
   addColumnIfMissing("exercises", "entry", "entry TEXT");
   addColumnIfMissing("submissions", "files_json", "files_json TEXT");
+  addColumnIfMissing("assignments", "week_dir", "week_dir TEXT");
 
   return {
     insertEvent(r) {
@@ -251,6 +254,9 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     setAssignmentPublished(id, published, publishedAt) {
       db.prepare("UPDATE assignments SET is_published = ?, published_at = ? WHERE id = ?").run(published ? 1 : 0, publishedAt, id);
+    },
+    setAssignmentWeekDir(id, weekDir) {
+      db.prepare("UPDATE assignments SET week_dir = ? WHERE id = ?").run(weekDir, id);
     },
     getAssignments() {
       return (db.prepare("SELECT * FROM assignments ORDER BY week").all() as AssignmentDbRow[]).map(toAssignment);

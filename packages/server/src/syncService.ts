@@ -35,7 +35,7 @@ export async function retryFailedPushes(persistence: Persistence, git: GitServic
     if (!exercise || !assignment) continue;
     const r = await git.writeToStudentBranch({
       studentId: sub.studentId, studentName: sub.studentName,
-      week: assignment.week, filename: exercise.filename, content: sub.code,
+      week: assignment.week, weekDir: assignment.weekDir, filename: exercise.filename, content: sub.code,
     });
     if (r === "ok") {
       persistence.setSubmissionGitSynced(sub.id);
@@ -53,10 +53,23 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
   function scanOnce(result: SyncResult): { path: string; content: string }[] {
     const injections: { path: string; content: string }[] = [];
     // 磁盘上的 week 目录（教师整目录删除后 git 不留空目录 → 磁盘缺失，但 DB 周仍需对账下线）
-    const diskWeeks = new Map<number, string>();
+    // 宽容归一：^week-(\d+)$ 均可（如 week-5）；同周多目录并存 → 警告且补零名优先
+    const dirsByWeek = new Map<number, string[]>();
     for (const entry of fs.readdirSync(repoDir, { withFileTypes: true })) {
       const m = entry.isDirectory() ? entry.name.match(/^week-(\d+)$/) : null;
-      if (m) diskWeeks.set(parseInt(m[1], 10), entry.name);
+      if (!m) continue;
+      const week = parseInt(m[1], 10);
+      const names = dirsByWeek.get(week) ?? [];
+      names.push(entry.name);
+      dirsByWeek.set(week, names);
+    }
+    const diskWeeks = new Map<number, string>();
+    for (const [week, names] of dirsByWeek) {
+      const padded = `week-${String(week).padStart(2, "0")}`;
+      diskWeeks.set(week, names.find((n) => n === padded) ?? names[0]);
+      if (names.length > 1) {
+        result.warnings.push(`week-${week} 目录名重复（${names.join(" 与 ")} 并存），已采用补零名/首个，请清理`);
+      }
     }
     const dbWeeks = persistence.getAssignments().map((a) => a.week);
     const weeks = new Set<number>([...diskWeeks.keys(), ...dbWeeks]);
@@ -67,6 +80,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
         assignment = { id: randomUUID(), title: `第 ${week} 周作业`, week, isPublished: false, createdAt: Date.now() };
         persistence.upsertAssignment(assignment);
       }
+      if (dirName) persistence.setAssignmentWeekDir(assignment.id, dirName);   // 实际目录名落库；DB-only 周保持 NULL
       const activeBefore = persistence.getExercises(assignment.id).filter((e) => e.isActive).map((e) => e.id);
       const files = dirName
         ? fs.readdirSync(path.join(repoDir, dirName)).filter((f) => f.endsWith(".py")).sort()
