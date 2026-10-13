@@ -1,45 +1,27 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import type { Assignment, Exercise, Submission } from "@classroom/shared";
-import { useAssignmentsStore, latestByStudent } from "../stores/assignments";
-import { assignmentsApi } from "../api/assignments";
-import SubmissionMatrix from "../components/SubmissionMatrix.vue";
-import SubmissionDetailDrawer from "../components/SubmissionDetailDrawer.vue";
+import type { Assignment, Exercise } from "@classroom/shared";
 
-const props = defineProps<{ assignment: Assignment & { exercises: Exercise[] } }>();
-const store = useAssignmentsStore();
-
-const selectedCell = ref<{ exerciseId: string; studentId: string } | null>(null);
-const override = ref<Submission | null>(null);
-const history = ref<Submission[]>([]);
-
-const matrix = computed(() => {
-  const m: Record<string, Record<string, Submission | undefined>> = {};
-  for (const ex of props.assignment.exercises) {
-    m[ex.id] = latestByStudent(store.submissionsByExercise[ex.id] ?? []);
-  }
-  return m;
-});
-const currentSubmission = computed(() => {
-  if (override.value) return override.value;
-  if (!selectedCell.value) return null;
-  return matrix.value[selectedCell.value.exerciseId]?.[selectedCell.value.studentId] ?? null;
-});
-
-async function onSelectCell(payload: { exerciseId: string; studentId: string }) {
-  selectedCell.value = payload;
-  override.value = null;
-  const all = await assignmentsApi.submissionsByStudent(payload.studentId);
-  history.value = all.filter((s) => s.exerciseId === payload.exerciseId);   // 该生该练习的历史
-}
-function onPick(id: string) {
-  override.value = history.value.find((h) => h.id === id) ?? null;
-}
+defineProps<{ assignment: Assignment & { exercises: Exercise[] } }>();
 </script>
 
 <template>
   <div class="assignment-detail">
-    <SubmissionMatrix :roster="store.roster" :exercises="assignment.exercises" :matrix="matrix" @select="onSelectCell" />
-    <SubmissionDetailDrawer :submission="currentSubmission" :history="history" @close="selectedCell = null; override = null" @pick="onPick" />
+    <header class="meta">
+      <h2>{{ assignment.title }}</h2>
+      <span>第 {{ assignment.week }} 周</span>
+      <span v-if="assignment.dueAt">截止 {{ new Date(assignment.dueAt).toLocaleString() }}</span>
+    </header>
+    <ul class="exercise-list">
+      <li v-for="ex in assignment.exercises" :key="ex.id">
+        <span class="order">{{ ex.order }}.</span>
+        <span class="filename">{{ ex.filename }}</span>
+        <span class="tags">
+          <span class="tag">{{ ex.kind ?? "file" }}</span>
+          <span v-if="ex.dir" class="tag">{{ ex.dir }}</span>
+          <span class="tag">入口：{{ ex.entry ?? "main.py" }}</span>
+          <span class="tag hash">{{ ex.versionHash }}</span>
+        </span>
+      </li>
+    </ul>
   </div>
 </template>

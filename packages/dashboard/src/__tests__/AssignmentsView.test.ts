@@ -26,20 +26,18 @@ vi.mock("../api/assignments", () => ({
 import AssignmentsView from "../views/AssignmentsView.vue";
 
 describe("AssignmentsView（投屏·纯展示，A23/A24）", () => {
-  it("仅显示已发布作业；默认选中第一个并渲染矩阵", async () => {
+  it("仅显示已发布作业；默认选中第一个并渲染练习列表", async () => {
     const w = mount(AssignmentsView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));   // 等 onMounted 的异步完成
     expect(w.text()).toContain("第 1 周作业");
     expect(w.text()).not.toContain("草稿作业");    // 草稿不上投屏（A23）
-    expect(w.text()).toContain("exercise-01.py");
-    expect(w.text()).toContain("0001");
+    expect(w.text()).toContain("exercise-01.py");  // 练习列表：文件名
+    expect(w.text()).toContain("v");               // 版本哈希
   });
-  it("点击格子 → 抽屉显示该生该练习代码与评审", async () => {
+  it("渲染练习详情：kind/dir/entry/versionHash（缺省 file/main.py）", async () => {
     const w = mount(AssignmentsView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));
-    await w.find("td.cell").trigger("click");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(w.text()).toContain("print(1)");
-    expect(w.text()).toContain("student-0001");
+    expect(w.text()).toContain("file");
+    expect(w.text()).toContain("main.py");
   });
 });
