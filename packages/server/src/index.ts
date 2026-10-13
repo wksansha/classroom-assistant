@@ -30,12 +30,23 @@ export interface AppDeps {
   staticDir?: string | null;
   /** LLM 聊天代理配置；缺省读环境变量（LLM_API_KEY 等为空则不启用代理），测试可注入假上游 */
   llmConfig?: LlmProxyConfig | null;
+  /** 归档根目录；缺省 classroom-assistant 同级 L1-data（resolveTraceDir 解析） */
+  traceDir?: string;
   /** git 集成：undefined=读 env GIT_REPO_URL；null=显式禁用 */
   git?: { repoDir: string; remoteUrl: string; authorEmailDomain?: string; syncIntervalMs?: number } | null;
   /** 评审 LLM 注入（测试传 fetchImpl）；缺省读环境变量，无 key 时 mock 兜底 */
   reviewConfig?: ReviewLlmOptions | null;
   /** 默认 true：ensureClone + 定时同步自动启动；测试传 false 手动控制 */
   syncAutoStart?: boolean;
+}
+
+/**
+ * 归档根目录解析：显式传入 > TRACE_DIR 环境变量 > 缺省 classroom-assistant 同级 L1-data。
+ * 缺省锚定 __dirname（packages/server/src）向上四级到仓库同级，不随启动 cwd 漂移，
+ * 本机与部署机同一套相对约定（spec：docs/superpowers/specs/2026-10-13-l1-trace-archive-design.md §5）。
+ */
+export function resolveTraceDir(explicit?: string): string {
+  return explicit ?? process.env.TRACE_DIR ?? path.resolve(__dirname, "..", "..", "..", "..", "L1-data");
 }
 
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; sync: SyncService | null; git: GitService | null } {
@@ -208,9 +219,9 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
   };
   registerReviewRoutes(app, reviewRequestDeps);
 
-  // L1 全量归档（独立于分析链路；<TRACE_DIR>/trace/<classId>/<studentId>/...，与 DB_PATH 同款环境变量约定）
+  // L1 全量归档（独立于分析链路；<traceDir>/trace/<classId>/<studentId>/...，TRACE_DIR 环境变量可覆盖）
   registerTraceArchiveRoutes(app, {
-    traceDir: process.env.TRACE_DIR || path.join(process.cwd(), "data"),
+    traceDir: resolveTraceDir(deps.traceDir),
   });
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
