@@ -8,13 +8,11 @@ import StudentMatrix from "./components/StudentMatrix.vue";
 import ErrorAggPanel from "./components/ErrorAggPanel.vue";
 import SuggestionBar from "./components/SuggestionBar.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
-import AssignmentsView from "./views/AssignmentsView.vue";
 import AdminView from "./views/AdminView.vue";
 
 const store = useClassroom();
 const assignmentsStore = useAssignmentsStore();
 
-const tab = ref<"monitor" | "assignments">("monitor");
 const isAdmin = ref(window.location.hash === "#/admin");
 function onHashChange() { isAdmin.value = window.location.hash === "#/admin"; }
 window.addEventListener("hashchange", onHashChange);
@@ -40,19 +38,12 @@ onUnmounted(() => {
         {{ store.sseConnected ? "已连接" : "连接中断，重试中…" }}
       </span>
     </header>
-    <header class="tabs" v-if="!isAdmin">
-      <button :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'">实时监控</button>
-      <button :class="{ active: tab === 'assignments' }" @click="tab = 'assignments'">作业矩阵</button>
-    </header>
-    <SuggestionBar v-show="tab === 'monitor'" />
-    <AlertPanel v-show="tab === 'monitor'" />
-    <main v-show="tab === 'monitor'">
+    <SuggestionBar />
+    <AlertPanel />
+    <main>
       <StudentMatrix />
       <ErrorAggPanel />
     </main>
-    <main v-if="tab === 'assignments'" class="assignments-main">
-      <AssignmentsView />
-    </main>
-    <StudentDrawer v-show="tab === 'monitor'" />
+    <StudentDrawer />
   </div>
 </template>

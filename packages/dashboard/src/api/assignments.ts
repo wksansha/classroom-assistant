@@ -23,8 +23,6 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 export const assignmentsApi = {
   list: () => get<(Assignment & { exercises: Exercise[] })[]>("/api/assignments"),
   detail: (id: string) => get<Assignment & { exercises: Exercise[] }>(`/api/assignments/${id}`),
-  patch: (id: string, patch: { title?: string; dueAt?: number | null }) =>
-    send<Assignment & { exercises: Exercise[] }>(`/api/assignments/${id}`, "PATCH", patch),
   publish: (id: string, publish: boolean) => send<{ ok: true }>(`/api/assignments/${id}/publish`, "POST", { publish }),
   publishedList: () => get<PublishedAssignment[]>("/api/assignments/published"),
   submissionsByExercise: (exerciseId: string) => get<Submission[]>(`/api/submissions/exercise/${exerciseId}`),

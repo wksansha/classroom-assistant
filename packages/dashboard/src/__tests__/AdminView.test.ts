@@ -14,7 +14,6 @@ vi.mock("../api/assignments", () => ({
     submissionsByStudent: vi.fn(async () => []),
     importRoster: vi.fn(async () => ({ ok: true, count: 2 })),
     sync: vi.fn(async () => ({ importedNew: 3, updated: 0, injected: 3, deactivated: 0, warnings: ["week-01/x 已发布且有提交——评审基准已切换，请通知学生（A30）"] })),
-    patch: vi.fn(async () => ({})),
     publish: vi.fn(async () => ({ ok: true })),
   },
 }));
@@ -44,11 +43,12 @@ describe("AdminView（#/admin，A23/A16/A18/A30）", () => {
     expect(assignmentsApi.importRoster).toHaveBeenCalledWith("0001 张三\n0002 李四");
     expect(w.text()).toContain("已导入 2 人");
   });
-  it("作业行显示草稿状态与题数、截止时间编辑", async () => {
+  it("作业行显示草稿状态与题数，不显示截止日期", async () => {
     const w = mount(AdminView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));
     expect(w.text()).toContain("草稿");
     expect(w.text()).toContain("1 题");
-    expect(w.find("input.due-at").exists()).toBe(true);
+    expect(w.text()).not.toContain("截止");
+    expect(w.find("input.due-at").exists()).toBe(false);
   });
 });
