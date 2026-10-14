@@ -26,9 +26,11 @@ async function importRoster() {
     <textarea v-model="text" rows="6" placeholder="0001 张三&#10;0002 李四"></textarea>
     <button class="import-roster" @click="importRoster">导入名册</button>
     <span class="msg">{{ message }}</span>
-    <table class="roster-table">
-      <thead><tr><th>学号</th><th>姓名</th></tr></thead>
-      <tbody><tr v-for="r in props.roster" :key="r.studentId"><td>{{ r.studentId }}</td><td>{{ r.studentName }}</td></tr></tbody>
-    </table>
+    <div class="roster-table-wrap">
+      <table class="roster-table">
+        <thead><tr><th>学号</th><th>姓名</th></tr></thead>
+        <tbody><tr v-for="r in props.roster" :key="r.studentId"><td>{{ r.studentId }}</td><td>{{ r.studentName }}</td></tr></tbody>
+      </table>
+    </div>
   </section>
 </template>
