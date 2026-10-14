@@ -33,14 +33,20 @@ export async function retryFailedPushes(persistence: Persistence, git: GitServic
     const exercise = persistence.getExercise(sub.exerciseId);
     const assignment = exercise ? persistence.getAssignment(exercise.assignmentId) : null;
     if (!exercise || !assignment) continue;
-    const r = await git.writeToStudentBranch({
-      studentId: sub.studentId, studentName: sub.studentName,
-      week: assignment.week, weekDir: assignment.weekDir, filename: exercise.filename, content: sub.code,
-    });
-    if (r === "ok") {
-      persistence.setSubmissionGitSynced(sub.id);
-    } else {
-      logEvent({ event: "git.push_failed", level: "error", data: { submissionId: sub.id, result: r } });
+    try {
+      const r = await git.writeToStudentBranch({
+        studentId: sub.studentId, studentName: sub.studentName,
+        week: assignment.week, weekDir: assignment.weekDir, filename: exercise.filename, content: sub.code,
+        files: sub.files ?? undefined,   // 项目练习：补推走删除式重写，缺 files 会把目录名当文件写（EISDIR）
+      });
+      if (r === "ok") {
+        persistence.setSubmissionGitSynced(sub.id);
+      } else {
+        logEvent({ event: "git.push_failed", level: "error", data: { submissionId: sub.id, result: r } });
+      }
+    } catch (err) {
+      // 单条失败不阻塞同批其他记录（下轮同步自动重试）
+      logEvent({ event: "git.retry_error", level: "error", data: { submissionId: sub.id, error: String(err) } });
     }
   }
 }

@@ -163,10 +163,16 @@ export function createGitService(deps: GitServiceDeps): GitService {
           message = `submit: ${rel} by ${args.studentId} ${args.studentName}`;
         }
         await git(["add", "-A"]);
-        await git(["commit",
-          "-m", message,
-          `--author=${args.studentId} ${args.studentName} <${args.studentId}@${domain}>`,
-        ]);
+        try {
+          await git(["commit",
+            "-m", message,
+            `--author=${args.studentId} ${args.studentName} <${args.studentId}@${domain}>`,
+          ]);
+        } catch (err) {
+          // 补推重试时内容可能已在分支（前次 commit 成功但 push 被拒）→ nothing to commit 幂等放行，继续 push
+          const e = err as { stdout?: string; stderr?: string };
+          if (!/nothing to commit/.test(`${e.stdout ?? ""}${e.stderr ?? ""}`)) throw err;
+        }
         try {
           await git(["push", "origin", branch]);
           return "ok";
