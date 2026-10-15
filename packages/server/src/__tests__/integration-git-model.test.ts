@@ -84,7 +84,10 @@ async function ensureStudentBranch(cwd: string, studentId: string): Promise<void
 async function pullNewOnly(cwd: string, studentId: string): Promise<string[]> {
   const branch = `student-${studentId}`;
   await run(["fetch", "origin"], cwd);
-  await run(["rebase", `origin/${branch}`], cwd);
+  // 首推守卫：远端学生分支尚不存在时跳过 rebase（真实 git 下 rebase 会报 invalid upstream）——与 ext git/pullOps.ts 保持一致
+  let hasRemote = true;
+  try { await run(["rev-parse", "--verify", `origin/${branch}`], cwd); } catch { hasRemote = false; }
+  if (hasRemote) await run(["rebase", `origin/${branch}`], cwd);
   const out = await run(["diff", "--diff-filter=A", "--name-only", "HEAD", "origin/main"], cwd);
   const paths = out.split("\n").map((s) => s.trim()).filter(Boolean);
   if (paths.length === 0) return [];
