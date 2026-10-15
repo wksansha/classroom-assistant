@@ -14,7 +14,7 @@ type FakeCall = { method: string; url: string; body?: any };
  * - 建号 / 分支保护默认 201
  * - token API 已弃用（Gitea 不允许 token 认证建 token，401 死路）：fake 不再提供该端点，测试断言全程零 token 调用
  */
-function fakeGitea(opts?: { userCreateStatus?: number; patchStatus?: number }) {
+function fakeGitea(opts?: { userCreateStatus?: number; patchStatus?: number; collabStatus?: number }) {
   const calls: FakeCall[] = [];
   const f: typeof fetch = async (url, init) => {
     calls.push({
@@ -27,6 +27,7 @@ function fakeGitea(opts?: { userCreateStatus?: number; patchStatus?: number }) {
       if ((init?.method ?? "GET") === "PATCH") return new Response("{}", { status: opts?.patchStatus ?? 200 });
       return new Response("{}", { status: opts?.userCreateStatus ?? 201 });
     }
+    if (u.includes("/collaborators/")) return new Response(null, { status: opts?.collabStatus ?? 204 });   // 协作者授权成功（204 无 body：Response 构造要求 null）
     if (u.includes("branch_protections")) return new Response("{}", { status: 201 });
     return new Response("{}", { status: 200 });
   };
@@ -106,6 +107,25 @@ describe("Gitea 管理联动", () => {
     expect(c!.body.branch_name).toBeUndefined();   // branch_name 已废弃，不得出现
   });
 
+  it("addCollaborator：PUT collaborators/0001 body.permission=write；409（已是协作者）容忍", async () => {
+    for (const status of [204, 409]) {
+      const { calls, f } = fakeGitea({ collabStatus: status });
+      const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+      await expect(admin.addCollaborator("0001")).resolves.toBeUndefined();
+      const c = calls.find((x) => x.url.includes("/collaborators/"));
+      expect(c).toBeDefined();
+      expect(c!.method).toBe("PUT");
+      expect(c!.url).toBe("http://gitea.test/api/v1/repos/classroom/exercises/collaborators/0001");
+      expect(c!.body).toEqual({ permission: "write" });
+    }
+  });
+
+  it("addCollaborator：500 → 抛错（仅 204/200/409 容忍）", async () => {
+    const { f } = fakeGitea({ collabStatus: 500 });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    await expect(admin.addCollaborator("0001")).rejects.toThrow("gitea collaborator add failed: 500");
+  });
+
   it("用户创建 500 → 抛错（非 409/422 不容忍）", async () => {
     const { f } = fakeGitea({ userCreateStatus: 500 });
     const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
@@ -131,6 +151,7 @@ describe("Gitea 管理联动", () => {
       expect(persistence.getStudentToken(sid)).toBe(patch!.body.password);
     }
     expect(calls.filter((c) => c.url.includes("branch_protections"))).toHaveLength(2);   // 每生一条分支保护
+    expect(calls.filter((c) => c.method === "PUT" && c.url.includes("/collaborators/"))).toHaveLength(2);   // 每生一条协作者授权
     expect(calls.filter((c) => c.url.includes("/tokens"))).toHaveLength(0);              // 全程零 token API 调用
 
     // validate 响应下发 gitSecret

@@ -13,6 +13,8 @@ export interface GiteaAdmin {
   ensureStudentAccount(studentId: string): Promise<string>;
   /** student-<学号> 分支保护：仅该生可推 */
   protectBranch(studentId: string): Promise<void>;
+  /** 学生加入教师仓库为协作者（write 权限——push 自己分支的前提，真实 Gitea 28 联调实测必需） */
+  addCollaborator(studentId: string): Promise<void>;
 }
 
 export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
@@ -44,6 +46,11 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
         enable_push: true, enable_push_whitelist: true, push_whitelist_usernames: [studentId],
       });
       if (!r.ok && r.status !== 422) throw new Error(`gitea branch protect failed: ${r.status}`);
+    },
+    async addCollaborator(studentId: string): Promise<void> {
+      const r = await api(`/api/v1/repos/${deps.repo}/collaborators/${studentId}`, "PUT", { permission: "write" });
+      // 204/200=成功；409=已是协作者（幂等重试容忍）；其余状态抛错
+      if (r.status !== 204 && r.status !== 200 && r.status !== 409) throw new Error(`gitea collaborator add failed: ${r.status}`);
     },
   };
 }

@@ -18,10 +18,11 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
         for (const e of entries) {
           try {
             // F4 防重复轮换：已有 gitSecret 的学生跳过建号/改密（重复导入不再使学生已用密码失效 push 401）；
-            // gitSecret 生成即入库（protectBranch 失败不丢密码，下次导入自动跳过重建）；分支保护幂等照常执行
+            // gitSecret 生成即入库（后续步骤失败不丢密码，下次导入自动跳过重建）；协作者授权与分支保护幂等照常执行
             if (deps.persistence.getStudentToken(e.studentId) === null) {
               deps.persistence.saveStudentToken(e.studentId, await gitea.ensureStudentAccount(e.studentId));
             }
+            await gitea.addCollaborator(e.studentId);   // write 协作者权限：学生 push 自己分支的前提
             await gitea.protectBranch(e.studentId);
           } catch (err) {
             logEvent({ event: "gitea.provision_failed", level: "warn", data: {
