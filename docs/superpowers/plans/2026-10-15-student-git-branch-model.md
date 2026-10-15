@@ -660,7 +660,7 @@ export async function submitAll(deps: SubmitDeps): Promise<SubmitResult> {
 - [ ] **Step 1: gitEnv 测试 + 实现（TDD 两个用例：token 内嵌 URL 组装；git --version 探测）**
 - [ ] **Step 2: identityPage 处理 gitToken**——校验响应含 `gitToken` 时 `context.secrets.store("pylearner.git.token", token)`；无 token（离线/未建号）提示「请联系教师开通 Git 账户」
 - [ ] **Step 3: switchFlow 四段 git 化**——保持四段编排与「归档失败中止」语义，内部改为：`submitAll`（归档）→ `ensureStudentBranch(新学号)` + `clean -fdX` → `pull origin student-新学号`（失败容忍：新学生首用）→ 汇总通知。沿用现有 switchFlow.test.ts 的骨架，fake 换成 git recorder
-- [ ] **Step 4: extension.ts 重接四命令**——提交/拉取/同步/切换命令体改为调 git 模块（同步 = 按钮「同步作业」，先 `fetch + rebase origin/student-X` 再 `git.run(["checkout", branch, "--", "."])`，spec 4.5 防从落后分支同步出旧状态；命令 title 从「恢复我的提交」改为「同步作业」，package.json 菜单同步；workspace 非 git 仓库 → 提示先在身份页完成校验触发 clone 引导）；activation 时 `probeGit()` 失败 → 警告「未检测到 Git，请安装」；notify 发 `POST {teacherUrl}/api/submissions/notify`（失败静默重试一次）
+- [ ] **Step 4: extension.ts 重接四命令**——提交/拉取/同步/切换命令体改为调 git 模块（同步 = 按钮「同步作业」，spec 4.5 三步：有未提交修改先 `git stash -u` 自动备份（零丢失兜底）→ `fetch + rebase origin/student-X` → `git.run(["checkout", branch, "--", "."])`，执行前告知性确认弹窗；命令 title 从「恢复我的提交」改为「同步作业」，package.json 菜单同步；workspace 非 git 仓库 → 提示先在身份页完成校验触发 clone 引导）；activation 时 `probeGit()` 失败 → 警告「未检测到 Git，请安装」；notify 发 `POST {teacherUrl}/api/submissions/notify`（失败静默重试一次）
 - [ ] **Step 5: 全量测试** → `npx vitest run` PASS（348 基线 + 新增）
 - [ ] **Step 6: Commit** → `feat(ext): 四命令接 git 原语，token 集成，clone 引导与 git 探测`
 
