@@ -416,7 +416,7 @@ export function createGitClient(cwd: string, exec: ExecFn = execFileAsync as Exe
 - Test: `src/test/git/branchOps.test.ts`、`src/test/git/pullOps.test.ts`
 
 **Interfaces:**
-- Produces: `ensureStudentBranch(git, studentId): Promise<void>`；`assertCurrentBranch(git, studentId): Promise<boolean>`；`pullNewOnly(git): Promise<{ pulled: string[] }>`
+- Produces: `ensureStudentBranch(git, studentId): Promise<void>`；`assertCurrentBranch(git, studentId): Promise<boolean>`；`pullNewOnly(git, studentId): Promise<{ pulled: string[] }>`（先 rebase 远端自己分支再只新增，spec 4.3 两步走）
 - 消费 Task 3 的 GitClient
 
 - [ ] **Step 1: 写失败测试（fake git 记录调用序列）**
@@ -441,7 +441,6 @@ describe("ensureStudentBranch", () => {
   it("本地无分支 → 自 origin/main 创建并 checkout", async () => {
     const { calls, git } = recorder((a) => {
       if (a[0] === "branch" && a[1] === "--list") return "";          // 无本地分支
-      if (a[0] === "rev-parse") return "";                              // checkout 后
       return "";
     });
     await ensureStudentBranch(git, "0001");
@@ -464,26 +463,33 @@ describe("assertCurrentBranch", () => {
 ```
 
 ```ts
-// src/test/git/pullOps.test.ts（核心：只新增策略）
+// src/test/git/pullOps.test.ts（核心：先同步自己 + 只新增，多电脑场景）
 import { describe, it, expect } from "vitest";
 import { pullNewOnly } from "../../git/pullOps";
 
-describe("pullNewOnly 只新增", () => {
-  it("diff-filter=A 列出的新文件 → checkout origin/main -- 后 commit", async () => {
+describe("pullNewOnly", () => {
+  it("先 rebase origin/student-X（多电脑防覆盖），再 diff-filter=A 只拿新文件并 commit", async () => {
     const calls: string[][] = [];
     const git = { run: async (a: string[]) => { calls.push(a);
-      if (a[0] === "diff") return "lesson5/new.py\nlesson5/old.py\n";  // 假设含修改，实现须用 --diff-filter=A
-      if (a[0] === "rev-parse") return "abc";
+      if (a[0] === "rebase") return "";
+      if (a[0] === "diff") return "lesson5/new.py\n";
       return ""; } } as never;
-    const r = await pullNewOnly(git);
-    expect(r.pulled).toContain("lesson5/new.py");
+    const r = await pullNewOnly(git, "0001");
+    // 顺序断言：fetch → rebase origin/student-0001 → diff → checkout → commit
+    const rebaseIdx = calls.findIndex((c) => c[0] === "rebase");
+    const diffIdx = calls.findIndex((c) => c[0] === "diff");
+    expect(rebaseIdx).toBeGreaterThan(-1);
+    expect(rebaseIdx).toBeLessThan(diffIdx);
+    expect(calls[rebaseIdx][1]).toBe("origin/student-0001");
+    expect(calls.some((c) => c.join(" ").includes("diff-filter=A"))).toBe(true);
     expect(calls.some((c) => c.join(" ").includes("checkout origin/main --"))).toBe(true);
     expect(calls.some((c) => c[0] === "commit")).toBe(true);
+    expect(r.pulled).toContain("lesson5/new.py");
   });
   it("无新增 → 不 commit", async () => {
     const calls: string[][] = [];
     const git = { run: async (a: string[]) => { calls.push(a); if (a[0] === "diff") return ""; return ""; } } as never;
-    const r = await pullNewOnly(git);
+    const r = await pullNewOnly(git, "0001");
     expect(r.pulled).toHaveLength(0);
     expect(calls.some((c) => c[0] === "commit")).toBe(false);
   });
@@ -516,9 +522,10 @@ export async function assertCurrentBranch(git: GitClient, studentId: string): Pr
 // src/git/pullOps.ts
 import type { GitClient } from "./gitClient";
 
-/** 只新增策略（spec 4.3）：教师误改已有文件天然不生效 */
-export async function pullNewOnly(git: GitClient): Promise<{ pulled: string[] }> {
+/** spec 4.3：先同步自己（多电脑防覆盖——落后分支直接拉 main 会用原始题面覆盖他机提交的学生代码），再只新增 */
+export async function pullNewOnly(git: GitClient, studentId: string): Promise<{ pulled: string[] }> {
   await git.run(["fetch", "origin"]);
+  await git.run(["rebase", `origin/student-${studentId}`]);   // 本地落后时 fast-forward 收敛；有离线提交时 rebase
   const out = await git.run(["diff", "--diff-filter=A", "--name-only", "HEAD", "origin/main"]);
   const paths = out.split("\n").map((s) => s.trim()).filter(Boolean);
   if (paths.length === 0) return { pulled: [] };
@@ -638,7 +645,7 @@ export async function submitAll(deps: SubmitDeps): Promise<SubmitResult> {
 - [ ] **Step 1: gitEnv 测试 + 实现（TDD 两个用例：token 内嵌 URL 组装；git --version 探测）**
 - [ ] **Step 2: identityPage 处理 gitToken**——校验响应含 `gitToken` 时 `context.secrets.store("pylearner.git.token", token)`；无 token（离线/未建号）提示「请联系教师开通 Git 账户」
 - [ ] **Step 3: switchFlow 四段 git 化**——保持四段编排与「归档失败中止」语义，内部改为：`submitAll`（归档）→ `ensureStudentBranch(新学号)` + `clean -fdX` → `pull origin student-新学号`（失败容忍：新学生首用）→ 汇总通知。沿用现有 switchFlow.test.ts 的骨架，fake 换成 git recorder
-- [ ] **Step 4: extension.ts 重接四命令**——提交/拉取/恢复/切换命令体改为调 git 模块（恢复 = `git.run(["checkout", branch, "--", "."])`；workspace 非 git 仓库 → 提示先在身份页完成校验触发 clone 引导）；activation 时 `probeGit()` 失败 → 警告「未检测到 Git，请安装」；notify 发 `POST {teacherUrl}/api/submissions/notify`（失败静默重试一次）
+- [ ] **Step 4: extension.ts 重接四命令**——提交/拉取/恢复/切换命令体改为调 git 模块（恢复 = 先 `fetch + rebase origin/student-X` 再 `git.run(["checkout", branch, "--", "."])`，spec 4.5 防从落后分支恢复旧状态；workspace 非 git 仓库 → 提示先在身份页完成校验触发 clone 引导）；activation 时 `probeGit()` 失败 → 警告「未检测到 Git，请安装」；notify 发 `POST {teacherUrl}/api/submissions/notify`（失败静默重试一次）
 - [ ] **Step 5: 全量测试** → `npx vitest run` PASS（348 基线 + 新增）
 - [ ] **Step 6: Commit** → `feat(ext): 四命令接 git 原语，token 集成，clone 引导与 git 探测`
 
@@ -721,6 +728,8 @@ export async function submitAll(deps: SubmitDeps): Promise<SubmitResult> {
 // 4. POST /api/submissions/notify → submissions 轻量索引出现记录 + SSE 收到 submission_received
 // 5. POST /api/reviews/request（带 filePath+code+commitHash）→ 评审（LLM mock）→ 回填该记录
 // 6. 学生二度拉取：教师再 push lesson6/ → pullNewOnly 只进 lesson6
+// 7. 多电脑场景：第二个目录再 clone（模拟电脑 2）提交作业 2 → 回第一个目录（电脑 1，分支落后）
+//    pullNewOnly 拉作业 3 → 断言 lesson2/a.py 仍是学生版（未被原始题面覆盖）、lesson6 已进入
 ```
 
 - [ ] **Step 2: 跑通**（真实 git，Windows 环境注意路径分隔符统一用 POSIX 形态传 git）

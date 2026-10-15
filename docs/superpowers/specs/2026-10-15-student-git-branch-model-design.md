@@ -74,13 +74,12 @@
 - 工作分支：`student-<学号>`，本地跟踪 `origin/student-<学号>`；不存在时自 `origin/main` 创建
 - 分支创建/切换仅发生在身份通过花名册校验之后（沿用现有身份页流程）
 
-### 4.3 拉取（只新增策略）
+### 4.3 拉取（先同步自己 + 只新增）
 
-不使用裸 `git merge origin/main`（教师误改已有题面时会冲突/覆盖）。改为：
+多电脑场景必须先收敛本地分支与远端（否则落后的工作区会把旧文件/原始题面 rebase 上去，覆盖其他电脑提交的学生代码）。拉取两步走：
 
-1. `git fetch origin`
-2. `git diff --name-only HEAD origin/main` 取 main 相对本分支的新增文件路径
-3. 仅对这些路径执行 `git checkout origin/main -- <paths>` 后 commit
+1. **同步自己**：`git fetch origin` + `git rebase origin/student-<学号>`（本地无未推送提交时退化为 fast-forward pull；rebase 冲突走 4.4 的冲突提示）
+2. **只新增**：`git diff --diff-filter=A --name-only HEAD origin/main` 取 main 相对本分支的新增文件 → `git checkout origin/main -- <paths>` → commit
 
 效果：main 的新作业（新目录/新文件）进入学生分支与工作区；main 对已有文件的任何修改**天然不生效**——前提被破坏时系统静默降级为「学生看不到勘误」，无数据事故。
 
@@ -98,7 +97,7 @@
 
 ### 4.5 恢复
 
-`git checkout student-<学号> -- .`（整个工作区，含学生自建文件）：本地克隆即全量，断网可恢复可翻历史。原「查 DB → 写回 → 拉取补缺」三段式退役。
+先 `fetch + rebase origin/student-<学号>`（同 4.3 第 1 步，防从落后分支恢复旧状态），再 `git checkout student-<学号> -- .`（整个工作区，含学生自建文件）：本地克隆即全量，断网可恢复可翻历史。原「查 DB → 写回 → 拉取补缺」三段式退役。
 
 ### 4.6 切换学号（一键换机）
 
