@@ -1,8 +1,8 @@
-# 设计：学生分支直连模型（拉取/提交/同步/切换 Git 原语化）+ 作业域退役
+# 设计：学生分支直连模型（拉取/提交/同步/切换 Git 原语化）+ 作业域退役 + notify 退役
 
 - 日期：2026-10-15
-- 状态：Task 1-11 已实现闭环（见 .superpowers/sdd/2026-10-15-student-git-branch-model/progress.md）；§0 作业域退役（Task 12）待实现
-- 涉及仓库：classroom-assistant（服务端极致瘦身）、vscode-pylearner（Task 12 零改动）
+- 状态：Task 1-11 已实现闭环（见 .superpowers/sdd/2026-10-15-student-git-branch-model/progress.md）；§0 作业域退役已实现；§0.3 notify 退役 + 评审驱动状态已实现
+- 涉及仓库：classroom-assistant（服务端极致瘦身）、vscode-pylearner（git 模块 + notify 移除）
 
 ## 0. 作业域退役（2026-10-15 补充裁决，Task 12）
 
@@ -28,34 +28,43 @@ Task 1-11 落地后，用户决定把作业域整个砍掉，比原设计更彻�
 
 **保留**（全部路径化）：
 
-- notify 轻量索引：**每次 push 一行**（`UNIQUE(student_id, commit_hash)`），`files` 原样入 `files_json` 不做对照；响应 `{ ok: true }`；不再广播 SSE
 - 评审：`filePath + code（含题面注释全文）` 直达 LLM；无 404 not-exercise（所有文件皆可评审）；缓存 key = `sha256(filePath + 组装后评审输入)`
-- 评审回填：`review_json = { [filePath]: ReviewResult }`，按 filePath upsert（同一次 push 多文件评审互不覆盖）
-- `GET /api/submissions/student/:id` 保留（路径级明细查询）；`GET /api/submissions/exercise/:id` 删除
 - 评审 fail 注入实时监控告警/知识点聚合（stateManager 链路）不动
+- L1 归档、监控 SSE、LLM 聊天代理不动
 
 **接受取舍**（用户已确认）：监控/索引只有路径级明细，无「作业→练习」聚合视图；题面锚点依赖教师把题面注释写进文件（无分隔线时全文视为代码）；LLM 无 DB 测试用例锚点。
 
-**扩展端零改动**：F5 请求已携带 filePath + code（+ 项目 files 快照）；服务端 404 not-exercise 不复存在后，扩展的 404 分支自然死代码，保留作防御。
+**扩展端**：作业域退役零改动（F5 请求已携带 filePath + code + 项目 files 快照；服务端 404 not-exercise 不复存在后，扩展的 404 分支自然死代码，保留作防御）。
 
 ### 0.1 退役后数据模型
 
 ```
-submissions(id PK, student_id, student_name, commit_hash, files_json, submitted_at, review_json)
-  UNIQUE(student_id, commit_hash)                  -- 每次 push 一行
-  review_json = { [filePath]: ReviewResult }       -- 评审回填按 filePath upsert
 review_cache(cache_key PK, status, reason, source, model, hit_count, created_at)
   cache_key = sha256(filePath + 组装后评审输入)[:32]   -- 纯内容寻址，无 versionHash
 events / error_cache / roster / student_tokens 不动
 ```
 
-存量库迁移（启动时自动，不考虑迁移成本）：`assignments`/`exercises` 直接 DROP；`submissions`/`review_cache` 含 `exercise_id` 列则 DROP 重建（旧缓存 key 公式已失效，丢弃无损）。
+存量库迁移（启动时自动，不考虑迁移成本）：`assignments`/`exercises`/`submissions` 直接 DROP；`review_cache` 含 `exercise_id` 列则 DROP 重建（旧缓存 key 公式已失效，丢弃无损）。
 
 ### 0.2 评审输入组装（取代题面锚点）
 
 - 无 `files`：评审输入 = `code` 原文（单文件题，题面注释在前）
 - 有 `files`（项目快照）：`validateFiles` 通过后，全部 `.py` 按路径排序拼接（`# ===== 文件: <path> =====` 头），非 .py 不入；`code` 与入口一致性校验删除（服务端无 manifest 无法核对，扩展为可信内部客户端）
 - LLM prompt：告知「`# ===== 代码区 =====` 分隔线之前注释为题目描述、之后为学生代码；无分隔线则全文为学生代码」
+
+### 0.3 notify 退役 + 评审驱动状态（2026-10-15 追加裁决）
+
+作业域退役后 notify 只剩「无 UI 消费的提交流水账」，用户确认砍掉，服务端彻底退出提交通道：
+
+- **删除**：`POST /api/submissions/notify`、`submissions` 表、`review_json` 回填、`GET /api/submissions/student/:id`；扩展端去掉 push 后的 `postSubmissionNotify`/`notifyServer` 上报（提交事实以学生分支 git 历史为唯一事实源，教师查提交走 Gitea）
+- **评审驱动教师端状态**（评审失败等同报错）：
+  - **pass → 置绿**：注入合成成功事件（`stateManager.apply(ev, null, { resolves: true })`），清零连续错误并标记 `lastResolvedAt`
+  - **fail → 无条件注入告警**（不再以提交行存在为前提）：合成 `review_fail` 报错事件进告警面板/知识点聚合，等同普通报错
+  - **run 成功只是活动信号**：不再置绿、不清零连续错误（`/api/events` 的成功事件不带 `resolves`）
+  - **unreviewed 为瞬态**：不改变学生状态（可重试）
+  - 判定规则：`未解决 = lastErrorAt 之后尚无 lastResolvedAt`（aggregator.computeScore）
+- **学生端回执不变**：F5 评审结果弹窗（✅/❌/⚪）走评审 HTTP 响应，与 notify 无关，保持原样
+- 评审 wire 中的 `commitHash` 保留（扩展仍上报，服务端暂不消费）
 
 ## 1. 背景与动机
 
@@ -103,12 +112,12 @@ events / error_cache / roster / student_tokens 不动
                   │ fetch + 只新增同步   │ clone / push（扩展代执行，学生零认知）
 学生机 ◀──────────┴────────────────────┘
    │
-   └─push 成功后 ──▶ POST /api/submissions/notify（学号 + 文件清单 + commit hash）──▶ 服务端
+   └─F5 运行成功 ──▶ POST /api/reviews/request（filePath + code + commitHash）──▶ 服务端
                                                                             │
-服务端（极致旁路化）：轻量索引 + SSE 监控 + 评审（F5 触发）+ L1 归档 + 花名册/Gitea 联动
+服务端（极致旁路化）：SSE 监控 + 评审（结果回执 + 注入状态）+ L1 归档 + 花名册/Gitea 联动
 ```
 
-服务端退出作业内容通道与作业域：不下发题目内容、不代写学生分支、不 clone 任何仓库、无作业/练习实体。
+服务端退出作业内容通道与提交通道：不下发题目内容、不代写学生分支、不 clone 任何仓库、无作业/练习实体、不接收提交上报（提交事实 = 学生分支 git 历史）。
 
 ## 4. 学生机 Git 模型（vscode-pylearner，Task 1-11 已实现）
 
@@ -158,16 +167,9 @@ events / error_cache / roster / student_tokens 不动
 
 不变（`sessionConfirm`：设置身份 = 已确认；重启后首次点作业按钮确认）。
 
-## 5. 提交通知（替代 webhook）
+## 5. 提交通知（已退役，spec §0.3）
 
-```
-POST /api/submissions/notify
-{ studentId, studentName, commitHash, files: string[], pushedAt }
-```
-
-- `files` 为本次 push 涉及的文件清单（按 push 范围取，离线补推一次 push 可能含多个积压 commit）
-- 服务端：花名册校验 → **原样入库**（每次 push 一行，`UNIQUE(student_id, commit_hash)` 幂等）→ 200 `{ ok: true }`
-- 通知失败由扩展端重试；幂等由 UNIQUE 约束保证
+原设计为扩展 push 成功后发 `POST /api/submissions/notify` 轻量通知。作业域退役后该接口无 UI 消费者，且其「提交行存在」曾是评审 fail 注入的隐藏前提（上报失败会丢告警）。最终裁决：**整体退役**——提交事实以学生分支 git 历史为唯一事实源，教师查提交走 Gitea；评审结果经 HTTP 响应回执给学生、经状态注入呈现给教师，服务端不再需要任何提交通道。
 
 ## 6. 服务端形态（classroom-assistant）
 
