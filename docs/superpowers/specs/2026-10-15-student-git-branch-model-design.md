@@ -28,20 +28,16 @@
 | 门禁强度不变 | 身份仍经服务端花名册校验（`/api/identity/validate`），分支名由 globalState 学号派生；冒充难度与现状实质等价 | — |
 | 评审/L1/监控不动 | F5 评审触发（请求自带代码文本）、L1 归档、SSE 监控链路保持原样 | — |
 
-### 2.1 作业识别规则（替换 week- 前缀约定）
+### 2.1 作业识别：学生端零识别
 
-作业与目录的关系：**一目录一次布置（可多题）**，即现有 assignments/exercises 两层模型的直接泛化，仅放开目录名：
+**学生提交的全部内容均视为归档对象**（`git add -A`），学生端不做任何作业识别：
 
-```
-作业（assignment）= 任意名一级子目录（如 lesson5/、midterm/、final-project/），内容自动识别：
-  - 目录内 *.py                    → 单文件练习（一文件一题）
-  - 内含 exercise.json 的子目录     → 项目练习
-  - 下划线开头（_drafts/ 等）或无上述特征 → 非作业，自动排除
-作业标题默认 = 目录名（管理页可改）
-```
+- 提交/恢复/切换操作对象 = 整个工作区（.gitignore 挡 `__pycache__`、`*.pyc`、`.venv/` 等垃圾）
+- 学生自建文件（笔记、草稿）一并进入个人分支——分支语义从「作业归档」升级为「学生工作区归档」，丢机恢复更完整；教师浏览以 `submit:` commit 记录为准，无干扰
+- **练习定位靠文件头元数据**：题目文件头部嵌有服务端注入的 exercise-id（现有机制），F5 评审时扩展读文件头取 exerciseId，无需目录/内容识别
+- 教师仓库目录命名自由（`week-数字` 约定退役，任意一级子目录均可）
 
-- 一堂课多道题 → 一个目录放多个文件；同一堂课多次布置 → 多个目录，管理页天然分组
-- exercise-id 注入、评审锚点（题面 + 测试用例）均为练习级，逻辑不变
+**服务端侧识别保留**（与学生提交无关）：syncNow 扫描教师仓库维护 exercises 表（评审需读题面 + 测试用例锚点），扫描规则放宽为内容特征（目录内 `.py` = 单文件练习；含 `exercise.json` 的子目录 = 项目练习；下划线开头或无特征 = 排除）。作业标题默认 = 目录名（管理页可改）。
 
 ## 3. 总体架构
 
@@ -82,7 +78,7 @@
 
 ### 4.4 提交
 
-1. `git add <识别出的作业目录>`（按 2.1 规则识别，学生自建文件不入库）
+1. `git add -A`（整个工作区，.gitignore 挡垃圾文件；学生自建文件一并归档）
 2. `git commit`（author 由扩展按 globalState 身份写入：`学号 姓名 <学号@classroom>`；时间戳由本机 git 落，服务端 notify 时间以 DB `submitted_at` 为准）
 3. `git push origin student-<学号>`
 
@@ -92,13 +88,13 @@
 
 ### 4.5 恢复
 
-`git checkout student-<学号> -- <作业目录>`（按 2.1 规则识别）：本地克隆即全量，断网可恢复可翻历史。原「查 DB → 写回 → 拉取补缺」三段式退役。
+`git checkout student-<学号> -- .`（整个工作区，含学生自建文件）：本地克隆即全量，断网可恢复可翻历史。原「查 DB → 写回 → 拉取补缺」三段式退役。
 
 ### 4.6 切换学号（一键换机）
 
 保留 switchFlow 四段编排，各段替换为 git 原语：
 
-1. 旧身份归档 = `add <作业目录> + commit + push`（失败中止切换，不变）
+1. 旧身份归档 = `add -A + commit + push`（失败中止切换，不变）
 2. 清空/重建 = `git checkout student-<新学号>`（分支不存在则自 origin/main 创建）
 3. 同步 = `git pull origin student-<新学号>`
 4. untracked 自建文件天然跟随（优于现状的「只删 week-*」规则）
@@ -113,12 +109,13 @@
 
 ```
 POST /api/submissions/notify
-{ studentId, studentName, items: [{ exerciseId, commitHash, path }], pushedAt }
+{ studentId, studentName, commitHash, files: string[], pushedAt }
 ```
 
-**选扩展主动 notify 而非 Gitea webhook 的理由**：扩展是唯一知道「本次提交覆盖哪些练习」的地方（collectTargets 语义）；webhook 需服务端反向解析 commit diff，复杂且易错。通知失败由扩展端重试。
+- `files` 为本次 commit 的文件清单（`git diff --name-only HEAD~1`，纯 git 信息，学生端零识别）
+- 服务端拿文件清单对照 exercises 表得出练习明细，写入轻量索引 + SSE 广播 `submission_received`（监控面板数据源不变）
 
-服务端收到通知后：写入轻量索引 + SSE 广播 `submission_received`（监控面板数据源不变）。
+**选扩展主动 notify 而非 Gitea webhook 的理由**：扩展是唯一知道本次推送语义的地方；webhook 需服务端反向解析 commit diff，复杂且易错。通知失败由扩展端重试。
 
 ## 6. 服务端瘦身（classroom-assistant）
 
