@@ -1,18 +1,9 @@
 import type { Express } from "express";
+import type { SSEMessage } from "@classroom/shared";
 import type { Persistence } from "../persistence";
-import { createSubmission, type SubmissionDeps } from "../controllers/submissionController";
 import { handleNotify } from "../controllers/notifyController";
-import { logEvent } from "../logger";
 
-export function registerSubmissionRoutes(app: Express, deps: SubmissionDeps & { persistence: Persistence }) {
-  app.post("/api/submissions", (req, res) => {
-    const r = createSubmission(deps, req.body);
-    if (!r.ok) {
-      logEvent({ event: "api.submission_rejected", level: "warn", data: { error: r.error } });
-      return res.status(r.status).json({ error: r.error });
-    }
-    return res.status(r.created ? 201 : 200).json({ submission: r.submission });
-  });
+export function registerSubmissionRoutes(app: Express, deps: { persistence: Persistence; publish: (msg: SSEMessage) => void }) {
   app.post("/api/submissions/notify", (req, res) => {
     const r = handleNotify(deps, req.body);
     return res.status(r.status).json(r.body);

@@ -4,7 +4,7 @@ import { createPersistence } from "../persistence";
 const p = createPersistence(":memory:");
 
 const assignment = {
-  id: "a-001", title: "第 1 周作业", week: 1, isPublished: false, createdAt: 1_000,
+  id: "a-001", title: "第 1 周作业", week: 1, createdAt: 1_000,
 };
 const exercise = {
   id: "3f2b8c1a-9d4e-4f6a-b7c8-d9e0f1a2b3c4", assignmentId: "a-001", order: 1,
@@ -25,11 +25,8 @@ describe("名册", () => {
 });
 
 describe("作业与练习", () => {
-  it("upsert + 查询 + 发布切换 + meta 修改", () => {
+  it("upsert + 查询 + meta 修改", () => {
     p.upsertAssignment(assignment);
-    p.setAssignmentPublished("a-001", true, 2_000);
-    expect(p.getAssignment("a-001")?.isPublished).toBe(true);
-    expect(p.getAssignment("a-001")?.publishedAt).toBe(2_000);
     p.updateAssignmentMeta("a-001", { title: "变量与表达式", dueAt: 1_760_000_000_000 });
     const a = p.getAssignment("a-001")!;
     expect(a.title).toBe("变量与表达式");
@@ -50,27 +47,30 @@ describe("作业与练习", () => {
   });
 });
 
-describe("提交", () => {
-  it("插入 → 幂等键查询 → 评审回填 → git 标记", () => {
-    p.insertSubmission({
-      id: "s-001", exerciseId: exercise.id, studentId: "0001", studentName: "张三",
-      code: "print(1)", source: "auto", submittedAt: 3_000, review: null,
-      codeHash: "h1", gitSynced: false,
+describe("提交轻量索引（submissions 表，spec §6.2）", () => {
+  it("notify 行入库 → 幂等 → 评审回填 → 查询统一", () => {
+    p.replaceRoster([{ studentId: "0001", studentName: "张三" }]);
+    p.upsertExercise({ ...exercise, isActive: true });
+    const row = { id: "n-001", exerciseId: exercise.id, studentId: "0001", studentName: "张三",
+      commitHash: "c1", filesJson: JSON.stringify(["week-01/exercise-01.py"]), submittedAt: 3_000 };
+    expect(p.insertNotifyRow(row)).toBe(true);
+    expect(p.insertNotifyRow(row)).toBe(false);      // 同 (exercise, student, commit) 幂等忽略
+
+    const subs = p.getSubmissionsByExercise(exercise.id);
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toMatchObject({
+      id: "n-001", exerciseId: exercise.id, studentId: "0001", studentName: "张三",
+      commitHash: "c1", files: ["week-01/exercise-01.py"], submittedAt: 3_000, review: null,
     });
-    expect(p.findSubmissionByKey(exercise.id, "0001", "h1")?.id).toBe("s-001");
-    expect(p.findSubmissionByKey(exercise.id, "0001", "h2")).toBeNull();
-    expect(p.getPendingReviewSubmissions()).toHaveLength(1);
-    expect(p.getUnsyncedSubmissions()).toHaveLength(1);
-    p.updateSubmissionReview("s-001", {
+    expect(p.getSubmissionsByStudent("0001")).toHaveLength(1);
+    expect(p.getLatestSubmissionByExerciseStudent(exercise.id, "0001")?.id).toBe("n-001");
+    expect(p.getLatestSubmissionByExerciseStudent(exercise.id, "9999")).toBeNull();
+
+    p.updateNotifyReview("n-001", {
       status: "pass", reason: "代码通过所有测试用例", reviewedAt: 3_100, model: "m", source: "llm",
     });
-    p.setSubmissionGitSynced("s-001");
-    expect(p.getPendingReviewSubmissions()).toHaveLength(0);
-    expect(p.getUnsyncedSubmissions()).toHaveLength(0);
     expect(p.getSubmissionsByExercise(exercise.id)[0].review?.status).toBe("pass");
-    expect(p.getSubmissionsByStudent("0001")).toHaveLength(1);
-    // 幂等命中既有 unreviewed（A30）：评审回填为 unreviewed 后仍是终态查询语义由 controller 判断
-    p.updateSubmissionReview("s-001", {
+    p.updateNotifyReview("n-001", {
       status: "unreviewed", reason: "评审超时", reviewedAt: 3_200, model: "m", source: "timeout",
     });
     expect(p.getSubmissionsByExercise(exercise.id)[0].review?.status).toBe("unreviewed");

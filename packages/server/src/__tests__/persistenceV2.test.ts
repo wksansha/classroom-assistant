@@ -4,7 +4,7 @@ import { createPersistence } from "../persistence";
 describe("persistence V2（项目练习 + files_json）", () => {
   it("exercise 携带 kind/dir/entry 往返一致", () => {
     const p = createPersistence(":memory:");
-    p.upsertAssignment({ id: "a1", title: "第 3 周作业", week: 3, isPublished: true, createdAt: 1 });
+    p.upsertAssignment({ id: "a1", title: "第 3 周作业", week: 3, createdAt: 1 });
     p.upsertExercise({
       id: "e1", assignmentId: "a1", order: 1, filename: "weather-app",
       problemStatement: "题面", starterCode: "print()", testCases: [], versionHash: "v1",
@@ -21,22 +21,21 @@ describe("persistence V2（项目练习 + files_json）", () => {
     expect(p.getExercise("e2")!.kind ?? "file").toBe("file");
   });
 
-  it("submission files_json 往返 + 最新提交查询", () => {
+  it("submissions 轻量索引：files_json 路径清单往返 + 最新提交查询", () => {
     const p = createPersistence(":memory:");
-    p.upsertAssignment({ id: "a1", title: "t", week: 3, isPublished: true, createdAt: 1 });
+    p.upsertAssignment({ id: "a1", title: "t", week: 3, createdAt: 1 });
     p.upsertExercise({ id: "e1", assignmentId: "a1", order: 1, filename: "w",
       problemStatement: "s", starterCode: "", testCases: [], versionHash: "v", isActive: true, createdAt: 1 });
-    p.insertSubmission({ id: "s1", exerciseId: "e1", studentId: "2025001", studentName: "张三",
-      code: "main", source: "manual", submittedAt: 100, review: null,
-      codeHash: "h1", gitSynced: false,
-      files: [{ path: "main.py", content: "main" }, { path: "utils.py", content: "u" }] });
-    p.insertSubmission({ id: "s2", exerciseId: "e1", studentId: "2025001", studentName: "张三",
-      code: "main2", source: "manual", submittedAt: 200, review: null, codeHash: "h2", gitSynced: false });
+    p.insertNotifyRow({ id: "s1", exerciseId: "e1", studentId: "2025001", studentName: "张三",
+      commitHash: "c1", filesJson: JSON.stringify(["week-03/w/main.py", "week-03/w/utils.py"]), submittedAt: 100 });
+    p.insertNotifyRow({ id: "s2", exerciseId: "e1", studentId: "2025001", studentName: "张三",
+      commitHash: "c2", filesJson: "[]", submittedAt: 200 });
     const latest = p.getLatestSubmissionByExerciseStudent("e1", "2025001")!;
     expect(latest.id).toBe("s2");
-    expect(latest.files ?? null).toBeNull();
+    expect(latest.files).toEqual([]);
+    expect(latest.commitHash).toBe("c2");
     const first = p.getSubmissionsByStudent("2025001").find((s) => s.id === "s1")!;
-    expect(first.files).toEqual([{ path: "main.py", content: "main" }, { path: "utils.py", content: "u" }]);
+    expect(first.files).toEqual(["week-03/w/main.py", "week-03/w/utils.py"]);
   });
 
   it("旧库迁移：已存在的表补列不报错", () => {

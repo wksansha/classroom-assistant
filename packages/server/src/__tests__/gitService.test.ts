@@ -35,7 +35,7 @@ const makeServer = () => createGitService({
   authorEmailDomain: "classroom",
 });
 
-describe("gitService（A13/A15/A28）", () => {
+describe("gitService main 侧（A13/A28；学生分支写路径已退役）", () => {
   it("ensureClone + alignToRemote + 注入回写推送成功", async () => {
     const git = makeServer();
     await git.ensureClone();
@@ -92,29 +92,5 @@ describe("gitService（A13/A15/A28）", () => {
     expect(await git.hasUnpushedMainCommits()).toBe(true);   // 遗留 commit 在
     await git.alignToRemote();                                // Phase 0/1 语义：丢弃安全（ID 在 DB）
     expect(await git.hasUnpushedMainCommits()).toBe(false);
-  }, 60_000);
-
-  it("createStudentBranches 幂等 + writeToStudentBranch 落库", async () => {
-    const git = makeServer();
-    await git.ensureClone();
-    await git.alignToRemote();
-    await git.createStudentBranches(["0001", "0002"]);
-    await git.createStudentBranches(["0001"]);              // 重复调用跳过
-    const heads = run(["ls-remote", "--heads", remoteUrl], base);
-    expect(heads).toContain("refs/heads/student-0001");
-    expect(heads).toContain("refs/heads/student-0002");
-
-    const r = await git.writeToStudentBranch({
-      studentId: "0001", studentName: "张三", week: 1,
-      filename: "exercise-01.py", content: "print('done')\n",
-    });
-    expect(r).toBe("ok");
-    run(["fetch", "origin"], teacherDir);
-    expect(readRemote("student-0001", "week-01/exercise-01.py")).toContain("done");
-    const log = run(["log", "-1", "--format=%an <%ae>%n%s", `origin/student-0001`], teacherDir);
-    expect(log).toContain("0001 张三 <0001@classroom>");
-    expect(log).toContain("submit: week-01/exercise-01.py by 0001 张三");
-    // main 不受影响（学生分支不镜像 main；main 上该文件仍是注入版，非学生提交）
-    expect(readRemote("main", "week-01/exercise-01.py")).not.toContain("done");
   }, 60_000);
 });

@@ -14,13 +14,11 @@ export interface ReviewResult {
 
 export interface Assignment {
   id: string;
-  title: string;              // 默认 "第 N 周作业"
-  week: number;               // UNIQUE
+  title: string;              // 默认 = 作业目录名（管理页可改）
+  week: number;               // 内部排序键（目录名含 week-N 时取 N，否则自增）；UNIQUE
   dueAt?: number;             // 仅展示
-  isPublished: boolean;
   createdAt: number;
-  publishedAt?: number;
-  weekDir?: string;           // 磁盘实际目录名（如 "week-5"）；缺省 = 补零 week-XX
+  weekDir?: string;           // 磁盘实际目录名（任意一级子目录，spec §2.1）
 }
 
 export interface TestCase { input: string; expectedOutput: string; description?: string; }
@@ -41,40 +39,19 @@ export interface Exercise {
   createdAt: number;
 }
 
+/** 轻量提交索引行（spec §6.2：submissions 表即索引，不存代码全文；代码在学生分支 git 历史中） */
 export interface Submission {
   id: string;
   exerciseId: string;
   studentId: string;
   studentName: string;
-  code: string;
-  source: "auto" | "manual";
+  commitHash: string;           // 学生分支提交 hash
+  files: string[] | null;       // 本次 push 涉及文件清单（files_json）
   submittedAt: number;
-  review: ReviewResult | null; // 评审完成前 null
-  files?: SubmissionFile[] | null;
+  review: ReviewResult | null;  // 评审完成前 null
 }
 
 export interface RosterEntry { studentId: string; studentName: string; }
-
-export interface PublishedExercise {
-  id: string; filename: string; versionHash: string;
-  kind?: ExerciseKind; dir?: string; entry?: string;
-}
-export interface PublishedAssignment {
-  id: string; title: string; week: number; dueAt?: number;
-  weekDir?: string;           // 磁盘实际目录名；缺省 = 补零 week-XX
-  exercises: PublishedExercise[];
-}
-
-/** learner → server 提交 wire payload（spec §2.3） */
-export interface SubmissionInput {
-  exerciseId: string;
-  studentId: string;
-  studentName: string;
-  code: string;               // ≤ 50KB，服务端校验
-  filePath?: string;
-  source: "auto" | "manual";
-  files?: SubmissionFile[];
-}
 
 /** learner → server 运行触发评审 wire payload（spec §4.2；学生分支直连模型：路径定位练习） */
 export interface ReviewRequestInput {

@@ -1,7 +1,7 @@
-import type { Assignment, Exercise, PublishedAssignment, RosterEntry, Submission } from "@classroom/shared";
+import type { Assignment, Exercise, RosterEntry, Submission } from "@classroom/shared";
 
 export interface SyncResult {
-  importedNew: number; updated: number; injected: number; deactivated: number; warnings: string[];
+  importedNew: number; updated: number; deactivated: number; warnings: string[];
 }
 
 async function get<T>(url: string): Promise<T> {
@@ -23,7 +23,6 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 export const assignmentsApi = {
   list: () => get<(Assignment & { exercises: Exercise[] })[]>("/api/assignments"),
   detail: (id: string) => get<Assignment & { exercises: Exercise[] }>(`/api/assignments/${id}`),
-  publishedList: () => get<PublishedAssignment[]>("/api/assignments/published"),
   submissionsByExercise: (exerciseId: string) => get<Submission[]>(`/api/submissions/exercise/${exerciseId}`),
   submissionsByStudent: (studentId: string) => get<Submission[]>(`/api/submissions/student/${studentId}`),
   roster: () => get<RosterEntry[]>("/api/roster"),

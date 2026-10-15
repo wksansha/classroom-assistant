@@ -4,7 +4,6 @@ import type {
 import type { Persistence } from "../persistence";
 import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
-import { validateFiles } from "./submissionController";
 import { resolveExercisesByFiles } from "./exerciseResolver";
 import { logEvent } from "../logger";
 
@@ -19,6 +18,31 @@ export interface ReviewRequestDeps {
 export type ReviewRequestResult =
   | { ok: true; review: ReviewResult; submissionId: string | null }
   | { ok: false; status: 400 | 404; error: string };
+
+const MAX_FILES = 50;
+const MAX_FILE_BYTES = 100 * 1024;
+const MAX_TOTAL_BYTES = 500 * 1024;
+
+/** 项目题 files 快照校验（review wire 约束）；返回 null = 通过，否则错误文案 */
+export function validateFiles(files: SubmissionFile[]): string | null {
+  if (!Array.isArray(files) || files.length === 0) return "files 不能为空";
+  if (files.length > MAX_FILES) return "文件数超过 50 上限";
+  let total = 0;
+  for (const f of files) {
+    if (!f || typeof f.path !== "string" || !f.path || typeof f.content !== "string") return "文件项缺少 path/content";
+    if (f.path.includes("\\") || f.path.startsWith("/") || /^[a-zA-Z]:/.test(f.path) || f.path.split("/").includes("..")) {
+      return `非法路径：${f.path}`;
+    }
+    if (f.path.split("/").some((seg) => ["__pycache__", ".venv", "venv", ".git"].includes(seg) || seg.endsWith(".pyc") || seg === ".DS_Store")) {
+      return `不应提交的文件：${f.path}`;
+    }
+    const size = Buffer.byteLength(f.content, "utf8");
+    if (size > MAX_FILE_BYTES) return `文件超过 100KB：${f.path}`;
+    total += size;
+  }
+  if (total > MAX_TOTAL_BYTES) return "项目总大小超过 500KB";
+  return null;
+}
 
 /** 评审输入组装（spec §4.2）：入口 + 其余 .py 按路径拼接，非 .py 素材不入 */
 export function buildReviewInput(exercise: Pick<Exercise, "entry">, code: string, files?: SubmissionFile[]): string {
@@ -59,7 +83,6 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   const exercise = hits.length > 0 ? deps.persistence.getExercise(hits[0].exerciseId) : null;
   if (!exercise || !exercise.isActive) return { ok: false, status: 404, error: "not-exercise" };
   const assignment = deps.persistence.getAssignment(exercise.assignmentId);
-  if (!assignment || !assignment.isPublished) return { ok: false, status: 400, error: "练习未发布" };
 
   const kind = exercise.kind ?? "file";
   if (kind === "project") {
@@ -82,21 +105,21 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
     reviewCode,
   );
 
-  // 评审回填轻量索引（spec §6.2）：(exercise_id, student_id, commit_hash) 定位 submission_notify 行；
+  // 评审回填轻量索引（spec §6.2）：(exercise_id, student_id, commit_hash) 定位 submissions 行；
   // commitHash 为空（未提交）→ 跳过回填，仅 review_cache 生效
   const commitHash = (input.commitHash ?? "").trim();
-  const notifyRow = commitHash
-    ? deps.persistence.getNotifyRowsByStudent(rosterEntry.studentId)
+  const submissionRow = commitHash
+    ? deps.persistence.getSubmissionsByStudent(rosterEntry.studentId)
         .find((r) => r.exerciseId === exercise.id && r.commitHash === commitHash) ?? null
     : null;
-  if (notifyRow) {
-    deps.persistence.updateNotifyReview(notifyRow.id, review);
+  if (submissionRow) {
+    deps.persistence.updateNotifyReview(submissionRow.id, review);
     deps.publish({ type: "review_complete", data: {
-      submissionId: notifyRow.id, exerciseId: exercise.id, studentId: rosterEntry.studentId,
-      assignmentId: assignment.id, submittedAt: notifyRow.submittedAt, review } });
+      submissionId: submissionRow.id, exerciseId: exercise.id, studentId: rosterEntry.studentId,
+      assignmentId: assignment?.id ?? "", submittedAt: submissionRow.submittedAt, review } });
     if (review.status === "fail") {
       injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
     }
   }
-  return { ok: true, review, submissionId: notifyRow?.id ?? null };
+  return { ok: true, review, submissionId: submissionRow?.id ?? null };
 }

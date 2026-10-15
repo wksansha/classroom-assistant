@@ -21,7 +21,7 @@ onMounted(() => void store.fetchAll());
       <div class="section-header">
         <h3>作业列表</h3>
         <span v-if="syncResult" class="sync-result">
-          新增 {{ syncResult.importedNew }} · 更新 {{ syncResult.updated }} · 注入 ID {{ syncResult.injected }} · 下线 {{ syncResult.deactivated }}
+          新增 {{ syncResult.importedNew }} · 更新 {{ syncResult.updated }} · 下线 {{ syncResult.deactivated }}
           <span v-for="w in syncResult.warnings" :key="w" class="warning">⚠️ {{ w }}</span>
         </span>
         <button class="sync" @click="sync">立即同步</button>

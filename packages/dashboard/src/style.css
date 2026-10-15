@@ -63,10 +63,6 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .admin-view .warning { display: block; color: #b45309; font-size: 13px; }
 .admin-view .assignment-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
 .admin-view .assignment-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
-.admin-view .assignment-row .published { color: var(--green); margin-left: auto; }
-.admin-view .assignment-row .draft { color: var(--muted); margin-left: auto; }
-.admin-view .assignment-row button { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 12px; cursor: pointer; }
-.admin-view .assignment-row button.publish { color: var(--accent); border-color: var(--accent); }
 .roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
 .roster-panel textarea { width: 100%; font-family: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
 .roster-panel .import-roster { align-self: flex-start; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--card); color: var(--accent); font-size: 13px; cursor: pointer; }

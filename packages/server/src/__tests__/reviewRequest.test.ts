@@ -1,15 +1,15 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import { createPersistence, type Persistence } from "../persistence";
 import { createStateManager } from "../stateManager";
-import { requestReview, buildReviewInput, type ReviewRequestDeps } from "../controllers/reviewController";
+import { requestReview, buildReviewInput, validateFiles, type ReviewRequestDeps } from "../controllers/reviewController";
 import { createReviewService } from "../reviewService";
 import type { SSEMessage } from "@classroom/shared";
 
-// seed：roster + assignment(week_dir=lesson5, 已发布) + 单文件题 a.py + 项目题 weather-app
+// seed：roster + assignment(week_dir=lesson5) + 单文件题 a.py + 项目题 weather-app
 function seedPersistence(): Persistence {
   const p = createPersistence(":memory:");
   p.replaceRoster([{ studentId: "2025001", studentName: "张三" }]);
-  p.upsertAssignment({ id: "a1", title: "第 5 课", week: 5, isPublished: true, createdAt: 1_000 });
+  p.upsertAssignment({ id: "a1", title: "第 5 课", week: 5, createdAt: 1_000 });
   p.setAssignmentWeekDir("a1", "lesson5");
   p.upsertExercise({ id: "ex-a", assignmentId: "a1", order: 1, filename: "a.py",
     problemStatement: "单文件题", starterCode: "", testCases: [], versionHash: "v1", isActive: true, createdAt: 1_000,
@@ -50,7 +50,7 @@ const projectInput = {
   studentId: "2025001", studentName: "张三", filePath: "lesson5/weather-app/utils.py", code: "M", commitHash: "c2",
   files: [{ path: "main.py", content: "M" }, { path: "utils.py", content: "u" }],
 };
-const insertNotify = (p: Persistence, id: string, exerciseId: string, commitHash: string) =>
+const seedNotifyRow = (p: Persistence, id: string, exerciseId: string, commitHash: string) =>
   p.insertNotifyRow({ id, exerciseId, studentId: "2025001", studentName: "张三", commitHash, filesJson: "[]", submittedAt: 100 });
 
 describe("运行触发评审（reviews/request，路径定位）", () => {
@@ -65,16 +65,25 @@ describe("运行触发评审（reviews/request，路径定位）", () => {
     expect(out).not.toContain("x.txt");
   });
 
-  it("命中单文件题：回填 submission_notify + SSE review_complete", async () => {
+  it("validateFiles 边界：空/超50个/超100KB/超500KB/路径穿越", () => {
+    expect(validateFiles([])).toBeTruthy();
+    expect(validateFiles(Array.from({ length: 51 }, (_, i) => ({ path: `f${i}.py`, content: "x" })))).toBeTruthy();
+    expect(validateFiles([{ path: "big.py", content: "a".repeat(101 * 1024) }])).toBeTruthy();
+    expect(validateFiles(Array.from({ length: 6 }, (_, i) => ({ path: `f${i}.py`, content: "a".repeat(90 * 1024) })))).toBeTruthy();
+    expect(validateFiles([{ path: "../evil.py", content: "x" }, { path: "main.py", content: "m" }])).toBeTruthy();
+    expect(validateFiles([{ path: "ok.py", content: "x" }])).toBeNull();
+  });
+
+  it("命中单文件题：回填 submissions 索引 + SSE review_complete", async () => {
     const { p, deps, sse } = makeDeps();
-    insertNotify(p, "n1", "ex-a", "c1");
+    seedNotifyRow(p, "n1", "ex-a", "c1");
     const r = await requestReview(deps, fileInput);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.submissionId).toBe("n1");
     expect(r.review.status).toBe("pass");
-    const row = p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!;
-    expect(JSON.parse(row.reviewJson!)).toMatchObject({ status: "pass" });
+    const row = p.getSubmissionsByStudent("2025001").find((x) => x.id === "n1")!;
+    expect(row.review).toMatchObject({ status: "pass" });
     const rc = sse.find((m) => m.type === "review_complete");
     expect(rc).toBeTruthy();
     expect((rc!.data as { submissionId: string; exerciseId: string; studentId: string }))
@@ -83,13 +92,13 @@ describe("运行触发评审（reviews/request，路径定位）", () => {
 
   it("命中项目题：files 快照校验通过 + 回填", async () => {
     const { p, deps } = makeDeps();
-    insertNotify(p, "n2", "ex-weather", "c2");
+    seedNotifyRow(p, "n2", "ex-weather", "c2");
     const r = await requestReview(deps, projectInput);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.submissionId).toBe("n2");
-    const row = p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n2")!;
-    expect(JSON.parse(row.reviewJson!)).toMatchObject({ status: "pass" });
+    const row = p.getSubmissionsByStudent("2025001").find((x) => x.id === "n2")!;
+    expect(row.review).toMatchObject({ status: "pass" });
   });
 
   it("路径未命中 exercises 表 → 404 not-exercise（根目录散文件同）", async () => {
@@ -108,23 +117,23 @@ describe("运行触发评审（reviews/request，路径定位）", () => {
 
   it("幂等：同路径同 code 二次请求命中缓存不重评；回填两次均生效", async () => {
     const { p, deps, llm } = makeDeps();
-    insertNotify(p, "n1", "ex-a", "c1");
+    seedNotifyRow(p, "n1", "ex-a", "c1");
     const r1 = await requestReview(deps, fileInput);
     const r2 = await requestReview(deps, fileInput);
     expect(r1.ok && r2.ok).toBe(true);
     expect(llm.calls).toBe(1);                                   // 第二次缓存命中
     expect((r2 as { review: { reviewedAt: number } }).review.reviewedAt)
       .toBeGreaterThanOrEqual((r1 as { review: { reviewedAt: number } }).review.reviewedAt);
-    expect(p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!.reviewJson).toBeTruthy();
+    expect(p.getSubmissionsByStudent("2025001").find((x) => x.id === "n1")!.review).toBeTruthy();
   });
 
   it("commitHash 空：回填跳过、无 SSE；缓存仍生效", async () => {
     const { p, deps, sse, llm } = makeDeps();
-    insertNotify(p, "n1", "ex-a", "c1");                          // 已有提交记录，但本次未提交
+    seedNotifyRow(p, "n1", "ex-a", "c1");                      // 已有提交记录，但本次未提交
     const input = { studentId: "2025001", studentName: "张三", filePath: "lesson5/a.py", code: "print(1)" };
     const r1 = await requestReview(deps, input);
     expect(r1.ok && r1.submissionId).toBe(null);
-    expect(p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!.reviewJson).toBeNull();
+    expect(p.getSubmissionsByStudent("2025001").find((x) => x.id === "n1")!.review).toBeNull();
     expect(sse).toEqual([]);
     await requestReview(deps, input);
     expect(llm.calls).toBe(1);                                    // 缓存命中
@@ -132,7 +141,7 @@ describe("运行触发评审（reviews/request，路径定位）", () => {
 
   it("fail：回填 + 注入聚合 + 快照推送（仅在回填行存在时）", async () => {
     const { p, deps, counters } = makeDeps("fail");
-    insertNotify(p, "n1", "ex-a", "c1");
+    seedNotifyRow(p, "n1", "ex-a", "c1");
     await requestReview(deps, fileInput);
     const rec = deps.stateManager.listRecords()[0];
     expect(rec).toBeTruthy();
@@ -143,19 +152,18 @@ describe("运行触发评审（reviews/request，路径定位）", () => {
     expect(counters.snapshotPushes).toBe(1);
   });
 
-  it("校验链：名册/未发布/项目缺 files/超 50KB", async () => {
+  it("校验链：名册/项目缺 files/超 50KB（发布门已退役，未发布不再拦截）", async () => {
     const { p, deps } = makeDeps();
     // 1) 名册未命中
     expect((await requestReview(deps, { ...fileInput, studentId: "999" })).ok).toBe(false);
-    // 2) 练习未发布：a2 未发布 + 关联练习 ex2（lesson9/x.py）
-    p.upsertAssignment({ id: "a2", title: "t", week: 9, isPublished: false, createdAt: 1 });
+    // 2) 未发布语义退役：push 即布置，作业行创建即未发布也照常评审
+    p.upsertAssignment({ id: "a2", title: "t", week: 9, createdAt: 1 });
     p.setAssignmentWeekDir("a2", "lesson9");
     p.upsertExercise({ id: "ex2", assignmentId: "a2", order: 1, filename: "x.py",
       problemStatement: "s", starterCode: "", testCases: [], versionHash: "v", isActive: true, createdAt: 1,
       kind: "file" });
     const unpublished = await requestReview(deps, { ...fileInput, filePath: "lesson9/x.py" });
-    expect(unpublished.ok).toBe(false);
-    if (!unpublished.ok) expect(unpublished.error).toBe("练习未发布");
+    expect(unpublished.ok).toBe(true);                            // 不再有「练习未发布」400
     // 3) 项目练习缺 files
     expect((await requestReview(deps, { ...projectInput, files: undefined })).ok).toBe(false);
     // 4) 超 50KB

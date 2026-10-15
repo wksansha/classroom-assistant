@@ -5,7 +5,7 @@ import { createPinia } from "pinia";
 vi.mock("../api/assignments", () => ({
   assignmentsApi: {
     list: vi.fn(async () => [
-      { id: "a1", title: "第 1 周作业", week: 1, isPublished: false, createdAt: 1, exercises: [
+      { id: "a1", title: "第 1 周作业", week: 1, createdAt: 1, exercises: [
         { id: "e1", assignmentId: "a1", order: 1, filename: "exercise-01.py", problemStatement: "题", testCases: [], versionHash: "v", isActive: true, createdAt: 1 },
       ] },
     ]),
@@ -13,7 +13,7 @@ vi.mock("../api/assignments", () => ({
     submissionsByExercise: vi.fn(async () => []),
     submissionsByStudent: vi.fn(async () => []),
     importRoster: vi.fn(async () => ({ ok: true, count: 2 })),
-    sync: vi.fn(async () => ({ importedNew: 3, updated: 0, injected: 3, deactivated: 0, warnings: ["week-01/x 已发布且有提交——评审基准已切换，请通知学生（A30）"] })),
+    sync: vi.fn(async () => ({ importedNew: 3, updated: 0, deactivated: 0, warnings: ["lesson5/a.py 已有提交，内容已变更——评审基准已切换，请通知学生（A30）"] })),
   },
 }));
 
@@ -21,13 +21,13 @@ import AdminView from "../views/AdminView.vue";
 import { assignmentsApi } from "../api/assignments";
 
 describe("AdminView（#/admin，A23/A16/A18/A30）", () => {
-  it("立即同步 → 显示导入结果与 A30 警示", async () => {
+  it("立即同步 → 显示导入结果与 A30 警示（注入回写已退役，无注入计数）", async () => {
     const w = mount(AdminView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));
     await w.find("button.sync").trigger("click");
     await new Promise((r) => setTimeout(r, 0));
     expect(w.text()).toContain("新增 3");
-    expect(w.text()).toContain("注入 ID 3");
+    expect(w.text()).not.toContain("注入 ID");
     expect(w.text()).toContain("评审基准已切换");            // A30 警示
   });
   it("名册面板导入调用 importRoster", async () => {

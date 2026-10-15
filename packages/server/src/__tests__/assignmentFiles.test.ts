@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseExerciseFile, injectExerciseId, computeExerciseVersionHash } from "../assignmentFiles";
-import { scanExerciseId } from "@classroom/shared";
+import { parseExerciseFile, computeExerciseVersionHash } from "../assignmentFiles";
 
 const EXERCISE_FILE_FIXTURE = `# -*- coding: utf-8 -*-
 # ===== classroom-assistant =====
@@ -42,23 +41,6 @@ describe("parseExerciseFile（spec §2.2 提取规则）", () => {
     const r = parseExerciseFile("# 题目：只有描述\n# 第二行");
     expect(r.problemStatement).toBe("题目：只有描述\n第二行");
     expect(r.starterCode).toBe("");
-  });
-});
-
-describe("injectExerciseId（A28：ID 以调用方为准，幂等可重做）", () => {
-  it("裸文件 → 前插完整元数据块，可被 scanExerciseId 解析", () => {
-    const injected = injectExerciseId(TEACHER_BARE_FIXTURE, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", 2);
-    expect(scanExerciseId(injected)).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-    const r = parseExerciseFile(injected);
-    expect(r.week).toBe(2);
-    expect(r.problemStatement).toBe("题目：两数之和\n描述：读取两个整数，输出它们的和。");
-    expect(r.starterCode).toBe("a = int(input())\nb = int(input())\nprint(a + b)");
-  });
-  it("已有元数据块但缺 id → 插到块内，不破坏原有内容", () => {
-    const noId = EXERCISE_FILE_FIXTURE.replace(/# exercise-id: .*\n/, "");
-    const injected = injectExerciseId(noId, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", 1);
-    expect(scanExerciseId(injected)).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-    expect(parseExerciseFile(injected).problemStatement).toContain("两数之和");
   });
 });
 

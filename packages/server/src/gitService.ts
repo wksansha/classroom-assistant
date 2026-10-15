@@ -14,20 +14,16 @@ export interface GitServiceDeps {
 
 export type GitPushResult = "ok" | "rejected" | "error";
 
+/** 服务端仅保留 main 侧操作（spec §6.3：注入回写退役，对教师仓库只读；学生分支由学生机直推 Gitea） */
 export interface GitService {
   ensureClone(): Promise<void>;
   alignToRemote(): Promise<void>;
   hasUnpushedMainCommits(): Promise<boolean>;
   pushMain(): Promise<GitPushResult>;
   commitAndPushMain(files: { path: string; content: string }[], message: string): Promise<GitPushResult>;
-  createStudentBranches(studentIds: string[]): Promise<void>;
-  writeToStudentBranch(args: {
-    studentId: string; studentName: string; week: number; weekDir?: string; filename: string; content: string;
-    files?: { path: string; content: string }[];   // V2.0 项目：filename=目录名
-  }): Promise<GitPushResult>;
-  /** 从本地 main ref 读取文件内容（T7-2：不依赖工作树检出状态，规避学生分支检出竞态；relPath 用 POSIX 分隔符） */
+  /** 从本地 main ref 读取文件内容（relPath 用 POSIX 分隔符） */
   readFileFromMain(relPath: string): Promise<string>;
-  /** 列出 main ref 下某目录的全部文件（V2.0 项目 content；只读 ref 不入 mutex） */
+  /** 列出 main ref 下某目录的全部文件（只读 ref 不入 mutex） */
   listFilesFromMain(dirRel: string): Promise<string[]>;
 }
 
@@ -124,72 +120,6 @@ export function createGitService(deps: GitServiceDeps): GitService {
       });
     },
 
-    async createStudentBranches(studentIds) {
-      return enqueue(async () => {
-        await git(["fetch", "origin"]);
-        for (const id of studentIds) {
-          const branch = `student-${id}`;
-          const heads = await git(["ls-remote", "--heads", "origin", branch]);
-          if (heads.trim()) continue;   // 已存在跳过
-          await git(["push", "origin", `origin/main:refs/heads/${branch}`]);
-        }
-      });
-    },
-
-    async writeToStudentBranch(args) {
-      return enqueue(async () => {
-        const branch = `student-${args.studentId}`;
-        await git(["fetch", "origin"]);
-        const local = await git(["branch", "--list", branch]);
-        if (!local.trim()) await git(["branch", branch, "origin/main"]);
-        await git(["checkout", branch]);
-        try {
-          await git(["pull", "--ff-only", "origin", branch]);
-        } catch {
-          /* 远端尚无此分支（首提）→ 忽略 */
-        }
-        let message: string;
-        // 宽容归一：week_dir 优先（磁盘实际目录名），缺省回退补零 week-XX
-        const weekPart = args.weekDir ?? `week-${String(args.week).padStart(2, "0")}`;
-        if (args.files) {
-          // 项目归档：删除式重写 week-XX/<dir>/（学生分支服务端独占，安全）
-          const relDir = `${weekPart}/${args.filename}`;
-          fs.rmSync(path.join(deps.repoDir, relDir), { recursive: true, force: true });
-          writeFiles(args.files.map((f) => ({ path: `${relDir}/${f.path}`, content: f.content })));
-          message = `submit: ${relDir}/ (project) by ${args.studentId} ${args.studentName}`;
-        } else {
-          const rel = `${weekPart}/${args.filename}`;
-          writeFiles([{ path: rel, content: args.content }]);
-          message = `submit: ${rel} by ${args.studentId} ${args.studentName}`;
-        }
-        await git(["add", "-A"]);
-        try {
-          await git(["commit",
-            "-m", message,
-            `--author=${args.studentId} ${args.studentName} <${args.studentId}@${domain}>`,
-          ]);
-        } catch (err) {
-          // 补推重试时内容可能已在分支（前次 commit 成功但 push 被拒）→ nothing to commit 幂等放行，继续 push
-          const e = err as { stdout?: string; stderr?: string };
-          if (!/nothing to commit/.test(`${e.stdout ?? ""}${e.stderr ?? ""}`)) throw err;
-        }
-        try {
-          await git(["push", "origin", branch]);
-          return "ok";
-        } catch {
-          // 单写者分支，理论不发生；兜底同 main：fetch+rebase+重试
-          await git(["fetch", "origin"]);
-          try {
-            await git(["rebase", `origin/${branch}`]);
-          } catch {
-            await git(["rebase", "--abort"]);
-            return "rejected";
-          }
-          await git(["push", "origin", branch]);
-          return "ok";
-        }
-      });
-    },
     async readFileFromMain(relPath) {
       // 只读 ref 操作，不入 mutex：git 引用读取原子，与写操作并发安全
       return git(["show", `main:${relPath}`]);

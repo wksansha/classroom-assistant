@@ -19,7 +19,6 @@ import { registerRosterRoutes } from "./routes/roster";
 import { createGiteaAdmin } from "./gitea/adminApi";
 import { registerAssignmentRoutes } from "./routes/assignments";
 import { registerSubmissionRoutes } from "./routes/submissions";
-import { type SubmissionDeps } from "./controllers/submissionController";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
 import { registerTraceArchiveRoutes } from "./routes/traceArchive";
@@ -81,12 +80,6 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
   const sync: SyncService | null = git && gitDeps
     ? createSyncService({ persistence, git, repoDir: gitDeps.repoDir, intervalMs: gitDeps.syncIntervalMs })
     : null;
-
-  // V2.0：提交纯归档，reviewService 不再传入（Task 6 的 review 路由装配会接手）
-  const submissionDeps: SubmissionDeps = {
-    persistence, git,
-    publish: (msg) => hub.publishMessage(msg),
-  };
 
   const app = express();
   app.use(cors());
@@ -216,8 +209,8 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
   }
   registerRosterRoutes(app, { persistence, gitea });
-  registerAssignmentRoutes(app, { persistence, git, repoDir: gitDeps?.repoDir ?? "", sync });
-  registerSubmissionRoutes(app, { ...submissionDeps, persistence });
+  registerAssignmentRoutes(app, { persistence, sync });
+  registerSubmissionRoutes(app, { persistence, publish: (msg) => hub.publishMessage(msg) });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {

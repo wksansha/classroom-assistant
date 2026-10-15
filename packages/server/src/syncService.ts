@@ -3,13 +3,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Persistence } from "./persistence";
 import type { GitService } from "./gitService";
-import { parseExerciseFile, injectExerciseId, computeExerciseVersionHash, isProjectIgnoredEntry, parseExerciseManifest, injectManifestIds, computeProjectVersionHash } from "./assignmentFiles";
+import { parseExerciseFile, computeExerciseVersionHash, isProjectIgnoredEntry, parseExerciseManifest, computeProjectVersionHash } from "./assignmentFiles";
+import type { Assignment } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 export interface SyncResult {
   importedNew: number;
   updated: number;
-  injected: number;
   deactivated: number;
   warnings: string[];
 }
@@ -27,202 +27,171 @@ export interface SyncServiceDeps {
   intervalMs?: number;
 }
 
-/** Phase 4：补推 git_synced=0 的提交到学生分支（独立导出，提交链失败时也可调用） */
-export async function retryFailedPushes(persistence: Persistence, git: GitService): Promise<void> {
-  for (const sub of persistence.getUnsyncedSubmissions()) {
-    const exercise = persistence.getExercise(sub.exerciseId);
-    const assignment = exercise ? persistence.getAssignment(exercise.assignmentId) : null;
-    if (!exercise || !assignment) continue;
-    try {
-      const r = await git.writeToStudentBranch({
-        studentId: sub.studentId, studentName: sub.studentName,
-        week: assignment.week, weekDir: assignment.weekDir, filename: exercise.filename, content: sub.code,
-        files: sub.files ?? undefined,   // 项目练习：补推走删除式重写，缺 files 会把目录名当文件写（EISDIR）
-      });
-      if (r === "ok") {
-        persistence.setSubmissionGitSynced(sub.id);
-      } else {
-        logEvent({ event: "git.push_failed", level: "error", data: { submissionId: sub.id, result: r } });
-      }
-    } catch (err) {
-      // 单条失败不阻塞同批其他记录（下轮同步自动重试）
-      logEvent({ event: "git.retry_error", level: "error", data: { submissionId: sub.id, error: String(err) } });
-    }
-  }
-}
-
 export function createSyncService(deps: SyncServiceDeps): SyncService {
   const { persistence, git, repoDir } = deps;
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  /** Phase 2：扫描 week-N/*.py 与 DB 对账；返回待注入文件 */
-  function scanOnce(result: SyncResult): { path: string; content: string }[] {
-    const injections: { path: string; content: string }[] = [];
-    // 磁盘上的 week 目录（教师整目录删除后 git 不留空目录 → 磁盘缺失，但 DB 周仍需对账下线）
-    // 宽容归一：^week-(\d+)$ 均可（如 week-5）；同周多目录并存 → 警告且补零名优先
-    const dirsByWeek = new Map<number, string[]>();
-    for (const entry of fs.readdirSync(repoDir, { withFileTypes: true })) {
-      const m = entry.isDirectory() ? entry.name.match(/^week-(\d+)$/) : null;
-      if (!m) continue;
-      const week = parseInt(m[1], 10);
-      const names = dirsByWeek.get(week) ?? [];
-      names.push(entry.name);
-      dirsByWeek.set(week, names);
-    }
-    const diskWeeks = new Map<number, string>();
-    for (const [week, names] of dirsByWeek) {
-      const padded = `week-${String(week).padStart(2, "0")}`;
-      diskWeeks.set(week, names.find((n) => n === padded) ?? names[0]);
-      if (names.length > 1) {
-        result.warnings.push(`week-${week} 目录名重复（${names.join(" 与 ")} 并存），已采用补零名/首个，请清理`);
-      }
-    }
-    const dbWeeks = persistence.getAssignments().map((a) => a.week);
-    const weeks = new Set<number>([...diskWeeks.keys(), ...dbWeeks]);
-    for (const week of weeks) {
-      const dirName = diskWeeks.get(week);
-      let assignment = persistence.getAssignments().find((a) => a.week === week);
+  /** 一级子目录内容特征识别（spec §2.1）：含 .py 或含 exercise.json 的子目录 = 作业目录；. / _ 开头或无特征 = 排除 */
+  function isAssignmentDir(name: string): boolean {
+    if (name.startsWith(".") || name.startsWith("_")) return false;
+    const abs = path.join(repoDir, name);
+    const entries = fs.readdirSync(abs, { withFileTypes: true });
+    if (entries.some((e) => e.isFile() && e.name.endsWith(".py"))) return true;
+    return entries.some((e) => e.isDirectory() && fs.existsSync(path.join(abs, e.name, "exercise.json")));
+  }
+
+  /** 新作业目录 → week 键：目录名含 week-N 取 N；否则自增；冲突时兜底自增 */
+  function deriveWeek(dirName: string): number {
+    const all = persistence.getAssignments();
+    const maxWeek = all.reduce((mx, a) => Math.max(mx, a.week), 0);
+    const m = dirName.match(/^week-(\d+)$/i);
+    const wanted = m ? parseInt(m[1], 10) : maxWeek + 1;
+    return all.some((a) => a.week === wanted) ? maxWeek + 1 : wanted;
+  }
+
+  /** 对账扫描：维护 assignments/exercises 表（评审依赖题面锚点），只读教师仓库不回写（spec §6.3） */
+  function scanOnce(result: SyncResult): void {
+    // week-N 目录优先处理（week 取 N），其余目录自增派生，保证 week 键派生与目录序无关
+    const weekNum = (n: string) => { const m = n.match(/^week-(\d+)$/i); return m ? Number(m[1]) : Number.POSITIVE_INFINITY; };
+    const dirNames = fs.readdirSync(repoDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && isAssignmentDir(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => weekNum(a) - weekNum(b) || a.localeCompare(b));
+    for (const dirName of dirNames) {
+      let assignment = persistence.getAssignments().find((a) => a.weekDir === dirName);
       if (!assignment) {
-        assignment = { id: randomUUID(), title: `第 ${week} 周作业`, week, isPublished: false, createdAt: Date.now() };
+        // 教师放好目录 push 即布置：建行即已布置，标题默认 = 目录名（管理页可改）
+        assignment = { id: randomUUID(), title: dirName, week: deriveWeek(dirName), createdAt: Date.now() };
         persistence.upsertAssignment(assignment);
       }
-      if (dirName) persistence.setAssignmentWeekDir(assignment.id, dirName);   // 实际目录名落库；DB-only 周保持 NULL
+      if (assignment.weekDir !== dirName) persistence.setAssignmentWeekDir(assignment.id, dirName);
       const activeBefore = persistence.getExercises(assignment.id).filter((e) => e.isActive).map((e) => e.id);
-      const files = dirName
-        ? fs.readdirSync(path.join(repoDir, dirName)).filter((f) => f.endsWith(".py")).sort()
-        : [];
-      const seenIds: string[] = [];
-      files.forEach((filename, idx) => {
-        const rel = `${dirName}/${filename}`;
-        const content = fs.readFileSync(path.join(repoDir, rel), "utf8");
-        const parsed = parseExerciseFile(content);
-        // 对账（A28）：优先头部 id；无 id 按 (week, filename) 查 DB——ID 以 DB 为准
-        let exercise = parsed.exerciseId ? persistence.getExercise(parsed.exerciseId) : null;
-        if (!exercise) exercise = persistence.findExerciseByPath(week, filename);
-        const versionHash = computeExerciseVersionHash(parsed.problemStatement, [], parsed.starterCode);
-        if (!exercise) {
-          const id = parsed.exerciseId ?? randomUUID();
-          persistence.upsertExercise({
-            id, assignmentId: assignment!.id, order: idx + 1, filename,
-            problemStatement: parsed.problemStatement, starterCode: parsed.starterCode,
-            testCases: [], versionHash, isActive: true, createdAt: Date.now(),
-          });
-          result.importedNew++;
-          seenIds.push(id);
-          if (!parsed.exerciseId) injections.push({ path: rel, content: injectExerciseId(content, id, week) });
-        } else {
-          if (exercise.versionHash !== versionHash) {
-            result.updated++;
-            if (assignment!.isPublished && persistence.getSubmissionsByExercise(exercise.id).length > 0) {
-              result.warnings.push(`week-${week}/${filename} 已发布且有提交，内容已变更——评审基准已切换，请通知学生（A30）`);
-            }
-          }
-          persistence.upsertExercise({
-            ...exercise, order: idx + 1, problemStatement: parsed.problemStatement,
-            starterCode: parsed.starterCode, versionHash, isActive: true,
-          });
-          seenIds.push(exercise.id);
-          if (!parsed.exerciseId) injections.push({ path: rel, content: injectExerciseId(content, exercise.id, week) });
-        }
-      });
-      // V2.0 项目练习：week-N 一级子目录含 exercise.json = 一个 exercise（spec §3）
-      const subdirs = dirName
-        ? fs.readdirSync(path.join(repoDir, dirName), { withFileTypes: true }).filter((e) => e.isDirectory())
-        : [];
-      let dirOrder = files.length;
-      for (const sd of subdirs) {
-        if (isProjectIgnoredEntry(sd.name, true)) continue;
-        const manifestRel = `${dirName}/${sd.name}/exercise.json`;
-        const manifestAbs = path.join(repoDir, manifestRel);
-        if (!fs.existsSync(manifestAbs)) {
-          result.warnings.push(`week-${week}/${sd.name} 不是项目练习（缺 exercise.json），已忽略`);
-          continue;
-        }
-        const manifest = parseExerciseManifest(fs.readFileSync(manifestAbs, "utf8"));
-        if (!manifest) {
-          result.warnings.push(`week-${week}/${sd.name}/exercise.json 不是合法 JSON，已忽略`);
-          continue;
-        }
-        // 递归收集项目文件（忽略清单），路径相对项目目录
-        const projFiles: { path: string; content: string }[] = [];
-        const walk = (relDir: string) => {
-          for (const ent of fs.readdirSync(path.join(repoDir, relDir), { withFileTypes: true })) {
-            if (isProjectIgnoredEntry(ent.name, ent.isDirectory())) continue;
-            const rel = `${relDir}/${ent.name}`;
-            if (ent.isDirectory()) walk(rel);
-            else projFiles.push({ path: rel.slice(`${dirName}/${sd.name}/`.length), content: fs.readFileSync(path.join(repoDir, rel), "utf8") });
-          }
-        };
-        walk(`${dirName}/${sd.name}`);
-        const entryAbs = path.join(repoDir, dirName!, sd.name, manifest.entry ?? "main.py");
-        if (!fs.existsSync(entryAbs)) {
-          result.warnings.push(`week-${week}/${sd.name} 入口文件 ${manifest.entry} 不存在，已忽略`);
-          continue;
-        }
-        const entryParsed = parseExerciseFile(fs.readFileSync(entryAbs, "utf8"));
-        const versionHash = computeProjectVersionHash(projFiles);
-        dirOrder += 1;
-        // 对账双轨：manifest id 优先，回退 (week, 目录名)——filename = 目录名
-        let exercise = manifest.exerciseId ? persistence.getExercise(manifest.exerciseId) : null;
-        if (!exercise) exercise = persistence.findExerciseByPath(week, sd.name);
-        if (!exercise) {
-          const id = manifest.exerciseId ?? randomUUID();
-          persistence.upsertExercise({
-            id, assignmentId: assignment!.id, order: dirOrder, filename: sd.name,
-            problemStatement: entryParsed.problemStatement, starterCode: entryParsed.starterCode,
-            testCases: [], versionHash, isActive: true, createdAt: Date.now(),
-            kind: "project", dir: sd.name, entry: manifest.entry,
-          });
-          result.importedNew++;
-          seenIds.push(id);
-          if (!manifest.exerciseId) injections.push({ path: manifestRel, content: injectManifestIds(fs.readFileSync(manifestAbs, "utf8"), id, week) });
-        } else {
-          if (exercise.versionHash !== versionHash) {
-            result.updated++;
-            if (assignment!.isPublished && persistence.getSubmissionsByExercise(exercise.id).length > 0) {
-              result.warnings.push(`week-${week}/${sd.name} 已发布且有提交，内容已变更——评审基准已切换，请通知学生（A30）`);
-            }
-          }
-          persistence.upsertExercise({
-            ...exercise, order: dirOrder, problemStatement: entryParsed.problemStatement,
-            starterCode: entryParsed.starterCode, versionHash, isActive: true,
-            kind: "project", dir: sd.name, entry: manifest.entry,
-          });
-          seenIds.push(exercise.id);
-          if (!manifest.exerciseId) injections.push({ path: manifestRel, content: injectManifestIds(fs.readFileSync(manifestAbs, "utf8"), exercise.id, week) });
-        }
-      }
+      const seenIds = scanSingleFileExercises(dirName, assignment, result);
+      seenIds.push(...scanProjectExercises(dirName, assignment, result, seenIds.length));
       result.deactivated += activeBefore.filter((id) => !seenIds.includes(id)).length;
-      persistence.deactivateMissingExercises(week, seenIds);
+      persistence.deactivateMissingExercises(assignment.week, seenIds);
     }
-    return injections;
+    // 磁盘目录已删 / DB-only 作业（week_dir 未落或目录缺失）→ 练习全下线
+    for (const a of persistence.getAssignments()) {
+      if (a.weekDir && dirNames.includes(a.weekDir)) continue;
+      const activeIds = persistence.getExercises(a.id).filter((e) => e.isActive).map((e) => e.id);
+      if (activeIds.length === 0) continue;
+      persistence.deactivateMissingExercises(a.week, []);
+      result.deactivated += activeIds.length;
+    }
+  }
+
+  /** 单文件练习：目录一级 .py（排序），对账优先头部 id（存量注入头仍有效），无 id 按 (作业目录, filename) 查 DB */
+  function scanSingleFileExercises(dirName: string, assignment: Assignment, result: SyncResult): string[] {
+    const seenIds: string[] = [];
+    const files = fs.readdirSync(path.join(repoDir, dirName)).filter((f) => f.endsWith(".py")).sort();
+    files.forEach((filename, idx) => {
+      const content = fs.readFileSync(path.join(repoDir, dirName, filename), "utf8");
+      const parsed = parseExerciseFile(content);
+      let exercise = parsed.exerciseId ? persistence.getExercise(parsed.exerciseId) : null;
+      if (!exercise) exercise = persistence.getExercisesByDir(dirName).find((e) => e.filename === filename) ?? null;
+      const versionHash = computeExerciseVersionHash(parsed.problemStatement, [], parsed.starterCode);
+      if (!exercise) {
+        const id = parsed.exerciseId ?? randomUUID();
+        persistence.upsertExercise({
+          id, assignmentId: assignment.id, order: idx + 1, filename,
+          problemStatement: parsed.problemStatement, starterCode: parsed.starterCode,
+          testCases: [], versionHash, isActive: true, createdAt: Date.now(),
+        });
+        result.importedNew++;
+        seenIds.push(id);
+      } else {
+        if (exercise.versionHash !== versionHash) {
+          result.updated++;
+          if (persistence.getSubmissionsByExercise(exercise.id).length > 0) {
+            result.warnings.push(`${dirName}/${filename} 已有提交，内容已变更——评审基准已切换，请通知学生（A30）`);
+          }
+        }
+        persistence.upsertExercise({
+          ...exercise, order: idx + 1, problemStatement: parsed.problemStatement,
+          starterCode: parsed.starterCode, versionHash, isActive: true,
+        });
+        seenIds.push(exercise.id);
+      }
+    });
+    return seenIds;
+  }
+
+  /** 项目练习：子目录含 exercise.json = 一个 exercise（spec §3），filename = 目录名；startOrder 接续单文件练习排序 */
+  function scanProjectExercises(dirName: string, assignment: Assignment, result: SyncResult, startOrder: number): string[] {
+    const seenIds: string[] = [];
+    const subdirs = fs.readdirSync(path.join(repoDir, dirName), { withFileTypes: true })
+      .filter((e) => e.isDirectory());
+    let dirOrder = startOrder;
+    for (const sd of subdirs) {
+      if (isProjectIgnoredEntry(sd.name, true)) continue;
+      const manifestRel = `${dirName}/${sd.name}/exercise.json`;
+      const manifestAbs = path.join(repoDir, manifestRel);
+      if (!fs.existsSync(manifestAbs)) {
+        result.warnings.push(`${dirName}/${sd.name} 不是项目练习（缺 exercise.json），已忽略`);
+        continue;
+      }
+      const manifest = parseExerciseManifest(fs.readFileSync(manifestAbs, "utf8"));
+      if (!manifest) {
+        result.warnings.push(`${dirName}/${sd.name}/exercise.json 不是合法 JSON，已忽略`);
+        continue;
+      }
+      // 递归收集项目文件（忽略清单），路径相对项目目录
+      const projFiles: { path: string; content: string }[] = [];
+      const walk = (relDir: string) => {
+        for (const ent of fs.readdirSync(path.join(repoDir, relDir), { withFileTypes: true })) {
+          if (isProjectIgnoredEntry(ent.name, ent.isDirectory())) continue;
+          const rel = `${relDir}/${ent.name}`;
+          if (ent.isDirectory()) walk(rel);
+          else projFiles.push({ path: rel.slice(`${dirName}/${sd.name}/`.length), content: fs.readFileSync(path.join(repoDir, rel), "utf8") });
+        }
+      };
+      walk(`${dirName}/${sd.name}`);
+      const entryAbs = path.join(repoDir, dirName, sd.name, manifest.entry ?? "main.py");
+      if (!fs.existsSync(entryAbs)) {
+        result.warnings.push(`${dirName}/${sd.name} 入口文件 ${manifest.entry} 不存在，已忽略`);
+        continue;
+      }
+      const entryParsed = parseExerciseFile(fs.readFileSync(entryAbs, "utf8"));
+      const versionHash = computeProjectVersionHash(projFiles);
+      dirOrder += 1;
+      // 对账双轨：manifest id 优先，回退 (作业目录, 目录名)——filename = 目录名
+      let exercise = manifest.exerciseId ? persistence.getExercise(manifest.exerciseId) : null;
+      if (!exercise) exercise = persistence.getExercisesByDir(dirName).find((e) => e.filename === sd.name) ?? null;
+      if (!exercise) {
+        const id = manifest.exerciseId ?? randomUUID();
+        persistence.upsertExercise({
+          id, assignmentId: assignment.id, order: dirOrder, filename: sd.name,
+          problemStatement: entryParsed.problemStatement, starterCode: entryParsed.starterCode,
+          testCases: [], versionHash, isActive: true, createdAt: Date.now(),
+          kind: "project", dir: sd.name, entry: manifest.entry,
+        });
+        result.importedNew++;
+        seenIds.push(id);
+      } else {
+        if (exercise.versionHash !== versionHash) {
+          result.updated++;
+          if (persistence.getSubmissionsByExercise(exercise.id).length > 0) {
+            result.warnings.push(`${dirName}/${sd.name} 已有提交，内容已变更——评审基准已切换，请通知学生（A30）`);
+          }
+        }
+        persistence.upsertExercise({
+          ...exercise, order: dirOrder, problemStatement: entryParsed.problemStatement,
+          starterCode: entryParsed.starterCode, versionHash, isActive: true,
+          kind: "project", dir: sd.name, entry: manifest.entry,
+        });
+        seenIds.push(exercise.id);
+      }
+    }
+    return seenIds;
   }
 
   async function syncNow(): Promise<SyncResult> {
-    const result: SyncResult = { importedNew: 0, updated: 0, injected: 0, deactivated: 0, warnings: [] };
+    const result: SyncResult = { importedNew: 0, updated: 0, deactivated: 0, warnings: [] };
     await git.ensureClone();
-    // Phase 0：清算上轮遗留（A28——丢弃安全：注入 ID 以 DB 为准，本轮会重注入）
-    if (await git.hasUnpushedMainCommits()) {
-      if (await git.pushMain() !== "ok") await git.alignToRemote();
-    }
-    // Phase 1：对齐远端
+    // 只读对齐（spec §6.3：注入回写退役，服务端对教师仓库只读；alignToRemote 的 reset 顺带丢弃历史遗留本地 commit）
     await git.alignToRemote();
-    // Phase 2 + 3：扫描对账 + 注入回写（rejected 时重扫重注入一次，A28）
-    let injections = scanOnce(result);
-    if (injections.length > 0) {
-      let r = await git.commitAndPushMain(injections, `inject: exercise-id for ${injections.length} file(s)`);
-      if (r === "rejected") {
-        await git.alignToRemote();
-        injections = scanOnce(result);
-        if (injections.length > 0) {
-          r = await git.commitAndPushMain(injections, `inject: exercise-id for ${injections.length} file(s)`);
-        }
-      }
-      if (r === "ok") result.injected = injections.length;
-      else result.warnings.push("git 注入回写失败，已保留本地 commit，下轮同步自动重试");
-    }
-    // Phase 4：补推未同步提交
-    await retryFailedPushes(persistence, git);
+    scanOnce(result);
     logEvent({ event: "sync.completed", level: "info", data: { ...result } });
     return result;
   }

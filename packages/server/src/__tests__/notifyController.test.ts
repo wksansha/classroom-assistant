@@ -7,7 +7,7 @@ import { handleNotify } from "../controllers/notifyController";
 function seed(): Persistence {
   const p = createPersistence(":memory:");
   p.replaceRoster([{ studentId: "0001", studentName: "张三" }]);
-  p.upsertAssignment({ id: "a-lesson5", title: "第 5 周作业", week: 5, isPublished: true, createdAt: 1_000 });
+  p.upsertAssignment({ id: "a-lesson5", title: "lesson5", week: 5, createdAt: 1_000 });
   p.setAssignmentWeekDir("a-lesson5", "lesson5");
   p.upsertExercise({
     id: "ex-a", assignmentId: "a-lesson5", order: 1, filename: "a.py", problemStatement: "单文件题",
@@ -30,7 +30,7 @@ describe("POST /api/submissions/notify 处理", () => {
     });
     expect(r.status).toBe(200);
     expect((r.body as { exercises: number }).exercises).toBe(2);
-    expect(p.getNotifyRowsByStudent("0001")).toHaveLength(2);   // 每命中练习一行
+    expect(p.getSubmissionsByStudent("0001")).toHaveLength(2);   // 每命中练习一行
     expect(events).toHaveLength(2);                              // 逐练习两条
     const ids = events.map((m) => (m as { data: { exerciseId: string } }).data.exerciseId).sort();
     expect(ids).toEqual(["ex-a", "ex-weather"]);
@@ -41,7 +41,7 @@ describe("POST /api/submissions/notify 处理", () => {
       studentId: "9999", studentName: "路人", commitHash: "abc123", files: ["lesson5/a.py"], pushedAt: 1,
     });
     expect(r.status).toBe(400);
-    expect(p.getNotifyRowsByStudent("9999")).toHaveLength(0);
+    expect(p.getSubmissionsByStudent("9999")).toHaveLength(0);
   });
   it("重复 notify（同 commit 同练习）→ 幂等，不重复入库、不重复广播", () => {
     const p = seed();
@@ -52,7 +52,7 @@ describe("POST /api/submissions/notify 处理", () => {
     const r2 = handleNotify(deps, body);
     expect((r1.body as { exercises: number }).exercises).toBe(1);
     expect((r2.body as { exercises: number }).exercises).toBe(0);   // 冲突忽略
-    expect(p.getNotifyRowsByStudent("0001")).toHaveLength(1);       // 1 行
+    expect(p.getSubmissionsByStudent("0001")).toHaveLength(1);      // 1 行
     expect(events).toHaveLength(1);                                 // 1 条
   });
   it("缺必要字段 → 400", () => {
@@ -70,17 +70,19 @@ describe("POST /api/submissions/notify 处理", () => {
     });
     expect(r.status).toBe(200);
     expect((r.body as { exercises: number }).exercises).toBe(0);
-    expect(p.getNotifyRowsByStudent("0001")).toHaveLength(0);
+    expect(p.getSubmissionsByStudent("0001")).toHaveLength(0);
     expect(events).toHaveLength(0);
   });
-  it("评审回填 → review_json 更新", () => {
+  it("索引行形状：commitHash + files 路径清单 + review 初始 null", () => {
     const p = seed();
     handleNotify({ persistence: p, publish: () => {} }, {
       studentId: "0001", studentName: "张三", commitHash: "abc123", files: ["lesson5/a.py"], pushedAt: 123,
     });
-    const row = p.getNotifyRowsByStudent("0001")[0];
-    expect(row.reviewJson).toBeNull();
+    const row = p.getSubmissionsByStudent("0001")[0];
+    expect(row.commitHash).toBe("abc123");
+    expect(row.files).toEqual(["lesson5/a.py"]);
+    expect(row.review).toBeNull();
     p.updateNotifyReview(row.id, { status: "pass", reason: "通过", reviewedAt: 200, model: "m", source: "llm" });
-    expect(JSON.parse(p.getNotifyRowsByStudent("0001")[0].reviewJson!)).toMatchObject({ status: "pass" });
+    expect(p.getSubmissionsByStudent("0001")[0].review).toMatchObject({ status: "pass" });
   });
 });

@@ -1,23 +1,14 @@
 import type { Express } from "express";
 import type { Persistence } from "../persistence";
-import type { GitService } from "../gitService";
 import type { SyncService } from "../syncService";
-import {
-  listAssignmentsWithExercises, getAssignmentDetail, buildPublishedList,
-  readExerciseContent, publishAssignment,
-} from "../controllers/assignmentController";
-import { logEvent } from "../logger";
+import { listAssignmentsWithExercises, getAssignmentDetail } from "../controllers/assignmentController";
 
 export interface AssignmentRouteDeps {
   persistence: Persistence;
-  git: GitService | null;
-  repoDir: string;
   sync: SyncService | null;
 }
 
 export function registerAssignmentRoutes(app: Express, deps: AssignmentRouteDeps) {
-  // 注册顺序敏感：/published 必须先于 /:id（Express 按注册顺序匹配）
-  app.get("/api/assignments/published", (_req, res) => res.json(buildPublishedList(deps.persistence)));
   app.get("/api/assignments", (_req, res) => res.json(listAssignmentsWithExercises(deps.persistence)));
   app.get("/api/assignments/:id", (req, res) => {
     const detail = getAssignmentDetail(deps.persistence, req.params.id);
@@ -32,18 +23,6 @@ export function registerAssignmentRoutes(app: Express, deps: AssignmentRouteDeps
     const detail = getAssignmentDetail(deps.persistence, req.params.id);
     if (!detail) return res.status(404).json({ error: "作业不存在" });
     res.json(detail);
-  });
-  app.post("/api/assignments/:id/publish", async (req, res) => {
-    const publish = req.body?.publish === true;
-    const r = await publishAssignment(deps.persistence, deps.git, req.params.id, publish);
-    if (!r.ok) return res.status(r.status).json({ error: r.error });
-    logEvent({ event: "api.publish", level: "info", data: { id: req.params.id, publish } });
-    res.json({ ok: true });
-  });
-  app.get("/api/exercises/:id/content", async (req, res) => {
-    const r = await readExerciseContent(deps.persistence, deps.repoDir, deps.git, req.params.id);
-    if (!r.ok) return res.status(r.status).json({ error: r.error });
-    res.json(r);
   });
   app.post("/api/sync", async (_req, res) => {
     if (!deps.sync) return res.status(503).json({ error: "git 未配置" });

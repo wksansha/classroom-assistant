@@ -5,7 +5,7 @@ import type { Submission } from "@classroom/shared";
 vi.mock("../api/assignments", () => ({
   assignmentsApi: {
     list: vi.fn(async () => [
-      { id: "a1", title: "第 1 周作业", week: 1, isPublished: true, createdAt: 1, exercises: [
+      { id: "a1", title: "第 1 周作业", week: 1, createdAt: 1, exercises: [
         { id: "e1", assignmentId: "a1", order: 1, filename: "exercise-01.py", problemStatement: "题", testCases: [], versionHash: "v", isActive: true, createdAt: 1 },
       ] },
     ]),
@@ -13,22 +13,21 @@ vi.mock("../api/assignments", () => ({
     submissionsByExercise: vi.fn(async (exerciseId: string) => {
       void exerciseId;
       const mk = (id: string, studentId: string, at: number, review: Submission["review"]): Submission =>
-        ({ id, exerciseId: "e1", studentId, studentName: "张三", code: "print(1)", source: "auto", submittedAt: at, review });
+        ({ id, exerciseId: "e1", studentId, studentName: "张三", commitHash: "c", files: null, submittedAt: at, review });
       return [
         mk("s2", "0001", 2_000, { status: "pass", reason: "通过", reviewedAt: 2, model: "m", source: "llm" }),
         mk("s1", "0001", 1_000, { status: "fail", reason: "错", reviewedAt: 1, model: "m", source: "llm" }),
         mk("s3", "0002", 3_000, null),
       ];
     }),
-    publish: vi.fn(async () => ({ ok: true })),
   },
 }));
 
 import { useAssignmentsStore, latestByStudent, cellState } from "../stores/assignments";
 
 const sub = (review: Submission["review"]): Submission => ({
-  id: "s", exerciseId: "e", studentId: "0001", studentName: "张三", code: "c",
-  source: "auto", submittedAt: 1, review,
+  id: "s", exerciseId: "e", studentId: "0001", studentName: "张三", commitHash: "c",
+  files: null, submittedAt: 1, review,
 });
 
 describe("纯函数", () => {

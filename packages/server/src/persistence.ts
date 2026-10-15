@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import type { Assignment, Exercise, Explanation, ReviewResult, RosterEntry, Submission, SubmissionFile, TestCase } from "@classroom/shared";
+import type { Assignment, Exercise, Explanation, ReviewResult, RosterEntry, Submission, TestCase } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 export interface EventRow {
@@ -20,11 +20,10 @@ export interface EventRow {
 }
 
 // —— 行映射（作业/练习/提交，snake_case DB 行 → camelCase 领域对象）——
-type AssignmentDbRow = { id: string; title: string; week: number; due_at: number | null; is_published: number; created_at: number; published_at: number | null; week_dir?: string | null };
+type AssignmentDbRow = { id: string; title: string; week: number; due_at: number | null; created_at: number; week_dir?: string | null };
 function toAssignment(r: AssignmentDbRow): Assignment {
   return { id: r.id, title: r.title, week: r.week, dueAt: r.due_at ?? undefined,
-    isPublished: r.is_published === 1, createdAt: r.created_at, publishedAt: r.published_at ?? undefined,
-    weekDir: r.week_dir ?? undefined };
+    createdAt: r.created_at, weekDir: r.week_dir ?? undefined };
 }
 type ExerciseDbRow = { id: string; assignment_id: string; order_no: number; filename: string; problem_statement: string; starter_code: string | null; test_cases_json: string | null; version_hash: string; is_active: number; created_at: number; kind?: string; dir?: string | null; entry?: string | null };
 function toExercise(r: ExerciseDbRow): Exercise {
@@ -36,12 +35,14 @@ function toExercise(r: ExerciseDbRow): Exercise {
     dir: r.dir ?? undefined,
     entry: r.entry ?? undefined };
 }
-type SubmissionDbRow = { id: string; exercise_id: string; student_id: string; student_name: string; code: string; source: string; submitted_at: number; review_json: string | null; files_json?: string | null };
+// 轻量索引行（spec §6.2：submissions 表即索引，不存代码全文）
+type SubmissionDbRow = { id: string; exercise_id: string; student_id: string; student_name: string; commit_hash: string; files_json: string | null; submitted_at: number; review_json: string | null };
 function toSubmission(r: SubmissionDbRow): Submission {
   return { id: r.id, exerciseId: r.exercise_id, studentId: r.student_id, studentName: r.student_name,
-    code: r.code, source: r.source as "auto" | "manual", submittedAt: r.submitted_at,
-    review: r.review_json ? JSON.parse(r.review_json) : null,
-    files: r.files_json ? (JSON.parse(r.files_json) as Submission["files"]) : null };
+    commitHash: r.commit_hash,
+    files: r.files_json ? (JSON.parse(r.files_json) as string[]) : null,
+    submittedAt: r.submitted_at,
+    review: r.review_json ? JSON.parse(r.review_json) : null };
 }
 
 export interface Persistence {
@@ -51,13 +52,12 @@ export interface Persistence {
   getCachedExplanation(rawHash: string): Explanation | null;
   saveCache(rawHash: string, rawMessage: string, exp: Explanation, source: string): void;
   getCacheStats(): { total: number; totalHits: number };
-  // —— 作业系统（T2：名册/作业/练习/提交/评审缓存）——
+  // —— 作业系统（名册/作业/练习/提交索引/评审缓存）——
   replaceRoster(entries: RosterEntry[]): void;
   getRoster(): RosterEntry[];
   getRosterEntry(studentId: string): RosterEntry | null;
   upsertAssignment(a: Assignment): void;
   updateAssignmentMeta(id: string, patch: { title?: string; dueAt?: number | null }): void;
-  setAssignmentPublished(id: string, published: boolean, publishedAt: number | null): void;
   setAssignmentWeekDir(id: string, weekDir: string): void;
   getAssignments(): Assignment[];
   getAssignment(id: string): Assignment | null;
@@ -66,21 +66,14 @@ export interface Persistence {
   getExercise(id: string): Exercise | null;
   findExerciseByPath(week: number, filename: string): Exercise | null;
   deactivateMissingExercises(week: number, activeIds: string[]): void;
-  insertSubmission(s: Submission & { codeHash: string; gitSynced: boolean }): void;
-  findSubmissionByKey(exerciseId: string, studentId: string, codeHash: string): Submission | null;
-  updateSubmissionReview(id: string, review: ReviewResult): void;
-  setSubmissionGitSynced(id: string): void;
   getSubmissionsByExercise(exerciseId: string): Submission[];
   getSubmissionsByStudent(studentId: string): Submission[];
-  getUnsyncedSubmissions(): Submission[];
-  getPendingReviewSubmissions(): Submission[];
   getLatestSubmissionByExerciseStudent(exerciseId: string, studentId: string): Submission | null;
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; exerciseId: string; versionHash: string; review: ReviewResult }): void;
-  // —— notify 轻量索引（学生分支直连模型，纯增量）——
+  // —— 提交轻量索引写入（notify 链；spec §5/§6.2）——
   getExercisesByDir(dirName: string): Exercise[];
   insertNotifyRow(row: { id: string; exerciseId: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
-  getNotifyRowsByStudent(studentId: string): { id: string; exerciseId: string; commitHash: string; submittedAt: number; reviewJson: string | null }[];
   updateNotifyReview(id: string, review: ReviewResult): void;
   // —— student_tokens（学生分支直连模型，纯增量）——
   saveStudentToken(studentId: string, token: string): void;
@@ -137,9 +130,7 @@ export function createPersistence(dbPath?: string): Persistence {
       title TEXT NOT NULL,
       week INTEGER NOT NULL UNIQUE,
       due_at INTEGER,
-      is_published INTEGER DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      published_at INTEGER
+      created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS exercises (
       id TEXT PRIMARY KEY,
@@ -154,20 +145,6 @@ export function createPersistence(dbPath?: string): Persistence {
       created_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_assignment ON exercises(assignment_id, filename);
-    CREATE TABLE IF NOT EXISTS submissions (
-      id TEXT PRIMARY KEY,
-      exercise_id TEXT NOT NULL,
-      student_id TEXT NOT NULL,
-      student_name TEXT NOT NULL,
-      code TEXT NOT NULL,
-      code_hash TEXT NOT NULL,
-      source TEXT NOT NULL,
-      git_synced INTEGER DEFAULT 0,
-      submitted_at INTEGER NOT NULL,
-      review_json TEXT
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_dedup ON submissions(exercise_id, student_id, code_hash);
-    CREATE INDEX IF NOT EXISTS idx_submissions_exercise ON submissions(exercise_id);
     CREATE TABLE IF NOT EXISTS review_cache (
       cache_key TEXT PRIMARY KEY,
       exercise_id TEXT NOT NULL,
@@ -179,7 +156,26 @@ export function createPersistence(dbPath?: string): Persistence {
       hit_count INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS submission_notify (
+    CREATE TABLE IF NOT EXISTS student_tokens (
+      student_id TEXT PRIMARY KEY,
+      token TEXT NOT NULL
+    )
+  `);
+
+  // —— 提交轻量索引定名（spec §6.2 / Ruling 1 收尾）：submission_notify → submissions ——
+  // 旧快照 submissions 表（快照入库模型）直接弃用重建，不考虑迁移（新建库即可）
+  const tableExists = (name: string) =>
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  const colsOf = (table: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (tableExists("submissions") && !colsOf("submissions").includes("commit_hash")) {
+    db.exec("DROP TABLE submissions");
+  }
+  if (!tableExists("submissions") && tableExists("submission_notify")) {
+    db.exec("ALTER TABLE submission_notify RENAME TO submissions");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS submissions (
       id TEXT PRIMARY KEY,
       exercise_id TEXT NOT NULL,
       student_id TEXT NOT NULL,
@@ -190,10 +186,8 @@ export function createPersistence(dbPath?: string): Persistence {
       review_json TEXT,
       UNIQUE(exercise_id, student_id, commit_hash)
     );
-    CREATE TABLE IF NOT EXISTS student_tokens (
-      student_id TEXT PRIMARY KEY,
-      token TEXT NOT NULL
-    )
+    CREATE INDEX IF NOT EXISTS idx_submissions_exercise ON submissions(exercise_id);
+    CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
   `);
 
   // V2.0 迁移：存量库补列（CREATE TABLE IF NOT EXISTS 不会给旧表加列）
@@ -204,7 +198,6 @@ export function createPersistence(dbPath?: string): Persistence {
   addColumnIfMissing("exercises", "kind", "kind TEXT NOT NULL DEFAULT 'file'");
   addColumnIfMissing("exercises", "dir", "dir TEXT");
   addColumnIfMissing("exercises", "entry", "entry TEXT");
-  addColumnIfMissing("submissions", "files_json", "files_json TEXT");
   addColumnIfMissing("assignments", "week_dir", "week_dir TEXT");
 
   return {
@@ -249,7 +242,7 @@ export function createPersistence(dbPath?: string): Persistence {
       const totalHits = (db.prepare("SELECT COALESCE(SUM(hit_count), 0) AS c FROM error_cache").get() as { c: number }).c;
       return { total, totalHits };
     },
-    // —— 作业系统（T2）——
+    // —— 作业系统 ——
     replaceRoster(entries) {
       const tx = db.transaction(() => {
         db.prepare("DELETE FROM roster").run();
@@ -265,18 +258,14 @@ export function createPersistence(dbPath?: string): Persistence {
       return (db.prepare("SELECT student_id AS studentId, student_name AS studentName FROM roster WHERE student_id = ?").get(studentId) as RosterEntry) ?? null;
     },
     upsertAssignment(a) {
-      db.prepare(`INSERT INTO assignments (id, title, week, due_at, is_published, created_at, published_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET title = excluded.title, due_at = excluded.due_at,
-          is_published = excluded.is_published, published_at = excluded.published_at`)
-        .run(a.id, a.title, a.week, a.dueAt ?? null, a.isPublished ? 1 : 0, a.createdAt, a.publishedAt ?? null);
+      db.prepare(`INSERT INTO assignments (id, title, week, due_at, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET title = excluded.title, due_at = excluded.due_at`)
+        .run(a.id, a.title, a.week, a.dueAt ?? null, a.createdAt);
     },
     updateAssignmentMeta(id, patch) {
       if (patch.title !== undefined) db.prepare("UPDATE assignments SET title = ? WHERE id = ?").run(patch.title, id);
       if (patch.dueAt !== undefined) db.prepare("UPDATE assignments SET due_at = ? WHERE id = ?").run(patch.dueAt, id);
-    },
-    setAssignmentPublished(id, published, publishedAt) {
-      db.prepare("UPDATE assignments SET is_published = ?, published_at = ? WHERE id = ?").run(published ? 1 : 0, publishedAt, id);
     },
     setAssignmentWeekDir(id, weekDir) {
       db.prepare("UPDATE assignments SET week_dir = ? WHERE id = ?").run(weekDir, id);
@@ -316,34 +305,12 @@ export function createPersistence(dbPath?: string): Persistence {
       db.prepare(`UPDATE exercises SET is_active = 0 WHERE is_active = 1 AND assignment_id IN
         (SELECT id FROM assignments WHERE week = ?) AND id NOT IN (${placeholders})`).run(week, ...activeIds);
     },
-    insertSubmission(s) {
-      db.prepare(`INSERT INTO submissions (id, exercise_id, student_id, student_name, code, code_hash, source, git_synced, submitted_at, review_json, files_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(s.id, s.exerciseId, s.studentId, s.studentName, s.code, s.codeHash, s.source, s.gitSynced ? 1 : 0, s.submittedAt, null,
-          s.files ? JSON.stringify(s.files) : null);
-    },
-    findSubmissionByKey(exerciseId, studentId, codeHash) {
-      const r = db.prepare("SELECT * FROM submissions WHERE exercise_id = ? AND student_id = ? AND code_hash = ?")
-        .get(exerciseId, studentId, codeHash) as SubmissionDbRow | undefined;
-      return r ? toSubmission(r) : null;
-    },
-    updateSubmissionReview(id, review) {
-      db.prepare("UPDATE submissions SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
-    },
-    setSubmissionGitSynced(id) {
-      db.prepare("UPDATE submissions SET git_synced = 1 WHERE id = ?").run(id);
-    },
+    // —— 提交轻量索引（spec §6.2：submissions 表即 notify 索引，查询统一）——
     getSubmissionsByExercise(exerciseId) {
       return (db.prepare("SELECT * FROM submissions WHERE exercise_id = ? ORDER BY submitted_at DESC").all(exerciseId) as SubmissionDbRow[]).map(toSubmission);
     },
     getSubmissionsByStudent(studentId) {
       return (db.prepare("SELECT * FROM submissions WHERE student_id = ? ORDER BY submitted_at DESC").all(studentId) as SubmissionDbRow[]).map(toSubmission);
-    },
-    getUnsyncedSubmissions() {
-      return (db.prepare("SELECT * FROM submissions WHERE git_synced = 0").all() as SubmissionDbRow[]).map(toSubmission);
-    },
-    getPendingReviewSubmissions() {
-      return (db.prepare("SELECT * FROM submissions WHERE review_json IS NULL").all() as SubmissionDbRow[]).map(toSubmission);
     },
     getLatestSubmissionByExerciseStudent(exerciseId, studentId) {
       const r = db.prepare("SELECT * FROM submissions WHERE exercise_id = ? AND student_id = ? ORDER BY submitted_at DESC LIMIT 1")
@@ -366,24 +333,19 @@ export function createPersistence(dbPath?: string): Persistence {
         .run(row.cacheKey, row.exerciseId, row.versionHash, row.review.status, row.review.reason,
           row.review.source, row.review.model, Date.now());
     },
-    // —— notify 轻量索引（学生分支直连模型，纯增量）——
+    // —— 提交轻量索引写入（notify 链；spec §5/§6.2）——
     getExercisesByDir(dirName) {
       return (db.prepare(`SELECT e.* FROM exercises e JOIN assignments a ON e.assignment_id = a.id
         WHERE a.week_dir = ? ORDER BY e.order_no`).all(dirName) as ExerciseDbRow[]).map(toExercise);
     },
     insertNotifyRow(row) {
-      const r = db.prepare(`INSERT OR IGNORE INTO submission_notify (id, exercise_id, student_id, student_name, commit_hash, files_json, submitted_at)
+      const r = db.prepare(`INSERT OR IGNORE INTO submissions (id, exercise_id, student_id, student_name, commit_hash, files_json, submitted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(row.id, row.exerciseId, row.studentId, row.studentName, row.commitHash, row.filesJson, row.submittedAt);
       return r.changes === 1;
     },
-    getNotifyRowsByStudent(studentId) {
-      return db.prepare(`SELECT id, exercise_id AS exerciseId, commit_hash AS commitHash, submitted_at AS submittedAt, review_json AS reviewJson
-        FROM submission_notify WHERE student_id = ? ORDER BY submitted_at`).all(studentId) as
-        { id: string; exerciseId: string; commitHash: string; submittedAt: number; reviewJson: string | null }[];
-    },
     updateNotifyReview(id, review) {
-      db.prepare("UPDATE submission_notify SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
+      db.prepare("UPDATE submissions SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
     },
     // —— student_tokens（学生分支直连模型，纯增量）——
     saveStudentToken(studentId, token) {

@@ -37,24 +37,6 @@ export function parseExerciseFile(content: string): ParsedExerciseFile {
   return { exerciseId, week, problemStatement, starterCode };
 }
 
-export function injectExerciseId(content: string, exerciseId: string, week: number): string {
-  const lines = content.split(/\r?\n/);
-  const idLine = `# exercise-id: ${exerciseId}`;
-  const weekLine = `# week: ${week}`;
-  const startIdx = lines.indexOf(META_START);
-  if (startIdx === -1) {
-    // 教师裸文件：前插完整元数据块（已有 coding 声明则不重复加）
-    const hasCoding = (lines[0] ?? "").startsWith("# -*- coding");
-    const header = [
-      ...(hasCoding ? [] : ["# -*- coding: utf-8 -*-"]),
-      META_START, idLine, weekLine, META_END, "",
-    ];
-    return [...header, ...lines].join("\n");
-  }
-  // 已有元数据块但缺 id（对账后仍需注入的场景）：插到块内起始标记之后
-  return [...lines.slice(0, startIdx + 1), idLine, weekLine, ...lines.slice(startIdx + 1)].join("\n");
-}
-
 export function computeExerciseVersionHash(
   problemStatement: string,
   testCases?: TestCase[] | null,
@@ -97,21 +79,11 @@ export function parseExerciseManifest(content: string): ParsedManifest | null {
   }
 }
 
-export function injectManifestIds(content: string, exerciseId: string, week: number): string {
-  const raw = JSON.parse(content) as Record<string, unknown>;
-  return JSON.stringify({ ...raw, exerciseId, week }, null, 2) + "\n";
-}
-
 const sortFiles = (files: SubmissionFile[]) =>
   files.map((f) => ({ path: f.path, content: f.content }))
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
-/** 题目版本哈希（server 内部，16-hex，风格同 computeExerciseVersionHash） */
+/** 项目题目版本哈希（server 内部，16-hex，风格同 computeExerciseVersionHash） */
 export function computeProjectVersionHash(files: SubmissionFile[]): string {
   return crypto.createHash("sha256").update(JSON.stringify(sortFiles(files))).digest("hex").slice(0, 16);
-}
-
-/** 提交幂等内容哈希（两仓 wire 契约，64-hex；与 vscode-pylearner src/submission/projectFiles.ts 逐字一致，改动必须双侧同步） */
-export function canonicalFilesHash(files: SubmissionFile[]): string {
-  return crypto.createHash("sha256").update(JSON.stringify(sortFiles(files))).digest("hex");
 }

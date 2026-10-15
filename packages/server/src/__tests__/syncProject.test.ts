@@ -7,18 +7,20 @@ import { createPersistence } from "../persistence";
 import { createSyncService } from "../syncService";
 import type { GitService } from "../gitService";
 
-// 最小假 git：记录注入回写，不做真实 git 操作
-function makeFakeGit(): GitService & { injections: { path: string; content: string }[][] } {
+// 最小假 git：只读对账不再回写，main 侧写方法保留但不应被 sync 调用
+function makeFakeGit(): GitService & { mainWrites: { files: { path: string; content: string }[]; message: string }[] } {
   const g = {
-    injections: [] as { path: string; content: string }[][],
+    mainWrites: [] as { files: { path: string; content: string }[]; message: string }[],
     async ensureClone() {},
     async alignToRemote() {},
     async hasUnpushedMainCommits() { return false; },
     async pushMain() { return "ok" as const; },
-    async commitAndPushMain(files: { path: string; content: string }[]) { g.injections.push(files); return "ok" as const; },
-    async createStudentBranches() {},
-    async writeToStudentBranch() { return "ok" as const; },
+    async commitAndPushMain(files: { path: string; content: string }[], message: string) {
+      g.mainWrites.push({ files, message });
+      return "ok" as const;
+    },
     async readFileFromMain() { return ""; },
+    async listFilesFromMain() { return []; },
   };
   return g as unknown as GitService & typeof g;
 }
@@ -28,7 +30,7 @@ describe("syncService 项目扫描", () => {
   beforeEach(() => { repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "repo-")); });
   afterEach(() => { fs.rmSync(repoDir, { recursive: true, force: true }); });
 
-  it("识别项目目录：入库 kind/dir/entry + 注入 manifest id", async () => {
+  it("识别项目目录：入库 kind/dir/entry；无 manifest 的子目录警告；不回写", async () => {
     fs.mkdirSync(path.join(repoDir, "week-3", "weather-app", "data"), { recursive: true });
     fs.writeFileSync(path.join(repoDir, "week-3", "weather-app", "exercise.json"),
       `{ "title": "天气", "entry": "main.py" }`);
@@ -53,12 +55,10 @@ describe("syncService 项目扫描", () => {
     expect(ex!.problemStatement).toContain("做天气");
     expect(r.importedNew).toBe(1);
     expect(r.warnings.some((w) => w.includes("notes"))).toBe(true);   // 无 manifest 警告
-    // 注入 manifest id（exercise.json 路径）
-    const flat = git.injections.flat();
-    expect(flat.some((f) => f.path === "week-3/weather-app/exercise.json" && f.content.includes("exerciseId"))).toBe(true);
+    expect(git.mainWrites).toHaveLength(0);                            // 只读：不回写教师仓库
   });
 
-  it("已注入 id 的项目二次扫描不重复注入；versionHash 变更计入 updated", async () => {
+  it("manifest id 优先（exerciseId 退化为 exercises 表内部主键）；versionHash 变更计入 updated", async () => {
     fs.mkdirSync(path.join(repoDir, "week-3", "app2"), { recursive: true });
     fs.writeFileSync(path.join(repoDir, "week-3", "app2", "exercise.json"),
       `{ "exerciseId": "fixed-id", "week": 3, "entry": "main.py" }`);
@@ -66,7 +66,6 @@ describe("syncService 项目扫描", () => {
     const p = createPersistence(":memory:");
     const git = makeFakeGit();
     await createSyncService({ persistence: p, git, repoDir }).syncNow();
-    expect(git.injections.length).toBe(0);   // 有 id 不注入
     const ex = p.getExercises(p.getAssignments()[0].id).find((e) => e.dir === "app2")!;
     expect(ex.id).toBe("fixed-id");
     fs.writeFileSync(path.join(repoDir, "week-3", "app2", "main.py"), "print(2)\n");
