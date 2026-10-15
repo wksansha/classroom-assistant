@@ -5,7 +5,7 @@ import { createReviewCache } from "../reviewService/cache";
 const p = createPersistence(":memory:");
 const pass = { status: "pass" as const, reason: "通过", reviewedAt: 1, model: "m", source: "llm" as const };
 const unreviewed = { status: "unreviewed" as const, reason: "评审超时", reviewedAt: 1, model: "m", source: "timeout" as const };
-const args = { cacheKey: "k", exerciseId: "e", versionHash: "v" };
+const args = { cacheKey: "k" };
 
 describe("reviewCache（A6/A30）", () => {
   it("终态结果：第二次同 key 不再调 LLM（内存命中）", async () => {

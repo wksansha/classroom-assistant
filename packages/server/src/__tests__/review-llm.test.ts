@@ -19,7 +19,7 @@ describe("parseReviewResponse", () => {
 });
 
 describe("callReviewLLM（A4/A11）", () => {
-  const input = { problemStatement: "题", code: "print(1)" };
+  const input = { code: "print(1)" };
   it("无 apiKey → mock unreviewed", async () => {
     const r = await callReviewLLM(input, { apiKey: "" });
     expect(r.status).toBe("unreviewed");

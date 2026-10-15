@@ -1,7 +1,7 @@
 import type { ReviewResult } from "@classroom/shared";
 import type { Persistence } from "../persistence";
 
-export interface ReviewCacheArgs { cacheKey: string; exerciseId: string; versionHash: string; }
+export interface ReviewCacheArgs { cacheKey: string }
 
 export interface ReviewCache {
   getReview(args: ReviewCacheArgs, llmCallFn: () => Promise<ReviewResult>): Promise<ReviewResult>;
@@ -51,7 +51,7 @@ export function createReviewCache(p: Persistence): ReviewCache {
           if (result.status !== "unreviewed") {
             evictIfNeeded();
             memoryCache.set(cacheKey, result);
-            p.saveReviewCache({ cacheKey, exerciseId: args.exerciseId, versionHash: args.versionHash, review: result });
+            p.saveReviewCache({ cacheKey, review: result });
           }
           return result;
         } finally {

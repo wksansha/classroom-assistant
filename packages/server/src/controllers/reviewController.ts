@@ -1,29 +1,27 @@
 import type {
-  Exercise, NormalizedEvent, ReviewResult, SSEMessage, SubmissionFile, ReviewRequestInput,
+  NormalizedEvent, ReviewResult, SubmissionFile, ReviewRequestInput,
 } from "@classroom/shared";
 import type { Persistence } from "../persistence";
 import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
-import { resolveExercisesByFiles } from "./exerciseResolver";
 import { logEvent } from "../logger";
 
 export interface ReviewRequestDeps {
   persistence: Persistence;
   reviewService: ReviewService;
   stateManager: StateManager;
-  publish: (msg: SSEMessage) => void;
   publishSnapshot: () => void;   // fail 注入后推全量快照（告警/聚合面板刷新）
 }
 
 export type ReviewRequestResult =
   | { ok: true; review: ReviewResult; submissionId: string | null }
-  | { ok: false; status: 400 | 404; error: string };
+  | { ok: false; status: 400; error: string };
 
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 100 * 1024;
 const MAX_TOTAL_BYTES = 500 * 1024;
 
-/** 项目题 files 快照校验（review wire 约束）；返回 null = 通过，否则错误文案 */
+/** 项目 files 快照校验（review wire 约束）；返回 null = 通过，否则错误文案 */
 export function validateFiles(files: SubmissionFile[]): string | null {
   if (!Array.isArray(files) || files.length === 0) return "files 不能为空";
   if (files.length > MAX_FILES) return "文件数超过 50 上限";
@@ -44,14 +42,13 @@ export function validateFiles(files: SubmissionFile[]): string | null {
   return null;
 }
 
-/** 评审输入组装（spec §4.2）：入口 + 其余 .py 按路径拼接，非 .py 素材不入 */
-export function buildReviewInput(exercise: Pick<Exercise, "entry">, code: string, files?: SubmissionFile[]): string {
-  if (!files) return code;
-  const entry = exercise.entry ?? "main.py";
-  const others = files
-    .filter((f) => f.path.endsWith(".py") && f.path !== entry)
-    .sort((a, b) => (a.path < b.path ? -1 : 1));
-  return [code, ...others.map((f) => `\n\n# ===== 文件: ${f.path} =====\n${f.content}`)].join("");
+/** 项目评审输入组装（spec §0.2）：全部 .py 按路径排序拼接（带路径头），非 .py 不入 */
+export function buildProjectReviewInput(files: SubmissionFile[]): string {
+  return files
+    .filter((f) => f.path.endsWith(".py"))
+    .sort((a, b) => (a.path < b.path ? -1 : 1))
+    .map((f) => `# ===== 文件: ${f.path} =====\n${f.content}`)
+    .join("\n\n");
 }
 
 /** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合 */
@@ -67,10 +64,10 @@ function injectReviewFail(
   };
   deps.stateManager.apply(ev, { category: "逻辑错误", subtype: "review_fail", knowledge: args.review.reason });
   deps.publishSnapshot();
-  logEvent({ event: "review.fail_injected", level: "info", data: { studentId: args.studentId, exerciseId: undefined, reason: args.review.reason } });
+  logEvent({ event: "review.fail_injected", level: "info", data: { studentId: args.studentId, reason: args.review.reason } });
 }
 
-/** 学生分支直连模型（spec §6.2）：练习定位 = 文件路径（服务端为唯一练习注册表，学生端零识别） */
+/** 运行触发评审（spec §0：作业域退役——无练习解析，所有文件皆可评审，题面锚点 = 文件内注释） */
 export async function requestReview(deps: ReviewRequestDeps, input: ReviewRequestInput): Promise<ReviewRequestResult> {
   if (!input || typeof input.studentId !== "string" || !input.studentName
     || typeof input.filePath !== "string" || !input.filePath
@@ -79,44 +76,26 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   }
   const rosterEntry = deps.persistence.getRosterEntry(input.studentId.trim());
   if (!rosterEntry) return { ok: false, status: 400, error: "学号不在名册" };
-  const hits = resolveExercisesByFiles(deps.persistence, [input.filePath]);
-  const exercise = hits.length > 0 ? deps.persistence.getExercise(hits[0].exerciseId) : null;
-  if (!exercise || !exercise.isActive) return { ok: false, status: 404, error: "not-exercise" };
-  const assignment = deps.persistence.getAssignment(exercise.assignmentId);
-
-  const kind = exercise.kind ?? "file";
-  if (kind === "project") {
-    if (!input.files) return { ok: false, status: 400, error: "项目练习必须携带 files" };
+  if (input.files !== undefined) {
     const verr = validateFiles(input.files);
     if (verr) return { ok: false, status: 400, error: verr };
-    const entry = exercise.entry ?? "main.py";
-    const entryFile = input.files.find((f) => f.path === entry);
-    if (!entryFile) return { ok: false, status: 400, error: `缺少入口文件 ${entry}` };
-    if (entryFile.content !== input.code) return { ok: false, status: 400, error: "code 与入口文件内容不一致" };
   }
   if (Buffer.byteLength(input.code, "utf8") > 50 * 1024) {
     return { ok: false, status: 400, error: "代码超过 50KB 限制" };
   }
 
-  const reviewCode = buildReviewInput(exercise, input.code, kind === "project" ? input.files : undefined);
-  const review = await deps.reviewService.review(
-    { id: exercise.id, versionHash: exercise.versionHash, problemStatement: exercise.problemStatement,
-      testCases: exercise.testCases, filePath: input.filePath },   // 缓存 key 路径化（spec §6.3）
-    reviewCode,
-  );
+  const reviewCode = input.files ? buildProjectReviewInput(input.files) : input.code;
+  const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode });
 
-  // 评审回填轻量索引（spec §6.2）：(exercise_id, student_id, commit_hash) 定位 submissions 行；
+  // 评审回填轻量索引（spec §0）：(student_id, commit_hash) 定位 push 行，review_json 按 filePath upsert；
   // commitHash 为空（未提交）→ 跳过回填，仅 review_cache 生效
   const commitHash = (input.commitHash ?? "").trim();
   const submissionRow = commitHash
     ? deps.persistence.getSubmissionsByStudent(rosterEntry.studentId)
-        .find((r) => r.exerciseId === exercise.id && r.commitHash === commitHash) ?? null
+        .find((r) => r.commitHash === commitHash) ?? null
     : null;
   if (submissionRow) {
-    deps.persistence.updateNotifyReview(submissionRow.id, review);
-    deps.publish({ type: "review_complete", data: {
-      submissionId: submissionRow.id, exerciseId: exercise.id, studentId: rosterEntry.studentId,
-      assignmentId: assignment?.id ?? "", submittedAt: submissionRow.submittedAt, review } });
+    deps.persistence.updateNotifyReview(submissionRow.id, input.filePath, review);
     if (review.status === "fail") {
       injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
     }

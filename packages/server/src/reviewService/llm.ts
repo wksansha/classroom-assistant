@@ -1,4 +1,4 @@
-import type { ReviewResult, TestCase } from "@classroom/shared";
+import type { ReviewResult } from "@classroom/shared";
 import { buildReviewPrompt } from "@classroom/shared";
 import { logEvent } from "../logger";
 
@@ -34,7 +34,7 @@ export function mockReview(model: string): ReviewResult {
 }
 
 export async function callReviewLLM(
-  input: { problemStatement: string; testCases?: TestCase[] | null; code: string },
+  input: { code: string },
   opts: ReviewLlmOptions = {},
 ): Promise<ReviewResult> {
   const apiKey = opts.apiKey ?? process.env.LLM_API_KEY ?? "";
@@ -44,7 +44,7 @@ export async function callReviewLLM(
   const doFetch = opts.fetchImpl ?? fetch;
   if (!apiKey) return mockReview(model);
 
-  const prompt = buildReviewPrompt({ problemStatement: input.problemStatement, testCases: input.testCases, studentCode: input.code });
+  const prompt = buildReviewPrompt({ studentCode: input.code });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   logEvent({ event: "review.llm_started", level: "debug", data: { model, promptLen: prompt.length, timeoutMs } });
