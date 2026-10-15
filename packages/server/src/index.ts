@@ -13,11 +13,8 @@ import { logEvent } from "./logger";
 import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./llmProxy";
 import type { ReviewLlmOptions } from "./reviewService";
 import { createReviewService } from "./reviewService";
-import { createGitService, type GitService } from "./gitService";
-import { createSyncService, type SyncService } from "./syncService";
 import { registerRosterRoutes } from "./routes/roster";
 import { createGiteaAdmin } from "./gitea/adminApi";
-import { registerAssignmentRoutes } from "./routes/assignments";
 import { registerSubmissionRoutes } from "./routes/submissions";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
@@ -32,12 +29,8 @@ export interface AppDeps {
   llmConfig?: LlmProxyConfig | null;
   /** 归档根目录；缺省 classroom-assistant 同级 L1-data（resolveTraceDir 解析） */
   traceDir?: string;
-  /** git 集成：undefined=读 env GIT_REPO_URL；null=显式禁用 */
-  git?: { repoDir: string; remoteUrl: string; authorEmailDomain?: string; syncIntervalMs?: number } | null;
   /** 评审 LLM 注入（测试传 fetchImpl）；缺省读环境变量，无 key 时 mock 兜底 */
   reviewConfig?: ReviewLlmOptions | null;
-  /** 默认 true：ensureClone + 定时同步自动启动；测试传 false 手动控制 */
-  syncAutoStart?: boolean;
 }
 
 /**
@@ -49,7 +42,7 @@ export function resolveTraceDir(explicit?: string): string {
   return explicit ?? process.env.TRACE_DIR ?? path.resolve(__dirname, "..", "..", "..", "..", "L1-data");
 }
 
-export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; sync: SyncService | null; git: GitService | null } {
+export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
   const persistence = createPersistence(deps.dbPath);
   const stateManager = createStateManager();
   const cache = createCache(persistence);
@@ -67,19 +60,6 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
 
   // —— 作业评审模块装配（T8）——
   const reviewService = createReviewService(persistence, deps.reviewConfig ?? undefined);
-  const gitDeps = deps.git !== undefined
-    ? deps.git
-    : (process.env.GIT_REPO_URL
-        ? {
-            repoDir: process.env.GIT_REPO_DIR ?? path.join(process.cwd(), "data", "exercises-repo"),
-            remoteUrl: process.env.GIT_REPO_URL,
-            syncIntervalMs: Number(process.env.GIT_SYNC_INTERVAL_MS) || 60_000,
-          }
-        : null);
-  const git: GitService | null = gitDeps ? createGitService(gitDeps) : null;
-  const sync: SyncService | null = git && gitDeps
-    ? createSyncService({ persistence, git, repoDir: gitDeps.repoDir, intervalMs: gitDeps.syncIntervalMs })
-    : null;
 
   const app = express();
   app.use(cors());
@@ -200,7 +180,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     res.json(stats);
   });
 
-  // 作业评审路由（roster / assignments / submissions，T7）
+  // 作业评审路由（roster / submissions，T7）；作业域退役（spec §0）：assignments 路由整体删除
   // Gitea 管理联动（学生分支直连模型）：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 三环境变量齐备才启用；缺任一则跳过（info 一条）
   const gitea = process.env.GITEA_URL && process.env.GITEA_ADMIN_TOKEN && process.env.GITEA_REPO
     ? createGiteaAdmin({ baseUrl: process.env.GITEA_URL, adminToken: process.env.GITEA_ADMIN_TOKEN, repo: process.env.GITEA_REPO })
@@ -209,13 +189,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
   }
   registerRosterRoutes(app, { persistence, gitea });
-  registerAssignmentRoutes(app, { persistence, sync });
-  registerSubmissionRoutes(app, { persistence, publish: (msg) => hub.publishMessage(msg) });
+  registerSubmissionRoutes(app, { persistence });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {
     persistence, reviewService, stateManager,
-    publish: (msg) => hub.publishMessage(msg),
     publishSnapshot: () => hub.publish(buildSnapshot()),
   };
   registerReviewRoutes(app, reviewRequestDeps);
@@ -234,12 +212,5 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
     app.get("/", (_req, res) => res.sendFile(path.join(deps.staticDir!, "index.html")));
   }
 
-  // —— 启动钩子（T8）：git 克隆 + 定时同步自动启动；V2.0：纯归档语义，启动不再补扫（review NULL 为合法态）——
-  if (git && sync && deps.syncAutoStart !== false) {
-    // clone 失败（URL 错/鉴权失败/断网）只记错误，不让服务器启动即崩溃（A12：监控流零侵入不受影响）
-    void git.ensureClone().then(() => sync.start())
-      .catch((err) => logEvent({ event: "git.startup_clone_error", level: "error", data: { error: String(err) } }));
-  }
-
-  return { app, hub, sync, git };
+  return { app, hub };
 }
