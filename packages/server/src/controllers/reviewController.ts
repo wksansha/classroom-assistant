@@ -14,7 +14,7 @@ export interface ReviewRequestDeps {
 }
 
 export type ReviewRequestResult =
-  | { ok: true; review: ReviewResult; submissionId: string | null }
+  | { ok: true; review: ReviewResult }
   | { ok: false; status: 400; error: string };
 
 const MAX_FILES = 50;
@@ -51,7 +51,7 @@ export function buildProjectReviewInput(files: SubmissionFile[]): string {
     .join("\n\n");
 }
 
-/** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合 */
+/** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合（评审失败等同报错） */
 function injectReviewFail(
   deps: ReviewRequestDeps,
   args: { studentId: string; studentName: string; review: ReviewResult },
@@ -65,6 +65,22 @@ function injectReviewFail(
   deps.stateManager.apply(ev, { category: "逻辑错误", subtype: "review_fail", knowledge: args.review.reason });
   deps.publishSnapshot();
   logEvent({ event: "review.fail_injected", level: "info", data: { studentId: args.studentId, reason: args.review.reason } });
+}
+
+/** pass 合成事件注入 stateManager（spec：评审成功才变绿）：清零连续错误并标记问题已解决 */
+function injectReviewPass(
+  deps: ReviewRequestDeps,
+  args: { studentId: string; studentName: string; review: ReviewResult },
+): void {
+  const ev: NormalizedEvent = {
+    studentId: args.studentId, studentName: args.studentName, classId: "default",
+    eventType: "run", success: true,
+    errorType: null, errorMessage: null, samples: [],
+    rawMessage: `评审通过：${args.review.reason}`, cacheKey: null, ts: Date.now(),
+  };
+  deps.stateManager.apply(ev, null, { resolves: true });
+  deps.publishSnapshot();
+  logEvent({ event: "review.pass_applied", level: "info", data: { studentId: args.studentId, reason: args.review.reason } });
 }
 
 /** 运行触发评审（spec §0：作业域退役——无练习解析，所有文件皆可评审，题面锚点 = 文件内注释） */
@@ -87,18 +103,12 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   const reviewCode = input.files ? buildProjectReviewInput(input.files) : input.code;
   const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode });
 
-  // 评审回填轻量索引（spec §0）：(student_id, commit_hash) 定位 push 行，review_json 按 filePath upsert；
-  // commitHash 为空（未提交）→ 跳过回填，仅 review_cache 生效
-  const commitHash = (input.commitHash ?? "").trim();
-  const submissionRow = commitHash
-    ? deps.persistence.getSubmissionsByStudent(rosterEntry.studentId)
-        .find((r) => r.commitHash === commitHash) ?? null
-    : null;
-  if (submissionRow) {
-    deps.persistence.updateNotifyReview(submissionRow.id, input.filePath, review);
-    if (review.status === "fail") {
-      injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
-    }
+  // 评审结果驱动教师端状态（notify 已退役）：fail 等同报错进告警/聚合；pass 置绿（清零连续错误）；
+  // unreviewed 为瞬态，不改变学生状态
+  if (review.status === "fail") {
+    injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
+  } else if (review.status === "pass") {
+    injectReviewPass(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   }
-  return { ok: true, review, submissionId: submissionRow?.id ?? null };
+  return { ok: true, review };
 }

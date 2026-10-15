@@ -10,7 +10,7 @@ export function registerReviewRoutes(app: Express, deps: ReviewRequestDeps) {
         logEvent({ event: "api.review_rejected", level: "warn", data: { error: r.error } });
         return res.status(r.status).json({ error: r.error });
       }
-      return res.json({ review: r.review, submissionId: r.submissionId });
+      return res.json({ review: r.review });
     } catch (err) {
       logEvent({ event: "api.review_error", level: "error", data: { error: String(err) } });
       if (res.headersSent) return;

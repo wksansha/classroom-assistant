@@ -33,17 +33,30 @@ describe("stateManager（内存课堂状态）", () => {
     expect(r[0].events[0].codeSnippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
   });
 
-  it("成功运行清零 consecutiveErrors（spec §5：绿色=最近有成功运行）", () => {
+  it("run 成功只是活动信号：不清零 consecutiveErrors、不标记已解决（spec：评审成功才变绿）", () => {
     const sm = createStateManager();
     sm.apply(errorEvent("stu001", 1000), exp);
     sm.apply(errorEvent("stu001", 2000), exp);
     expect(sm.listRecords()[0].consecutiveErrors).toBe(2);
-    sm.apply(successEvent("stu001", 3000), null);
+    sm.apply(successEvent("stu001", 3000), null);   // /api/events 的 run 成功
+    const r = sm.listRecords()[0];
+    expect(r.consecutiveErrors).toBe(2);            // 不清零
+    expect(r.lastResolvedAt).toBeNull();            // 不标记已解决
+    expect(r.lastErrorAt).toBe(2000);
+    expect(r.lastActivityAt).toBe(3000);            // 活动时间照常更新
+    expect(r.events[2].category).toBe("运行成功");
+  });
+
+  it("评审通过（resolves: true）清零 consecutiveErrors 并标记 lastResolvedAt", () => {
+    const sm = createStateManager();
+    sm.apply(errorEvent("stu001", 1000), exp);
+    sm.apply(errorEvent("stu001", 2000), exp);
+    sm.apply(successEvent("stu001", 3000), null, { resolves: true });   // 评审 pass 注入
     const r = sm.listRecords()[0];
     expect(r.consecutiveErrors).toBe(0);
-    expect(r.lastErrorAt).toBe(2000);       // 成功不清除 lastErrorAt
+    expect(r.lastResolvedAt).toBe(3000);
+    expect(r.lastErrorAt).toBe(2000);       // 评审通过不清除 lastErrorAt（历史仍在）
     expect(r.lastActivityAt).toBe(3000);
-    expect(r.events[2].category).toBe("运行成功"); // success 事件 category
   });
 
   it("事件序列上限 200，超出保留最新", () => {

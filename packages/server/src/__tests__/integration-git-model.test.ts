@@ -16,7 +16,8 @@ import { createPersistence } from "../persistence";
 const execFileAsync = promisify(execFile);
 
 // —— 真实 git 全链集成（spec §10 + §0：本地 bare 仓库模拟 Gitea，Node child_process 以学生身份执行真实 git 命令）——
-// 作业域退役后：服务端无对账/exercises 表，notify 直存一行，评审按 filePath 回填
+// 作业域 + notify 均已退役：服务端无对账、无提交通道（提交事实以学生分支 git 历史为准），
+// 评审按 filePath 直达 LLM，结果经 HTTP 响应回执 + 注入教师端状态（fail 等同报错 / pass 置绿）
 // 目录布局：<tmp>/remote.git（bare）+ teacher/（教师工作副本）+ pc1/ pc2/（学生工作区）
 
 const lesson5Exercise = `# 题目：两数之和
@@ -69,7 +70,7 @@ async function pullNewOnly(cwd: string, studentId: string): Promise<string[]> {
   return paths;
 }
 
-/** submitAll 等价（ext git/commitOps.ts）：add → commit → fetch+rebase → 记 hash 与文件清单 → push；返回 notify payload */
+/** submitAll 等价（ext git/commitOps.ts）：add → commit → fetch+rebase → push（notify 已退役，无上报步骤） */
 async function submitAll(cwd: string, studentId: string, studentName: string): Promise<{ commitHash: string; files: string[] }> {
   const branch = `student-${studentId}`;
   await run(["add", "-A"], cwd);
@@ -167,7 +168,14 @@ const passFetch = (async () => {
 let commitHash1 = "";        // 电脑 1 首次提交（lesson5 学生版）
 let studentCode5 = "";       // 电脑 1 的 lesson5/a.py 学生版全文
 let studentCode6 = "";       // 电脑 2 的 lesson6/b.py 学生版全文
-let notifyRowId1 = "";       // 电脑 1 首次提交的索引行 id
+
+async function untilFirstSnapshot(): Promise<void> {
+  const start = Date.now();
+  while (!sseSink.some((m) => m.type === "snapshot")) {
+    if (Date.now() - start > 5000) throw new Error("timeout waiting for snapshot");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 beforeAll(async () => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "ca-gitmodel-"));
@@ -192,7 +200,7 @@ beforeAll(async () => {
   await run(["commit", "-m", "lesson5"], teacherDir);
   await run(["push", "origin", "main"], teacherDir);
 
-  // 服务端实例：:memory: db + LLM mock；无 git 装配（作业域退役，服务端不 clone 任何仓库）
+  // 服务端实例：:memory: db + LLM mock；无 git 装配、无提交通道（作业域 + notify 均退役）
   const created = createApp({
     dbPath: ":memory:",
     staticDir: null,
@@ -204,16 +212,8 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => { server = app.listen(0, "127.0.0.1", () => resolve()); });
   port = (server!.address() as AddressInfo).port;
   sse = connectSse(port, sseSink);
-  await until0Snapshot();   // SSE 连接建立（首帧 snapshot）
+  await untilFirstSnapshot();   // SSE 连接建立（首帧 snapshot）
 }, 30_000);
-
-async function until0Snapshot(): Promise<void> {
-  const start = Date.now();
-  while (!sseSink.some((m) => m.type === "snapshot")) {
-    if (Date.now() - start > 5000) throw new Error("timeout waiting for snapshot");
-    await new Promise((r) => setTimeout(r, 25));
-  }
-}
 
 // Windows 下 SQLite / git 句柄可能延迟释放 → 尽力清理，失败留给系统临时目录
 afterAll(async () => {
@@ -225,14 +225,16 @@ afterAll(async () => {
 /** 真实 git 进程在 Windows 上启动开销大（单测最多 40+ 次 git 调用），统一放宽超时 */
 const GIT_TEST_TIMEOUT = 60_000;
 
-describe("git 学生分支直连模型全链集成（作业域退役：无对账，notify 直存，评审 filePath 回填）", () => {
-  it("1. 服务端作业域退役：GET /api/assignments 与 POST /api/sync 均 404（服务端不 clone 任何仓库）", async () => {
+describe("git 学生分支直连模型全链集成（作业域 + notify 退役：git 即事实源，评审结果驱动状态）", () => {
+  it("1. 服务端退役断言：assignments/sync/submissions 路由全部 404（服务端不 clone 仓库、无提交通道）", async () => {
     await request(app).get("/api/assignments").expect(404);
     await request(app).post("/api/sync").expect(404);
+    await request(app).post("/api/submissions/notify").send({ studentId: "0001", commitHash: "c", files: [] }).expect(404);
+    await request(app).get("/api/submissions/student/0001").expect(404);
   }, GIT_TEST_TIMEOUT);
 
-  it("2. 学生首用：bootstrap 等价 clone + ensureStudentBranch（自 main 建）→ 改 a.py 提交 → notify 直存一行（files 原样，无练习对照）", async () => {
-    // 名册导入（notify/评审都依赖花名册校验）
+  it("2. 学生首用：bootstrap 等价 clone + ensureStudentBranch（自 main 建）→ 改 a.py 提交推送（服务端零参与）", async () => {
+    // 名册导入（评审依赖花名册校验）
     await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200, { ok: true, count: 1 });
 
     await bootstrapStudentWorkspace(pc1);
@@ -250,55 +252,26 @@ describe("git 学生分支直连模型全链集成（作业域退役：无对账
     commitHash1 = s1.commitHash;
     expect(s1.files).toEqual([".gitignore", "lesson5/a.py"]);   // 首推 → ls-files 全量清单（含 F3 引导写入的 .gitignore）
 
-    // 远端学生分支可见
+    // 远端学生分支可见；提交事实只存在于 git，服务端无任何记录
     const heads = await run(["ls-remote", "--heads", remoteUrl], base);
     expect(heads).toContain("refs/heads/student-0001");
-
-    // 扩展提交成功后 notify 服务端：每次 push 一行，files 原样入库
-    await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", commitHash: s1.commitHash, files: s1.files, pushedAt: Date.now() })
-      .expect(200, { ok: true, inserted: true });
-
-    // 轻量索引：一行（不存代码全文，只有 commit_hash + files_json + review=null，无 exerciseId）
-    const rows = (await request(app).get("/api/submissions/student/0001").expect(200)).body;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      studentId: "0001",
-      studentName: "张三",
-      commitHash: s1.commitHash,
-      files: [".gitignore", "lesson5/a.py"],
-      review: null,
-    });
-    expect(rows[0].exerciseId).toBeUndefined();
-    notifyRowId1 = rows[0].id;
   }, GIT_TEST_TIMEOUT);
 
-  it("3. 幂等：同 push 重复 notify → { ok: true, inserted: false }，不重复入库", async () => {
-    const rowsBefore = (await request(app).get("/api/submissions/student/0001").expect(200)).body.length;
-    const r = await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", commitHash: commitHash1, files: ["lesson5/a.py"], pushedAt: Date.now() })
-      .expect(200);
-    expect(r.body).toEqual({ ok: true, inserted: false });   // UNIQUE(student, commit) 冲突忽略
-    expect((await request(app).get("/api/submissions/student/0001").expect(200)).body).toHaveLength(rowsBefore);
-  }, GIT_TEST_TIMEOUT);
-
-  it("4. F5 评审路径化：filePath+code（含题面注释全文）直达 LLM → mock pass → 索引 review map 按 filePath 回填", async () => {
+  it("3. F5 评审路径化：filePath+code（含题面注释全文）直达 LLM → mock pass → 结果经 HTTP 回执 + 注入教师端状态置绿", async () => {
     const llmBefore = llmState.calls;
+    const sseBefore = sseSink.length;
     const rr = await request(app).post("/api/reviews/request")
       .send({ studentId: "0001", studentName: "张三", filePath: "lesson5/a.py", code: studentCode5, commitHash: commitHash1 })
       .expect(200);
     expect(rr.body.review).toMatchObject({ status: "pass", reason: "代码通过所有测试用例", source: "llm" });
-    expect(rr.body.submissionId).toBe(notifyRowId1);
+    expect(rr.body.submissionId).toBeUndefined();   // notify 已退役
     expect(llmState.calls).toBe(llmBefore + 1);
 
-    // review_json = { [filePath]: ReviewResult }
-    const rows = (await request(app).get("/api/submissions/student/0001").expect(200)).body;
-    const map = rows[0].review;
-    expect(Object.keys(map)).toEqual(["lesson5/a.py"]);
-    expect(map["lesson5/a.py"]).toMatchObject({ status: "pass", reason: "代码通过所有测试用例" });
+    // pass 注入教师端状态：学生转绿（告警面板刷新）
+    await until(() => sseSink.slice(sseBefore).some((m) => m.type === "snapshot" || m.type === "update"));
   }, GIT_TEST_TIMEOUT);
 
-  it("5. 教师再布置 lesson6（push main 即布置）→ 电脑 1 pullNewOnly 只进 lesson6（已有学生代码不动）", async () => {
+  it("4. 教师再布置 lesson6（push main 即布置）→ 电脑 1 pullNewOnly 只进 lesson6（已有学生代码不动）", async () => {
     fs.mkdirSync(path.join(teacherDir, "lesson6"), { recursive: true });
     fs.writeFileSync(path.join(teacherDir, "lesson6", "b.py"), lesson6Exercise, "utf8");
     await run(["add", "-A"], teacherDir);
@@ -316,7 +289,7 @@ describe("git 学生分支直连模型全链集成（作业域退役：无对账
     expect(fs.readFileSync(path.join(pc1, "lesson5", "a.py"), "utf8")).toBe(studentCode5);
   }, GIT_TEST_TIMEOUT);
 
-  it("6. 多电脑防覆盖 + 每 push 一行：电脑 2 提交 lesson6 → 第二行索引；电脑 1 拉取不覆盖他机学生代码", async () => {
+  it("5. 多电脑防覆盖：电脑 2 提交 lesson6 学生版 → 落后的电脑 1 pullNewOnly 不覆盖他机学生代码", async () => {
     // 电脑 1 的拉取提交上远端（真实流程中由后续 submitAll 携带；此后电脑 1 为纯落后状态、无本地独有提交）
     const p1Tip = (await run(["rev-parse", "HEAD"], pc1)).trim();
     await run(["push", "origin", "student-0001"], pc1);
@@ -339,14 +312,6 @@ describe("git 学生分支直连模型全链集成（作业域退役：无对账
     const s2 = await submitAll(pc2, "0001", "张三");
     expect(s2.files).toEqual(["lesson6/b.py"]);
 
-    // 电脑 2 notify → 第二行索引（每次 push 一行，不做练习对照）
-    await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", commitHash: s2.commitHash, files: s2.files, pushedAt: Date.now() })
-      .expect(200, { ok: true, inserted: true });
-    const allRows = (await request(app).get("/api/submissions/student/0001").expect(200)).body;
-    expect(allRows).toHaveLength(2);
-    expect(allRows.map((r: { commitHash: string }) => r.commitHash)).toContain(s2.commitHash);
-
     // —— 回电脑 1（分支落后）→ pullNewOnly：先 rebase 收敛自己再只新增（此时 main 无新题 → 无新增）——
     expect(await pullNewOnly(pc1, "0001")).toEqual([]);
 
@@ -355,7 +320,7 @@ describe("git 学生分支直连模型全链集成（作业域退役：无对账
     expect(fs.readFileSync(path.join(pc1, "lesson5", "a.py"), "utf8")).toBe(studentCode5);
   }, GIT_TEST_TIMEOUT);
 
-  it("7. 存量库迁移（作业域退役形状）：旧 assignments/exercises DROP，含 exercise_id 的 submissions/review_cache 重建，roster 保留", () => {
+  it("6. 存量库迁移（notify 退役形状）：assignments/exercises/submissions 全 DROP，review_cache（旧形状）重建，roster 保留", () => {
     const dbPath = path.join(base, "legacy2.db");
     const legacy = new Database(dbPath);
     legacy.exec(`
@@ -370,21 +335,24 @@ describe("git 学生分支直连模型全链集成（作业域退役：无对账
     legacy.close();
 
     const p = createPersistence(dbPath);
-    // 旧形状行随表 DROP 丢弃；新形状可用（每次 push 一行）
-    expect(p.getSubmissionsByStudent("0009")).toEqual([]);
-    expect(p.insertNotifyRow({ id: "n-1", studentId: "0009", studentName: "轻量行", commitHash: "c10", filesJson: "[]", submittedAt: 43 })).toBe(true);
-    expect(p.insertNotifyRow({ id: "n-2", studentId: "0009", studentName: "轻量行", commitHash: "c10", filesJson: "[]", submittedAt: 44 })).toBe(false);
-    expect(p.getSubmissionsByStudent("0009")).toHaveLength(1);
-    // roster 无损保留
-    expect(p.getRosterEntry("0001")).toEqual({ studentId: "0001", studentName: "张三" });
-
     const check = new Database(dbPath);
     const names = (check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name);
     expect(names).not.toContain("assignments");
     expect(names).not.toContain("exercises");
+    expect(names).not.toContain("submissions");
     const rcCols = (check.prepare("PRAGMA table_info(review_cache)").all() as { name: string }[]).map((c) => c.name);
     expect(rcCols).not.toContain("exercise_id");
     check.close();
+    // roster 无损保留
+    expect(p.getRosterEntry("0001")).toEqual({ studentId: "0001", studentName: "张三" });
     p.close();
   }, GIT_TEST_TIMEOUT);
 });
+
+async function until(cond: () => boolean, ms = 5000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) throw new Error("timeout waiting for condition");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}

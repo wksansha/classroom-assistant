@@ -15,7 +15,6 @@ import type { ReviewLlmOptions } from "./reviewService";
 import { createReviewService } from "./reviewService";
 import { registerRosterRoutes } from "./routes/roster";
 import { createGiteaAdmin } from "./gitea/adminApi";
-import { registerSubmissionRoutes } from "./routes/submissions";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
 import { registerTraceArchiveRoutes } from "./routes/traceArchive";
@@ -180,7 +179,8 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     res.json(stats);
   });
 
-  // 作业评审路由（roster / submissions，T7）；作业域退役（spec §0）：assignments 路由整体删除
+  // 作业评审路由（roster，T7）；作业域退役 + notify 退役（spec §0）：服务端无提交通道，
+  // 学生提交事实以学生分支 git 历史为准，评审结果经 HTTP 响应回执 + 注入监控
   // Gitea 管理联动（学生分支直连模型）：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 三环境变量齐备才启用；缺任一则跳过（info 一条）
   const gitea = process.env.GITEA_URL && process.env.GITEA_ADMIN_TOKEN && process.env.GITEA_REPO
     ? createGiteaAdmin({ baseUrl: process.env.GITEA_URL, adminToken: process.env.GITEA_ADMIN_TOKEN, repo: process.env.GITEA_REPO })
@@ -189,7 +189,6 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
   }
   registerRosterRoutes(app, { persistence, gitea });
-  registerSubmissionRoutes(app, { persistence });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {

@@ -33,13 +33,17 @@ export function computeStatus(r: StudentRecord, now: number): StatusColor {
   return "green";
 }
 
+/** 问题是否仍未解决：最后一次报错之后还没有评审通过（评审 pass 才算解决；run 成功只是活动信号，不置绿） */
+function isUnresolved(r: StudentRecord): boolean {
+  return r.lastErrorAt !== null && (r.lastResolvedAt ?? -1) < r.lastErrorAt;
+}
+
 export function computeScore(r: StudentRecord, now: number): number {
   if (r.lastErrorAt === null) return 0;
-  // 分数只反映「当前是否还有未解决的错」：最后一次事件是成功 = 已解决 → 0 分。
-  // 旧公式用 minutesSinceError*5 让分数随时间一直涨，学生自己修好后反而越来越靠前。
-  // 超过课堂窗口的「老旧报错」也不再计入（不会被聚合看到）。
-  const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件是错误
-  if (!unresolved) return 0;
+  // 分数只反映「当前是否还有未解决的错」：评审通过 = 已解决 → 0 分。
+  // run 成功不再是解决信号（spec：评审成功才变绿，评审失败等同报错）。
+  // 超过课堂窗口的「老旧报错」不再计入（不会被聚合看到）。
+  if (!isUnresolved(r)) return 0;
   if (!isWithinClassWindow(r.lastErrorAt, now)) return 0;
   const repeat = maxSubtypeRepeat(r.events, now);
   let score = 10 + repeat * 10;
@@ -89,7 +93,7 @@ export function createAggregator(): Aggregator {
       const alerts: AlertItem[] = scored.slice(0, 5).map(({ r, score }) => {
         const lastErr = [...r.events].reverse().find((e) => !e.success && isWithinClassWindow(e.ts, now));
         const repeat = maxSubtypeRepeat(r.events, now);
-        const unresolved = r.lastErrorAt === r.lastActivityAt; // 最后一次事件仍是错误
+        const unresolved = isUnresolved(r); // 评审通过前错误未解决
         const reason =
           r.consecutiveErrors >= 5 ? `连续报错 ${r.consecutiveErrors} 次`
           : repeat >= 3 ? `同一错误 5 分钟内 ${repeat} 次`

@@ -19,13 +19,20 @@ export interface StudentRecord {
   events: StoredEvent[];
   lastActivityAt: number;
   lastErrorAt: number | null;
+  /** 最近一次评审通过时间（问题「已解决」的唯一信号；run 成功只是活动信号，不置绿） */
+  lastResolvedAt: number | null;
   consecutiveErrors: number;
 }
 
 const MAX_EVENTS = 200;
 
+export interface ApplyOptions {
+  /** 评审通过注入的事件置 true：清零连续错误并标记问题已解决（spec：评审成功才变绿） */
+  resolves?: boolean;
+}
+
 export interface StateManager {
-  apply(ev: NormalizedEvent, explanation: Explanation | null): void;
+  apply(ev: NormalizedEvent, explanation: Explanation | null, opts?: ApplyOptions): void;
   listRecords(): StudentRecord[];
   getStudentDetail(id: string): {
     studentId: string; studentName: string; events: StoredEvent[];
@@ -37,12 +44,12 @@ export function createStateManager(): StateManager {
   const records = new Map<string, StudentRecord>();
 
   return {
-    apply(ev, explanation) {
+    apply(ev, explanation, opts) {
       let r = records.get(ev.studentId);
       if (!r) {
         r = {
           studentId: ev.studentId, studentName: ev.studentName, classId: ev.classId,
-          events: [], lastActivityAt: ev.ts, lastErrorAt: null, consecutiveErrors: 0,
+          events: [], lastActivityAt: ev.ts, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
         };
         records.set(ev.studentId, r);
         logEvent({ event: "state.new_record", level: "info", data: {
@@ -67,7 +74,11 @@ export function createStateManager(): StateManager {
       if (r.events.length > MAX_EVENTS) r.events.splice(0, r.events.length - MAX_EVENTS);
       r.lastActivityAt = Math.max(r.lastActivityAt, ev.ts);
       if (ev.success) {
-        r.consecutiveErrors = 0;
+        // run 成功只是活动信号；仅评审通过（resolves）才清零连续错误并标记已解决
+        if (opts?.resolves) {
+          r.lastResolvedAt = Math.max(r.lastResolvedAt ?? 0, ev.ts);
+          r.consecutiveErrors = 0;
+        }
       } else {
         r.lastErrorAt = Math.max(r.lastErrorAt ?? 0, ev.ts);
         r.consecutiveErrors += 1;
@@ -82,6 +93,7 @@ export function createStateManager(): StateManager {
           consecutiveErrors: r.consecutiveErrors,
           lastActivityAt: r.lastActivityAt,
           lastErrorAt: r.lastErrorAt,
+          lastResolvedAt: r.lastResolvedAt,
         },
       } });
     },

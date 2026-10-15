@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import type { Explanation, ReviewResult, RosterEntry, Submission } from "@classroom/shared";
+import type { Explanation, ReviewResult, RosterEntry } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 export interface EventRow {
@@ -19,15 +19,7 @@ export interface EventRow {
   codeSnippet?: string | null;
 }
 
-// —— 行映射（提交轻量索引，snake_case DB 行 → camelCase 领域对象；spec §0：每次 push 一行）——
-type SubmissionDbRow = { id: string; student_id: string; student_name: string; commit_hash: string; files_json: string | null; submitted_at: number; review_json: string | null };
-function toSubmission(r: SubmissionDbRow): Submission {
-  return { id: r.id, studentId: r.student_id, studentName: r.student_name,
-    commitHash: r.commit_hash,
-    files: r.files_json ? (JSON.parse(r.files_json) as string[]) : null,
-    submittedAt: r.submitted_at,
-    review: r.review_json ? (JSON.parse(r.review_json) as Record<string, ReviewResult>) : null };
-}
+// —— 行映射（snake_case DB 行 → camelCase 领域对象）——
 
 export interface Persistence {
   insertEvent(row: EventRow): void;
@@ -40,10 +32,6 @@ export interface Persistence {
   replaceRoster(entries: RosterEntry[]): void;
   getRoster(): RosterEntry[];
   getRosterEntry(studentId: string): RosterEntry | null;
-  // —— 提交轻量索引（notify 链；spec §0：每次 push 一行，UNIQUE(student, commit)）——
-  getSubmissionsByStudent(studentId: string): Submission[];
-  insertNotifyRow(row: { id: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
-  updateNotifyReview(id: string, filePath: string, review: ReviewResult): void;
   // —— 评审缓存（内容寻址：key = sha256(filePath + 评审输入)）——
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
@@ -68,11 +56,7 @@ export function createPersistence(dbPath?: string): Persistence {
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
   if (tableExists("exercises")) db.exec("DROP TABLE exercises");
   if (tableExists("assignments")) db.exec("DROP TABLE assignments");
-  if (tableExists("submissions")) {
-    const cols = colsOf("submissions");
-    // 旧快照表（无 commit_hash）与 exercise 对照版轻量索引（有 exercise_id）均弃用重建
-    if (!cols.includes("commit_hash") || cols.includes("exercise_id")) db.exec("DROP TABLE submissions");
-  }
+  if (tableExists("submissions")) db.exec("DROP TABLE submissions");   // notify 退役：提交流水以学生分支 git 历史为准
   if (tableExists("review_cache") && colsOf("review_cache").includes("exercise_id")) {
     db.exec("DROP TABLE review_cache");   // 旧 key 公式（含 versionHash）已失效，丢弃无损
   }
@@ -127,17 +111,6 @@ export function createPersistence(dbPath?: string): Persistence {
       student_id TEXT PRIMARY KEY,
       token TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS submissions (
-      id TEXT PRIMARY KEY,
-      student_id TEXT NOT NULL,
-      student_name TEXT NOT NULL,
-      commit_hash TEXT NOT NULL,
-      files_json TEXT NOT NULL,
-      submitted_at INTEGER NOT NULL,
-      review_json TEXT,
-      UNIQUE(student_id, commit_hash)
-    );
-    CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
   `);
 
   return {
@@ -196,23 +169,6 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     getRosterEntry(studentId) {
       return (db.prepare("SELECT student_id AS studentId, student_name AS studentName FROM roster WHERE student_id = ?").get(studentId) as RosterEntry) ?? null;
-    },
-    // —— 提交轻量索引（spec §0：原样入库，不做练习对照）——
-    getSubmissionsByStudent(studentId) {
-      return (db.prepare("SELECT * FROM submissions WHERE student_id = ? ORDER BY submitted_at DESC").all(studentId) as SubmissionDbRow[]).map(toSubmission);
-    },
-    insertNotifyRow(row) {
-      const r = db.prepare(`INSERT OR IGNORE INTO submissions (id, student_id, student_name, commit_hash, files_json, submitted_at)
-        VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(row.id, row.studentId, row.studentName, row.commitHash, row.filesJson, row.submittedAt);
-      return r.changes === 1;
-    },
-    updateNotifyReview(id, filePath, review) {
-      const row = db.prepare("SELECT review_json FROM submissions WHERE id = ?").get(id) as { review_json: string | null } | undefined;
-      if (!row) return;
-      const map = row.review_json ? (JSON.parse(row.review_json) as Record<string, ReviewResult>) : {};
-      map[filePath] = review;
-      db.prepare("UPDATE submissions SET review_json = ? WHERE id = ?").run(JSON.stringify(map), id);
     },
     // —— 评审缓存（内容寻址）——
     getCachedReview(cacheKey) {

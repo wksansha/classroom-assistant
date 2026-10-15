@@ -15,6 +15,7 @@ function student(id: string, name: string, events: StoredEvent[], consecutiveErr
     studentId: id, studentName: name, classId: "3A", events,
     lastActivityAt: errors.at(-1)?.ts ?? NOW,
     lastErrorAt: errors.at(-1)?.ts ?? null,
+    lastResolvedAt: null,
     consecutiveErrors,
   };
 }

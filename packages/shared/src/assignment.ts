@@ -11,17 +11,6 @@ export interface ReviewResult {
   source: "llm" | "mock" | "timeout";
 }
 
-/** 轻量提交索引行（每次 push 一行，UNIQUE(student_id, commit_hash)；代码全文在学生分支 git 历史中） */
-export interface Submission {
-  id: string;
-  studentId: string;
-  studentName: string;
-  commitHash: string;           // 学生分支提交 hash
-  files: string[] | null;       // 本次 push 涉及文件清单（files_json 原样，不做对照）
-  submittedAt: number;
-  review: Record<string, ReviewResult> | null;  // filePath → 评审结果（回填按 filePath upsert）
-}
-
 export interface RosterEntry { studentId: string; studentName: string; }
 
 /** learner → server 运行触发评审 wire payload（spec §0：练习定位 = filePath，题面锚点 = 文件内注释） */

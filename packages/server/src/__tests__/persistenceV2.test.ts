@@ -8,38 +8,8 @@ import { createPersistence } from "../persistence";
 const review = (status: "pass" | "fail", reason: string) =>
   ({ status, reason, reviewedAt: 1, model: "m", source: "llm" as const });
 
-describe("persistence（提交轻量索引 + 评审缓存，作业域退役后）", () => {
-  it("notify 行：files_json 原样往返，按 student 查询，review 初始 null", () => {
-    const p = createPersistence(":memory:");
-    p.insertNotifyRow({ id: "s1", studentId: "2025001", studentName: "张三", commitHash: "c1",
-      filesJson: JSON.stringify(["lesson5/a.py", "lesson5/weather-app/main.py"]), submittedAt: 100 });
-    const row = p.getSubmissionsByStudent("2025001")[0];
-    expect(row.files).toEqual(["lesson5/a.py", "lesson5/weather-app/main.py"]);
-    expect(row.commitHash).toBe("c1");
-    expect(row.review).toBeNull();
-  });
-
-  it("幂等：同 (student, commit) 重复 notify → INSERT OR IGNORE 返回 false 不重复入库", () => {
-    const p = createPersistence(":memory:");
-    const row = { id: "s1", studentId: "2025001", studentName: "张三", commitHash: "c1", filesJson: "[]", submittedAt: 100 };
-    expect(p.insertNotifyRow(row)).toBe(true);
-    expect(p.insertNotifyRow({ ...row, id: "s2" })).toBe(false);   // 不同 id 同业务键也冲突
-    expect(p.getSubmissionsByStudent("2025001")).toHaveLength(1);
-  });
-
-  it("review map 回填：按 filePath upsert，同 push 多文件互不覆盖", () => {
-    const p = createPersistence(":memory:");
-    p.insertNotifyRow({ id: "s1", studentId: "2025001", studentName: "张三", commitHash: "c1", filesJson: "[]", submittedAt: 100 });
-    p.updateNotifyReview("s1", "lesson5/a.py", review("pass", "通过"));
-    p.updateNotifyReview("s1", "lesson5/b.py", review("fail", "有错"));
-    p.updateNotifyReview("s1", "lesson5/a.py", review("pass", "复评通过"));
-    const map = p.getSubmissionsByStudent("2025001")[0].review!;
-    expect(Object.keys(map).sort()).toEqual(["lesson5/a.py", "lesson5/b.py"]);
-    expect(map["lesson5/a.py"].reason).toBe("复评通过");
-    expect(map["lesson5/b.py"].status).toBe("fail");
-  });
-
-  it("review_cache：新 DDL（无 exercise_id/version_hash），save 覆盖 + get 命中", () => {
+describe("persistence（评审缓存 + 迁移；notify 已退役）", () => {
+  it("review_cache：内容寻址 DDL（无 exercise_id/version_hash），save 覆盖 + get 命中", () => {
     const p = createPersistence(":memory:");
     p.saveReviewCache({ cacheKey: "k1", review: review("pass", "ok") });
     expect(p.getCachedReview("k1")?.status).toBe("pass");
@@ -48,7 +18,7 @@ describe("persistence（提交轻量索引 + 评审缓存，作业域退役后�
     expect(p.getCachedReview("missing")).toBeNull();
   });
 
-  it("存量库迁移：旧作业域表 DROP，旧 submissions/review_cache 重建，roster 保留", () => {
+  it("存量库迁移：旧作业域表与 submissions 全部 DROP，review_cache（旧形状）重建，roster 保留", () => {
     const file = path.join(os.tmpdir(), `mig-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
     const raw = new Database(file);
     raw.exec(`
@@ -66,9 +36,7 @@ describe("persistence（提交轻量索引 + 评审缓存，作业域退役后�
     const names = (check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name);
     expect(names).not.toContain("assignments");
     expect(names).not.toContain("exercises");
-    const sCols = (check.prepare("PRAGMA table_info(submissions)").all() as { name: string }[]).map((c) => c.name);
-    expect(sCols).not.toContain("exercise_id");
-    expect(sCols).toContain("files_json");
+    expect(names).not.toContain("submissions");   // notify 已退役：提交流水以学生分支 git 历史为准
     const rcCols = (check.prepare("PRAGMA table_info(review_cache)").all() as { name: string }[]).map((c) => c.name);
     expect(rcCols).not.toContain("exercise_id");
     check.close();

@@ -8,7 +8,7 @@ const MIN = 60_000;
 function record(overrides: Partial<StudentRecord> & { events: StoredEvent[] }): StudentRecord {
   return {
     studentId: "stu001", studentName: "张三", classId: "3A",
-    lastActivityAt: NOW, lastErrorAt: null, consecutiveErrors: 0,
+    lastActivityAt: NOW, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
     ...overrides,
   };
 }
@@ -26,9 +26,10 @@ describe("computeStatus（spec §5 状态色）", () => {
     const r = record({ events: [err(NOW - 1 * MIN, "缺少冒号")], lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 1 });
     expect(computeStatus(r, NOW)).toBe("yellow");
   });
-  it("错误超过 2 分钟前 → 绿（未达红）", () => {
-    const r = record({ events: [err(NOW - 3 * MIN, "缺少冒号")], lastErrorAt: NOW - 3 * MIN, consecutiveErrors: 1 });
-    expect(computeStatus(r, NOW)).toBe("green");
+  it("3 分钟前单次报错且未评审 → 黄（未达红：重复分仅 1×10）", () => {
+    const r = record({ events: [err(NOW - 3 * MIN, "缺少冒号")], lastActivityAt: NOW - 3 * MIN, lastErrorAt: NOW - 3 * MIN, consecutiveErrors: 1 });
+    expect(computeScore(r, NOW)).toBe(20);
+    expect(computeStatus(r, NOW)).toBe("yellow");
   });
   it("同一 subtype 5 分钟内 3 次且未解决 → 红", () => {
     const ts = [NOW - 4 * MIN, NOW - 3 * MIN, NOW - 2 * MIN];
@@ -81,16 +82,43 @@ describe("computeScore（spec §5 优先级分）", () => {
     // 10(基础未解决) + 1×10(重复) + 30(连续) = 50
     expect(computeScore(r, NOW)).toBe(50);
   });
-  it("成功运行后（最后事件是成功）：问题已解决 → 分数清 0", () => {
+  it("run 成功后未评审：问题仍未解决 → 分数保持（spec：评审成功才变绿）", () => {
     const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
     const events = ts.map(t => err(t, "缺少冒号"));
     events.push({ ts: NOW - 5 * MIN, eventType: "run", success: true, subtype: null, category: "运行成功", knowledge: null, rawMessage: "ok" });
     const r = record({
       events,
       lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,
-      consecutiveErrors: 0,
+      lastResolvedAt: null, consecutiveErrors: 3,
+    });
+    expect(computeScore(r, NOW)).toBeGreaterThan(0);
+    expect(computeStatus(r, NOW)).not.toBe("green");
+  });
+  it("评审通过后（lastResolvedAt 晚于 lastErrorAt）：问题已解决 → 分数清 0", () => {
+    const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
+    const events = ts.map(t => err(t, "缺少冒号"));
+    events.push({ ts: NOW - 5 * MIN, eventType: "run", success: true, subtype: null, category: "运行成功", knowledge: null, rawMessage: "评审通过" });
+    const r = record({
+      events,
+      lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,
+      lastResolvedAt: NOW - 5 * MIN, consecutiveErrors: 0,
     });
     expect(computeScore(r, NOW)).toBe(0);
+    expect(computeStatus(r, NOW)).toBe("green");
+  });
+  it("评审通过后又报错：lastErrorAt 晚于 lastResolvedAt → 重新未解决", () => {
+    const events = [
+      { ts: NOW - 9 * MIN, eventType: "run" as const, success: false, subtype: "缺少冒号", category: "其他", knowledge: "k", rawMessage: "m" },
+      { ts: NOW - 6 * MIN, eventType: "run" as const, success: true, subtype: null, category: "运行成功", knowledge: null, rawMessage: "评审通过" },
+      err(NOW - 2 * MIN, "名称未定义"),
+    ];
+    const r = record({
+      events,
+      lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN,
+      lastResolvedAt: NOW - 6 * MIN, consecutiveErrors: 1,
+    });
+    expect(computeScore(r, NOW)).toBeGreaterThan(0);
+    expect(computeStatus(r, NOW)).toBe("yellow");
   });
   it("报错超过 120 分钟（不在本堂课）→ 分数清 0", () => {
     const r = record({

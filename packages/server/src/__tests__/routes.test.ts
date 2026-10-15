@@ -4,14 +4,12 @@ import request from "supertest";
 import { createPersistence } from "../persistence";
 import { createTeacherHub } from "../teacherHub";
 import { registerRosterRoutes } from "../routes/roster";
-import { registerSubmissionRoutes } from "../routes/submissions";
 
 function makeApp() {
   const persistence = createPersistence(":memory:");
   const app: Express = express();
   app.use(express.json({ limit: "2mb" }));
   registerRosterRoutes(app, { persistence });
-  registerSubmissionRoutes(app, { persistence });
   return { app, persistence };
 }
 
@@ -40,39 +38,18 @@ describe("名册与身份校验（A16/A25）", () => {
   });
 });
 
-describe("作业域退役后路由（spec §0）", () => {
-  it("GET /api/assignments 与 POST /api/sync 已退役（404）", async () => {
+describe("作业域 + notify 全部退役后路由（spec §0）", () => {
+  it("GET /api/assignments、POST /api/sync、/api/submissions/* 均 404（服务端无提交通道）", async () => {
     const { app } = makeApp();
     await request(app).get("/api/assignments").expect(404);
     await request(app).post("/api/sync").expect(404);
-  });
-
-  it("notify 路由：直存一行 + 幂等；student 查询；exercise 查询与快照入库链已退役（404）", async () => {
-    const { app } = makeApp();
-    await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200);
     await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", commitHash: "c1", files: ["lesson5/a.py"], pushedAt: 1 })
-      .expect(200, { ok: true, inserted: true });
-    await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", commitHash: "c1", files: ["lesson5/a.py"], pushedAt: 1 })
-      .expect(200, { ok: true, inserted: false });
-    const subs = (await request(app).get("/api/submissions/student/0001").expect(200)).body;
-    expect(subs).toHaveLength(1);
-    expect(subs[0]).toMatchObject({ studentId: "0001", studentName: "张三", commitHash: "c1", files: ["lesson5/a.py"], review: null });
-    await request(app).get("/api/submissions/exercise/e1").expect(404);
+      .send({ studentId: "0001", studentName: "张三", commitHash: "c1", files: ["a.py"], pushedAt: 1 })
+      .expect(404);
+    await request(app).get("/api/submissions/student/0001").expect(404);
     await request(app).post("/api/submissions")
-      .send({ exerciseId: "e1", studentId: "0001", studentName: "张三", code: "print(1)", source: "auto" })
-      .expect(404);                                                                   // 快照入库链退役
-  });
-
-  it("notify 校验链：学号不在名册 400；缺字段 400", async () => {
-    const { app } = makeApp();
-    await request(app).post("/api/submissions/notify")
-      .send({ studentId: "9999", studentName: "路人", commitHash: "c1", files: ["a.py"], pushedAt: 1 })
-      .expect(400);
-    await request(app).post("/api/submissions/notify")
-      .send({ studentId: "0001", studentName: "张三", pushedAt: 1 })
-      .expect(400);
+      .send({ exerciseId: "e1", studentId: "0001", code: "print(1)" })
+      .expect(404);   // 快照入库链退役
   });
 });
 
