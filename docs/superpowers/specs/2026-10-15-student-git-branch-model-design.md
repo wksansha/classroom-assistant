@@ -26,7 +26,7 @@
 | 路径不可变 | 作业目录名、文件名、文件位置一经 push 到 main 不再改名/挪动 | 「只新增」策略使移动表现为「旧路径消失 + 新路径新增」，旧提交历史仍完整可溯 |
 | 目录命名自由 | 作业不再强制 `week-数字` 命名；任意名一级子目录均可（识别规则见 2.1） | — |
 | 学生零 Git 认知 | git 全部由扩展代执行（child_process 调本机 git CLI），学生只见按钮 | — |
-| 门禁强度不变 | 身份仍经服务端花名册校验（`/api/identity/validate`），分支名由 globalState 学号派生；冒充难度与现状实质等价 | — |
+| 门禁 | 防冒充与现状等价（花名册级：学号 + 姓名可冒领，无密码体系）；**防越权升级为凭证级**（每生 Gitea 账户 + 分支保护，详见 2.2） | — |
 | 评审/L1/监控不动 | F5 评审触发（请求自带代码文本）、L1 归档、SSE 监控链路保持原样 | — |
 
 ### 2.1 作业识别：学生端零识别
@@ -39,6 +39,13 @@
 - 教师仓库目录命名自由（`week-数字` 约定退役，任意一级子目录均可）
 
 **服务端侧识别保留**（与学生提交无关）：syncNow 扫描教师仓库维护 exercises 表（评审需读题面 + 测试用例锚点），扫描规则放宽为内容特征（目录内 `.py` = 单文件练习；含 `exercise.json` 的子目录 = 项目练习；下划线开头或无特征 = 排除）。作业标题默认 = 目录名（管理页可改）。exerciseId 退化为 exercises 表内部主键；review_cache key 改为 `sha256(路径 + versionHash + code)`。
+
+### 2.2 账户模型：每生一 Gitea 账户（凭证级防越权）
+
+- **建号**：花名册导入时服务端联动 Gitea 管理员 API 批量建号（用户名 = 学号）+ 生成 token 存 DB；逐分支配保护规则（`student-XXXX` 分支仅允许对应用户 push，脚本循环）
+- **token 下发**：学生身份页输入学号姓名 → 花名册校验通过 → 服务端在响应中返回**该生专属 token** → 扩展用于本机 git 操作，学生零感知
+- **效果**：任何学生的 token 物理上无法 push 他人分支（Gitea 403）；push 日志记录真实账号（审计可查）；单生 token 泄露仅影响本人，可单独重置
+- **边界（诚实声明）**：防冒充未升级——知道他人学号 + 姓名仍可冒领 token（姓名非秘密），如需更强须引入密码体系，课堂场景不建议
 
 ## 3. 总体架构
 
@@ -62,7 +69,7 @@
 
 ### 4.1 workspace 即克隆
 
-- 扩展检测 workspace 根目录非 git 仓库时，引导首次 `git clone`（repo URL 与通用学生 token 由扩展配置统一下发：`pylearner.gitRepoUrl`、`pylearner.gitToken`）
+- 扩展检测 workspace 根目录非 git 仓库时，引导首次 `git clone`（repo URL 由扩展配置 `pylearner.gitRepoUrl` 下发；认证用**该生专属 token**——身份校验通过后由服务端返回，见 2.2，不落扩展配置）
 - 克隆后 workspace 自带全量历史；写入 `.gitignore`（`__pycache__/`、`*.pyc`、`.venv/` 等）
 
 ### 4.2 分支规则
@@ -82,9 +89,11 @@
 
 ### 4.4 提交
 
-1. `git add -A`（整个工作区，.gitignore 挡垃圾文件；学生自建文件一并归档）
-2. `git commit`（author 由扩展按 globalState 身份写入：`学号 姓名 <学号@classroom>`；时间戳由本机 git 落，服务端 notify 时间以 DB `submitted_at` 为准）
-3. `git push origin student-<学号>`
+1. **分支断言**：校验当前分支 == `student-<globalState 学号>`，不一致直接拒绝（防手动 `git checkout` 绕过身份绑定；凭证级防护由 Gitea 分支保护兜底）
+2. `git add -A`（整个工作区，.gitignore 挡垃圾文件；学生自建文件一并归档）
+3. `git commit`（author 由扩展按 globalState 身份写入：`学号 姓名 <学号@classroom>`；时间戳由本机 git 落，服务端 notify 时间以 DB `submitted_at` 为准）
+4. push 前自动 `fetch + rebase`（同一学生多台电脑都有离线提交时收敛分叉）；rebase 冲突 → 提示「与你在其他电脑的提交冲突，需选择保留版本」
+5. `git push origin student-<学号>`
 
 断网场景：commit 本地成功、push 失败 → 提示「已本地保存，联网后可补推」（新增的离线提交能力）。
 
@@ -99,9 +108,9 @@
 保留 switchFlow 四段编排，各段替换为 git 原语：
 
 1. 旧身份归档 = `add -A + commit + push`（失败中止切换，不变）
-2. 清空/重建 = `git checkout student-<新学号>`（分支不存在则自 origin/main 创建）
+2. 清空/重建 = `git checkout student-<新学号>`（分支不存在则自 origin/main 创建）+ `git clean -fdX`（清除前一位学生残留的 ignored 缓存垃圾；A 的自建文件已在归档步骤随 add -A 进入 A 的分支，checkout 时自动从工作区清除——共用机隐私优于现状）
 3. 同步 = `git pull origin student-<新学号>`
-4. untracked 自建文件天然跟随（优于现状的「只删 week-*」规则）
+4. untracked 自建文件天然跟随
 
 ### 4.7 会话确认门禁
 
@@ -147,9 +156,9 @@ POST /api/submissions/notify
 ## 7. 部署前提（一次性）
 
 1. 机房批量安装 Git
-2. Gitea 建通用学生账号：只读 `main` + 只写 `student-*`（一条分支保护规则）；token 经扩展配置下发
+2. **每生一 Gitea 账户**：花名册导入时服务端联动 Gitea 管理员 API 批量建号（用户名 = 学号）+ token 存 DB；逐分支配保护规则（`student-XXXX` 仅允许对应用户 push，脚本循环）；学生 token 经身份校验响应下发，不落扩展配置
 3. 教师仓库确保 `prepare` 分支存在（教师新作业一律 push 到 prepare，main 只经发布 merge 进入）
-4. 扩展新增配置项：`pylearner.gitRepoUrl`、`pylearner.gitToken`
+4. 扩展新增配置项：`pylearner.gitRepoUrl`
 
 ## 8. 风险与对策
 
@@ -159,7 +168,8 @@ POST /api/submissions/notify
 | 学生机 git 缺失/版本过旧 | 扩展启动时探测 `git --version`，缺失时给出安装引导提示 |
 | push 时网络中断 | commit 已本地保存，提示补推；notify 失败扩展端重试 |
 | 学生删本地克隆 | 重新 clone + checkout 自己分支即全量恢复（本地丢失不再依赖服务端 DB） |
-| 通用 token 泄露 | token 仅能写 student-* 分支，破坏面限于分支内容；分支可从 notify 索引 + git 历史审计修复 |
+| 单生 token 泄露 | 仅能写该生自己的分支（Gitea 分支保护拒绝越权 push），影响面限于本人；可单独重置该生 token，其他学生不受影响 |
+| 同一学生多台电脑离线提交分叉 | push 前自动 fetch + rebase 收敛；rebase 冲突时提示选择保留版本（触发条件苛刻：两台机都离线提交且改同一文件） |
 
 ## 9. 发布机制（prepare 分支，本期实现）
 
