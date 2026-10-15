@@ -1,6 +1,6 @@
 # 内网部署指南（x86_64 Linux 服务器）
 
-场景：服务器在隔离内网（不能出外网），已部署本地大模型；教师机与学生机均为麒麟系统（服务器 x86_64，学生机 arm64）。监控流走扩展上报；作业系统经服务器内置 Gitea 仓库发布题目、归档学生提交；教师端浏览器打开仪表盘。
+场景：服务器在隔离内网（不能出外网），已部署本地大模型；教师机与学生机均为麒麟系统（服务器 x86_64，学生机 arm64）。监控流走扩展上报；作业走学生分支直连模型——教师 push Gitea main 即布置，学生端扩展代执行本机 git 直连 Gitea 拉取/提交，服务端旁路化（notify 轻量索引 + F5 评审 + 实时监控），教师端浏览器打开仪表盘。
 
 > 与《内网离线开发环境手册》（Verdaccio npm 私服 :4873 / PyPI 镜像 :8080 / ARM Node 运行时）的关系：
 > 基础设施按该手册搭建，**本项目应用本身推荐用第二节的独立部署包**（自带 linux-x64 node_modules，不依赖私服内容）。
@@ -112,7 +112,7 @@ LLM_MODEL=<启动时 --served-model-name 指定的名字>
 
 ## 五、作业系统（Gitea 仓库 + .env 配置）
 
-作业系统需要一个 git 仓库作为题目入口和学生提交归档。推荐在服务器上自建 **Gitea**（单个 Go 静态二进制，SQLite 存储，麒麟 x86_64 直接运行，无外部依赖）：教师经网页/PyCharm 推送题目，服务端从 Gitea 同步题目并把学生提交归档到学生分支。**学生机不装 git、不需要 Gitea 账号。**
+作业走学生分支直连模型，仍推荐在服务器上自建 **Gitea**（单个 Go 静态二进制，SQLite 存储，麒麟 x86_64 直接运行，无外部依赖）：教师经网页/PyCharm push 题目到 main（push 即布置）；学生端扩展代执行本机 git，用每生专属凭证直连 Gitea 拉取/提交，**服务端不 clone 任何仓库**。学生机需安装 Git（扩展启动时探测并给安装引导）；Gitea 账号由花名册导入时服务端联动自动创建，学生零感知。
 
 ### 1. 离线安装 Gitea
 
@@ -159,21 +159,21 @@ sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload
 2. 安装页底部「管理员账号设置」创建教师管理员账号
 3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化仓库）
 
-### 3. 服务端专用账号（重要）
+### 3. Gitea 管理员 token（花名册联动建号用）
 
-服务端要**读写**该仓库（同步题目 + 注入 exercise-id + 归档学生分支），不要复用教师账号：
+服务端在花名册导入时联动 Gitea 管理员 API 批量建号（用户名 = 学号）+ 逐分支配保护规则 + 自动加仓库协作者，需要管理员 token：
 
-1. 管理员创建用户 `classroom-server`，加为 `classroom/exercises` 仓库协作者（可写）
-2. 用该账号登录 → 设置 → 应用 → 生成 **token**（权限选仓库读写）
+1. 管理员登录 → 设置 → 应用 → 生成 **token**（权限含仓库/组织管理写权限）
 
 `/opt/classroom/packages/server/.env` 增加：
 
 ```ini
-GIT_REPO_URL=http://classroom-server:<token>@127.0.0.1:3001/classroom/exercises.git
-GIT_SYNC_INTERVAL_MS=60000
+GITEA_URL=http://127.0.0.1:3001
+GITEA_ADMIN_TOKEN=<上一步生成的 token>
+GITEA_REPO=classroom/exercises
 ```
 
-改完 `systemctl restart classroom-server`。首轮同步自动 clone，并给题目文件注入 exercise-id 后回推仓库。
+改完 `systemctl restart classroom-server`。
 
 ### 4. 教师出题流程（教师机，麒麟）
 
@@ -184,17 +184,15 @@ git clone http://<服务器IP>:3001/classroom/exercises.git
 cd exercises
 ```
 
-1. 新建 `week-01/exercise-01.py`：`#` 注释写题面，`# ===== 代码区 =====` 后写学生初始代码（exercise-id 由服务端自动注入，无需手写）
-2. PyCharm/Trae 里 commit → push
-3. 仪表盘 `#/admin` → 同步 → 导入花名册（每行「学号 姓名」）→ 发布作业
-
-> 服务端会向仓库回推注入提交，教师再次出题前先 `git pull --rebase` 再新建文件。
+1. 新建任意名一级子目录（如 `lesson5/`），放题文件：文件内 `#` 注释写题面，`# ===== 代码区 =====` 后写学生初始代码（LLM 评审以文件内题面注释为锚点，无需手写 exercise-id）
+2. PyCharm/Trae 里 commit → push（**push 即布置**，学生「拉取作业」即发布闸门；已推文件/目录不再修改与改名，只新增）
+3. 仪表盘 `#/admin` → 导入花名册（每行「学号 姓名」，联动自动建 Gitea 账号与分支保护）
 
 ### 5. 验收
 
-- `journalctl -u classroom-server` 出现 `sync.completed` 且 `importedNew≥1`
-- 仪表盘 `#/admin` 出现「第 1 周作业」、题数正确
-- 发布后学生扩展拉到 `week-01/` 文件，学生提交后 Gitea 仓库出现 `student-<学号>` 分支
+- 教师推新目录后，学生扩展「拉取作业」能拉到新文件
+- 学生提交后 Gitea 仓库出现 `student-<学号>` 分支，且该分支仅对同学号账户可写（分支保护）
+- 服务端日志出现 `db.insert_event`/评审链路；`GET /api/submissions/student/<学号>` 返回提交索引行
 
 ## 六、验收清单
 
@@ -241,6 +239,5 @@ journalctl -u classroom-server -f
 - **`llm.mock_fallback (reason: api_error)`** → 本地模型地址/模型名不对；先 `curl http://127.0.0.1:11434/v1/models` 验证服务通不通
 - **浏览器打不开 3000** → 防火墙没放行，或服务器只监听了 localhost（默认全接口监听，一般不会）
 - **better-sqlite3 报 ABI/平台错误** → 部署包不是在 linux-x64 环境里制作的，回到第二节重新打包
-- **`sync.failed: authentication failed`** → GIT_REPO_URL 里的 Gitea 账号/token 失效或仓库路径写错；用浏览器能打开 `http://127.0.0.1:3001/classroom/exercises` 验证仓库存在
+- **花名册导入后学生身份校验报错/无法拉取** → 看 `journalctl -u classroom-server` 是否有 `gitea.provision_failed`：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 配置错误或 token 权限不足
 - **Gitea 页面打不开 3001** → `systemctl status gitea` 看服务状态，防火墙没放行 3001 也会如此
-- **教师 push 被拒（non-fast-forward）** → 服务端注入了 exercise-id 回推提交，教师先 `git pull --rebase` 再 push
