@@ -17,9 +17,12 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
       void (async () => {
         for (const e of entries) {
           try {
-            const token = await gitea.ensureStudentAccount(e.studentId);
+            // F4 防重复轮换：已有 token 的学生跳过建号/token 重建（重复导入不再使学生旧 token 失效 push 401）；
+            // token 建成即入库（protectBranch 失败不丢 token，下次导入自动跳过重建）；分支保护幂等照常执行
+            if (deps.persistence.getStudentToken(e.studentId) === null) {
+              deps.persistence.saveStudentToken(e.studentId, await gitea.ensureStudentAccount(e.studentId));
+            }
             await gitea.protectBranch(e.studentId);
-            deps.persistence.saveStudentToken(e.studentId, token);
           } catch (err) {
             logEvent({ event: "gitea.provision_failed", level: "warn", data: {
               studentId: e.studentId, error: err instanceof Error ? err.message : String(err),

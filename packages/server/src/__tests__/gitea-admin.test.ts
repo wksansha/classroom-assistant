@@ -125,4 +125,32 @@ describe("Gitea 管理联动", () => {
     const v = await request(app).post("/api/identity/validate").send({ studentId: "0001", studentName: "张三" }).expect(200);
     expect(v.body).toEqual({ ok: true, studentName: "张三", gitToken: null });
   });
+
+  it("F4 重复导入：已有 token 的学生跳过 ensureStudentAccount（token 不轮换），分支保护仍幂等执行", async () => {
+    const persistence = createPersistence(":memory:");
+    const { calls, f } = fakeGitea();
+    const gitea = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    const app = express();
+    app.use(express.json());
+    registerRosterRoutes(app, { persistence, gitea });
+
+    // 首次导入：逐生建号 + token 入库
+    await request(app).post("/api/roster").send({ text: "0001 张三\n0002 李四" }).expect(200);
+    await until(() => persistence.getStudentToken("0001") !== null && persistence.getStudentToken("0002") !== null);
+    const tokenPosts1 = calls.filter((c) => c.method === "POST" && c.url.includes("/tokens")).length;
+    const protects1 = calls.filter((c) => c.url.includes("branch_protections")).length;
+    expect(tokenPosts1).toBeGreaterThan(0);
+
+    // 重复导入同一名册
+    await request(app).post("/api/roster").send({ text: "0001 张三\n0002 李四" }).expect(200);
+    await until(() => calls.filter((c) => c.url.includes("branch_protections")).length >= protects1 + 2);
+
+    // token 未轮换：无任何新 token API 调用，库中 token 保持原值
+    expect(calls.filter((c) => c.method === "POST" && c.url.includes("/tokens")).length).toBe(tokenPosts1);
+    expect(calls.filter((c) => c.method === "DELETE" && c.url.includes("/tokens"))).toHaveLength(2);   // 仅首建的删旧重建
+    expect(persistence.getStudentToken("0001")).toBe("tok-new");
+    expect(persistence.getStudentToken("0002")).toBe("tok-new");
+    // 分支保护幂等照常执行（每生再各一条）
+    expect(calls.filter((c) => c.url.includes("branch_protections")).length).toBe(protects1 + 2);
+  });
 });

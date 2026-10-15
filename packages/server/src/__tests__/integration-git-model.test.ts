@@ -119,12 +119,24 @@ async function submitAll(cwd: string, studentId: string, studentName: string): P
   return { commitHash, files };
 }
 
-async function cloneStudentWorkspace(target: string): Promise<void> {
-  // 本机全局 core.autocrlf=true → clone 时关掉，保证题面/学生代码内容断言逐字节稳定
-  await run(["-c", "core.autocrlf=false", "clone", remoteUrl, target], base);
+/**
+ * 新机器首用路径（F1/F2/F3 修复锁定）：扩展端 bootstrapClone 等价序列替代真实 clone——
+ * init → config core.quotepath → remote add → fetch → checkout -B main（停 main）→
+ * ensureStudentBranch（F1 分支保障）→ config user.name/email（F2 committer 身份）→ 写 .gitignore（F3）。
+ * 本机全局 core.autocrlf=true → init 后关掉，保证题面/学生代码内容断言逐字节稳定。
+ */
+async function bootstrapStudentWorkspace(target: string, studentId = "0001"): Promise<void> {
+  fs.mkdirSync(target, { recursive: true });
+  await run(["init"], target);
   await run(["config", "core.autocrlf", "false"], target);
-  await run(["config", "user.name", "student-0001"], target);
-  await run(["config", "user.email", "0001@classroom"], target);
+  await run(["config", "core.quotepath", "false"], target);
+  await run(["remote", "add", "origin", remoteUrl], target);
+  await run(["fetch", "origin"], target);
+  await run(["checkout", "-B", "main", "origin/main"], target);
+  await ensureStudentBranch(target, studentId);   // F1：bootstrap 停在 main → 立即分支保障
+  await run(["config", "user.name", studentId], target);   // F2：committer 身份（机房 git 无全局身份）
+  await run(["config", "user.email", `${studentId}@classroom`], target);
+  fs.writeFileSync(path.join(target, ".gitignore"), "__pycache__/\n*.pyc\n.venv/\n", "utf8");   // F3
 }
 
 /** SSE 订阅：连接即收快照，之后逐帧 push 进 sink */
@@ -253,12 +265,12 @@ describe("git 学生分支直连模型全链集成（bare 模拟 Gitea + 真实 
     expect(ex.isActive).toBe(true);
   }, GIT_TEST_TIMEOUT);
 
-  it("2. 学生首用：clone → ensureStudentBranch（自 main 建）→ 改 a.py 提交 → notify 轻量索引 + SSE submission_received", async () => {
+  it("2. 学生首用（新机器引导路径）：bootstrap 等价 clone + ensureStudentBranch（自 main 建）→ 改 a.py 提交 → notify 轻量索引 + SSE submission_received", async () => {
     // 名册导入（notify/评审都依赖花名册校验）
     await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200, { ok: true, count: 1 });
 
-    await cloneStudentWorkspace(pc1);
-    await ensureStudentBranch(pc1, "0001");
+    await bootstrapStudentWorkspace(pc1);
+    await ensureStudentBranch(pc1, "0001");   // 命令体入口幂等重入（F1）：本地分支已存在 → 直接 checkout
     expect((await run(["rev-parse", "--abbrev-ref", "HEAD"], pc1)).trim()).toBe("student-0001");
 
     // 学生改 a.py：保留题面头部，代码区写入自己的实现
@@ -270,7 +282,7 @@ describe("git 学生分支直连模型全链集成（bare 模拟 Gitea + 真实 
 
     const s1 = await submitAll(pc1, "0001", "张三");
     commitHash1 = s1.commitHash;
-    expect(s1.files).toEqual(["lesson5/a.py"]);   // 首推 → ls-files 全量清单
+    expect(s1.files).toEqual([".gitignore", "lesson5/a.py"]);   // 首推 → ls-files 全量清单（含 F3 引导写入的 .gitignore）
 
     // 远端学生分支可见
     const heads = await run(["ls-remote", "--heads", remoteUrl], base);
@@ -290,7 +302,7 @@ describe("git 学生分支直连模型全链集成（bare 模拟 Gitea + 真实 
       studentId: "0001",
       studentName: "张三",
       commitHash: s1.commitHash,
-      files: ["lesson5/a.py"],
+      files: [".gitignore", "lesson5/a.py"],   // 全量清单（含 F3 引导写入的 .gitignore）
       review: null,
     });
     notifyRowId1 = rows[0].id;
@@ -370,8 +382,8 @@ describe("git 学生分支直连模型全链集成（bare 模拟 Gitea + 真实 
     const p1Tip = (await run(["rev-parse", "HEAD"], pc1)).trim();
     await run(["push", "origin", "student-0001"], pc1);
 
-    // —— 电脑 2：换机首用 → 基于远端学生分支建（保住历史）——
-    await cloneStudentWorkspace(pc2);
+    // —— 电脑 2：换机首用（同样走新机器首用路径）→ 基于远端学生分支建（保住历史）——
+    await bootstrapStudentWorkspace(pc2);
     await ensureStudentBranch(pc2, "0001");
     expect((await run(["rev-parse", "--abbrev-ref", "HEAD"], pc2)).trim()).toBe("student-0001");
     expect((await run(["rev-parse", "HEAD"], pc2)).trim()).toBe(p1Tip);   // 基于 origin/student-0001 而非 origin/main
