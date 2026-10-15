@@ -38,10 +38,5 @@ export const useAssignmentsStore = defineStore("assignments", () => {
     submissionsByExercise.value[msg.exerciseId] = await assignmentsApi.submissionsByExercise(msg.exerciseId);
   }
 
-  async function publishAssignment(id: string, publish: boolean) {
-    await assignmentsApi.publish(id, publish);
-    await fetchAll();
-  }
-
-  return { assignments, roster, submissionsByExercise, fetchAll, fetchSubmissionsFor, applyAssignmentMessage, publishAssignment };
+  return { assignments, roster, submissionsByExercise, fetchAll, fetchSubmissionsFor, applyAssignmentMessage };
 });

@@ -14,7 +14,6 @@ vi.mock("../api/assignments", () => ({
     submissionsByStudent: vi.fn(async () => []),
     importRoster: vi.fn(async () => ({ ok: true, count: 2 })),
     sync: vi.fn(async () => ({ importedNew: 3, updated: 0, injected: 3, deactivated: 0, warnings: ["week-01/x 已发布且有提交——评审基准已切换，请通知学生（A30）"] })),
-    publish: vi.fn(async () => ({ ok: true })),
   },
 }));
 
@@ -31,23 +30,21 @@ describe("AdminView（#/admin，A23/A16/A18/A30）", () => {
     expect(w.text()).toContain("注入 ID 3");
     expect(w.text()).toContain("评审基准已切换");            // A30 警示
   });
-  it("发布按钮调用 publish；名册面板导入调用 importRoster", async () => {
+  it("名册面板导入调用 importRoster", async () => {
     const w = mount(AdminView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));
-    await w.find("button.publish").trigger("click");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(assignmentsApi.publish).toHaveBeenCalledWith("a1", true);
     await w.find("textarea").setValue("0001 张三\n0002 李四");
     await w.find("button.import-roster").trigger("click");
     await new Promise((r) => setTimeout(r, 0));
     expect(assignmentsApi.importRoster).toHaveBeenCalledWith("0001 张三\n0002 李四");
     expect(w.text()).toContain("已导入 2 人");
   });
-  it("作业行显示草稿状态与题数，不显示截止日期", async () => {
+  it("作业行显示题数，不显示发布状态与截止日期", async () => {
     const w = mount(AdminView, { global: { plugins: [createPinia()] } });
     await new Promise((r) => setTimeout(r, 0));
-    expect(w.text()).toContain("草稿");
     expect(w.text()).toContain("1 题");
+    expect(w.text()).not.toContain("已发布");
+    expect(w.text()).not.toContain("草稿");
     expect(w.text()).not.toContain("截止");
     expect(w.find("input.due-at").exists()).toBe(false);
   });

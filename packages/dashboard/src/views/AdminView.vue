@@ -10,9 +10,6 @@ const syncResult = ref<SyncResult | null>(null);
 async function sync() {
   try { syncResult.value = await assignmentsApi.sync(); } catch { syncResult.value = null; }
 }
-async function publish(id: string, publish: boolean) {
-  await store.publishAssignment(id, publish);
-}
 onMounted(() => void store.fetchAll());
 </script>
 
@@ -33,9 +30,6 @@ onMounted(() => void store.fetchAll());
         <div v-for="a in store.assignments" :key="a.id" class="assignment-row">
           <strong>{{ a.title }}</strong>
           <span>{{ a.exercises.length }} 题</span>
-          <span :class="a.isPublished ? 'published' : 'draft'">{{ a.isPublished ? "已发布" : "草稿" }}</span>
-          <button class="publish" v-if="!a.isPublished" @click="publish(a.id, true)">发布</button>
-          <button class="unpublish" v-else @click="publish(a.id, false)">取消发布</button>
         </div>
       </div>
     </section>
