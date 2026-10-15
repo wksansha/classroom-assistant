@@ -11,3 +11,5 @@ packages/server/data/
 tsconfig.app.tsbuildinfo
 .claude/
 
+
+.superpowers/
