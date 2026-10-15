@@ -5,6 +5,7 @@ import type { Persistence } from "../persistence";
 import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
 import { validateFiles } from "./submissionController";
+import { resolveExercisesByFiles } from "./exerciseResolver";
 import { logEvent } from "../logger";
 
 export interface ReviewRequestDeps {
@@ -17,7 +18,7 @@ export interface ReviewRequestDeps {
 
 export type ReviewRequestResult =
   | { ok: true; review: ReviewResult; submissionId: string | null }
-  | { ok: false; status: 400; error: string };
+  | { ok: false; status: 400 | 404; error: string };
 
 /** 评审输入组装（spec §4.2）：入口 + 其余 .py 按路径拼接，非 .py 素材不入 */
 export function buildReviewInput(exercise: Pick<Exercise, "entry">, code: string, files?: SubmissionFile[]): string {
@@ -45,14 +46,18 @@ function injectReviewFail(
   logEvent({ event: "review.fail_injected", level: "info", data: { studentId: args.studentId, exerciseId: undefined, reason: args.review.reason } });
 }
 
+/** 学生分支直连模型（spec §6.2）：练习定位 = 文件路径（服务端为唯一练习注册表，学生端零识别） */
 export async function requestReview(deps: ReviewRequestDeps, input: ReviewRequestInput): Promise<ReviewRequestResult> {
-  if (!input || typeof input.studentId !== "string" || !input.exerciseId || typeof input.code !== "string") {
+  if (!input || typeof input.studentId !== "string" || !input.studentName
+    || typeof input.filePath !== "string" || !input.filePath
+    || typeof input.code !== "string") {
     return { ok: false, status: 400, error: "缺少必要字段" };
   }
   const rosterEntry = deps.persistence.getRosterEntry(input.studentId.trim());
   if (!rosterEntry) return { ok: false, status: 400, error: "学号不在名册" };
-  const exercise = deps.persistence.getExercise(input.exerciseId);
-  if (!exercise || !exercise.isActive) return { ok: false, status: 400, error: "练习不存在或已下线" };
+  const hits = resolveExercisesByFiles(deps.persistence, [input.filePath]);
+  const exercise = hits.length > 0 ? deps.persistence.getExercise(hits[0].exerciseId) : null;
+  if (!exercise || !exercise.isActive) return { ok: false, status: 404, error: "not-exercise" };
   const assignment = deps.persistence.getAssignment(exercise.assignmentId);
   if (!assignment || !assignment.isPublished) return { ok: false, status: 400, error: "练习未发布" };
 
@@ -71,17 +76,27 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   }
 
   const reviewCode = buildReviewInput(exercise, input.code, kind === "project" ? input.files : undefined);
-  const review = await deps.reviewService.review(exercise, reviewCode);   // 缓存三态机制原样（A30）
+  const review = await deps.reviewService.review(
+    { id: exercise.id, versionHash: exercise.versionHash, problemStatement: exercise.problemStatement,
+      testCases: exercise.testCases, filePath: input.filePath },   // 缓存 key 路径化（spec §6.3）
+    reviewCode,
+  );
 
-  const latest = deps.persistence.getLatestSubmissionByExerciseStudent(exercise.id, rosterEntry.studentId);
-  if (latest) {
-    deps.persistence.updateSubmissionReview(latest.id, review);
+  // 评审回填轻量索引（spec §6.2）：(exercise_id, student_id, commit_hash) 定位 submission_notify 行；
+  // commitHash 为空（未提交）→ 跳过回填，仅 review_cache 生效
+  const commitHash = (input.commitHash ?? "").trim();
+  const notifyRow = commitHash
+    ? deps.persistence.getNotifyRowsByStudent(rosterEntry.studentId)
+        .find((r) => r.exerciseId === exercise.id && r.commitHash === commitHash) ?? null
+    : null;
+  if (notifyRow) {
+    deps.persistence.updateNotifyReview(notifyRow.id, review);
     deps.publish({ type: "review_complete", data: {
-      submissionId: latest.id, exerciseId: exercise.id, studentId: rosterEntry.studentId,
-      assignmentId: assignment.id, submittedAt: latest.submittedAt, review } });
+      submissionId: notifyRow.id, exerciseId: exercise.id, studentId: rosterEntry.studentId,
+      assignmentId: assignment.id, submittedAt: notifyRow.submittedAt, review } });
     if (review.status === "fail") {
       injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
     }
   }
-  return { ok: true, review, submissionId: latest?.id ?? null };
+  return { ok: true, review, submissionId: notifyRow?.id ?? null };
 }

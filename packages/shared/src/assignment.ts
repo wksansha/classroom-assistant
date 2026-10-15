@@ -76,13 +76,15 @@ export interface SubmissionInput {
   files?: SubmissionFile[];
 }
 
-/** learner → server 运行触发评审 wire payload（spec §4.2） */
+/** learner → server 运行触发评审 wire payload（spec §4.2；学生分支直连模型：路径定位练习） */
 export interface ReviewRequestInput {
   studentId: string;
-  studentName?: string;
-  exerciseId: string;
-  code: string;               // 入口文件内容
-  files?: SubmissionFile[];   // 项目题必填
+  studentName: string;
+  filePath: string;          // POSIX 相对路径（相对仓库根），如 lesson5/weather-app/main.py
+  code: string;              // 入口文件全文（≤50KB）
+  commitHash?: string;       // 可空：未提交（未 clone）时为空，review_cache 仍可用，回填跳过
+  files?: SubmissionFile[];  // 项目题快照（可选，与旧契约一致）
+  source?: "auto" | "manual";
 }
 
 // —— .py 头部契约（A5）：server（T4）与 learner（T13）各自实现，正则一致 ——

@@ -1,62 +1,139 @@
 import { describe, it, expect } from "vitest";
-import { createPersistence } from "../persistence";
+import { createPersistence, type Persistence } from "../persistence";
 import { createStateManager } from "../stateManager";
 import { requestReview, buildReviewInput, type ReviewRequestDeps } from "../controllers/reviewController";
-import type { ReviewService } from "../reviewService";
+import { createReviewService } from "../reviewService";
 import type { SSEMessage } from "@classroom/shared";
 
-function makeDeps(reviewStatus: "pass" | "fail" | "unreviewed") {
+// seed：roster + assignment(week_dir=lesson5, 已发布) + 单文件题 a.py + 项目题 weather-app
+function seedPersistence(): Persistence {
   const p = createPersistence(":memory:");
   p.replaceRoster([{ studentId: "2025001", studentName: "张三" }]);
-  p.upsertAssignment({ id: "a1", title: "t", week: 3, isPublished: true, createdAt: 1, publishedAt: 1 });
-  p.upsertExercise({ id: "ep", assignmentId: "a1", order: 1, filename: "weather-app",
-    problemStatement: "做天气", starterCode: "", testCases: [], versionHash: "v1", isActive: true, createdAt: 1,
-    kind: "project", dir: "weather-app", entry: "main.py" });
-  const review = { status: reviewStatus, reason: "死循环风险", reviewedAt: 1, model: "m", source: "llm" as const };
-  const reviewService = { async review() { return review; } } as unknown as ReviewService;
+  p.upsertAssignment({ id: "a1", title: "第 5 课", week: 5, isPublished: true, createdAt: 1_000 });
+  p.setAssignmentWeekDir("a1", "lesson5");
+  p.upsertExercise({ id: "ex-a", assignmentId: "a1", order: 1, filename: "a.py",
+    problemStatement: "单文件题", starterCode: "", testCases: [], versionHash: "v1", isActive: true, createdAt: 1_000,
+    kind: "file" });
+  p.upsertExercise({ id: "ex-weather", assignmentId: "a1", order: 2, filename: "weather-app",
+    problemStatement: "项目题", starterCode: "", testCases: [], versionHash: "v1", isActive: true, createdAt: 1_000,
+    kind: "project", entry: "main.py" });
+  return p;
+}
+
+interface LlmCounter { calls: number; status: "pass" | "fail"; reason: string }
+
+/** 真 reviewService + 假 LLM fetch：缓存/限流走真实实现，调用次数可观测 */
+function makeDeps(llmStatus: "pass" | "fail" = "pass") {
+  const p = seedPersistence();
+  const llm: LlmCounter = { calls: 0, status: llmStatus, reason: llmStatus === "fail" ? "死循环风险" : "通过" };
+  const fetchImpl = (async () => {
+    llm.calls++;
+    return {
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ status: llm.status, reason: llm.reason }) } }] }),
+    };
+  }) as unknown as typeof fetch;
+  const reviewService = createReviewService(p, { apiKey: "k", fetchImpl });
   const stateManager = createStateManager();
   const sse: SSEMessage[] = [];
-  const counters = { snapshotPushes: 0 };   // 对象包裹：原始值解构是拷贝，闭包自增观测不到（brief 脚手架缺陷的最小修正）
+  const counters = { snapshotPushes: 0 };
   const deps: ReviewRequestDeps = {
     persistence: p, reviewService, stateManager,
     publish: (m) => sse.push(m),
     publishSnapshot: () => { counters.snapshotPushes++; },
   };
-  return { p, deps, sse, counters, review };
+  return { p, deps, sse, counters, llm };
 }
 
-const files = [{ path: "main.py", content: "m" }, { path: "utils.py", content: "u" }];
-const baseInput = { studentId: "2025001", exerciseId: "ep", code: "m", files };
+const fileInput = { studentId: "2025001", studentName: "张三", filePath: "lesson5/a.py", code: "print(1)", commitHash: "c1" };
+const projectInput = {
+  studentId: "2025001", studentName: "张三", filePath: "lesson5/weather-app/utils.py", code: "M", commitHash: "c2",
+  files: [{ path: "main.py", content: "M" }, { path: "utils.py", content: "u" }],
+};
+const insertNotify = (p: Persistence, id: string, exerciseId: string, commitHash: string) =>
+  p.insertNotifyRow({ id, exerciseId, studentId: "2025001", studentName: "张三", commitHash, filesJson: "[]", submittedAt: 100 });
 
-describe("运行触发评审（reviews/request）", () => {
+describe("运行触发评审（reviews/request，路径定位）", () => {
   it("buildReviewInput：入口 + 其余 .py 拼接（非 .py 不入）", () => {
     const ex = { entry: "main.py" } as never;
-    const out = buildReviewInput(ex, "MAIN", [...files, { path: "data/x.txt", content: "T" }]);
+    const out = buildReviewInput(ex, "MAIN", [
+      { path: "main.py", content: "m" }, { path: "utils.py", content: "u" }, { path: "data/x.txt", content: "T" },
+    ]);
     expect(out.startsWith("MAIN")).toBe(true);
     expect(out).toContain("# ===== 文件: utils.py =====");
     expect(out).toContain("u");
     expect(out).not.toContain("x.txt");
   });
 
-  it("有提交记录：写回最新 review + SSE review_complete", async () => {
-    const { p, deps, sse, review } = makeDeps("fail");
-    p.insertSubmission({ id: "s1", exerciseId: "ep", studentId: "2025001", studentName: "张三",
-      code: "m", source: "manual", submittedAt: 100, review: null, codeHash: "h", gitSynced: true, files });
-    const r = await requestReview(deps, baseInput);
+  it("命中单文件题：回填 submission_notify + SSE review_complete", async () => {
+    const { p, deps, sse } = makeDeps();
+    insertNotify(p, "n1", "ex-a", "c1");
+    const r = await requestReview(deps, fileInput);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.submissionId).toBe("s1");
-    expect(r.review.status).toBe("fail");
-    const latest = p.getLatestSubmissionByExerciseStudent("ep", "2025001")!;
-    expect(latest.review!.status).toBe("fail");
-    expect(sse.some((m) => m.type === "review_complete")).toBe(true);
+    expect(r.submissionId).toBe("n1");
+    expect(r.review.status).toBe("pass");
+    const row = p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!;
+    expect(JSON.parse(row.reviewJson!)).toMatchObject({ status: "pass" });
+    const rc = sse.find((m) => m.type === "review_complete");
+    expect(rc).toBeTruthy();
+    expect((rc!.data as { submissionId: string; exerciseId: string; studentId: string }))
+      .toMatchObject({ submissionId: "n1", exerciseId: "ex-a", studentId: "2025001" });
   });
 
-  it("fail 注入聚合：stateManager 出现 review_fail 事件 + 快照推送", async () => {
+  it("命中项目题：files 快照校验通过 + 回填", async () => {
+    const { p, deps } = makeDeps();
+    insertNotify(p, "n2", "ex-weather", "c2");
+    const r = await requestReview(deps, projectInput);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.submissionId).toBe("n2");
+    const row = p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n2")!;
+    expect(JSON.parse(row.reviewJson!)).toMatchObject({ status: "pass" });
+  });
+
+  it("路径未命中 exercises 表 → 404 not-exercise（根目录散文件同）", async () => {
+    const { deps } = makeDeps();
+    const r1 = await requestReview(deps, { ...fileInput, filePath: "notes/todo.py" });
+    expect(r1.ok).toBe(false);
+    if (r1.ok) return;
+    expect(r1.status).toBe(404);
+    expect(r1.error).toBe("not-exercise");
+    const r2 = await requestReview(deps, { ...fileInput, filePath: "scratch.py" });
+    expect(r2.ok).toBe(false);
+    if (r2.ok) return;
+    expect(r2.status).toBe(404);
+    expect(r2.error).toBe("not-exercise");
+  });
+
+  it("幂等：同路径同 code 二次请求命中缓存不重评；回填两次均生效", async () => {
+    const { p, deps, llm } = makeDeps();
+    insertNotify(p, "n1", "ex-a", "c1");
+    const r1 = await requestReview(deps, fileInput);
+    const r2 = await requestReview(deps, fileInput);
+    expect(r1.ok && r2.ok).toBe(true);
+    expect(llm.calls).toBe(1);                                   // 第二次缓存命中
+    expect((r2 as { review: { reviewedAt: number } }).review.reviewedAt)
+      .toBeGreaterThanOrEqual((r1 as { review: { reviewedAt: number } }).review.reviewedAt);
+    expect(p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!.reviewJson).toBeTruthy();
+  });
+
+  it("commitHash 空：回填跳过、无 SSE；缓存仍生效", async () => {
+    const { p, deps, sse, llm } = makeDeps();
+    insertNotify(p, "n1", "ex-a", "c1");                          // 已有提交记录，但本次未提交
+    const input = { studentId: "2025001", studentName: "张三", filePath: "lesson5/a.py", code: "print(1)" };
+    const r1 = await requestReview(deps, input);
+    expect(r1.ok && r1.submissionId).toBe(null);
+    expect(p.getNotifyRowsByStudent("2025001").find((x) => x.id === "n1")!.reviewJson).toBeNull();
+    expect(sse).toEqual([]);
+    await requestReview(deps, input);
+    expect(llm.calls).toBe(1);                                    // 缓存命中
+  });
+
+  it("fail：回填 + 注入聚合 + 快照推送（仅在回填行存在时）", async () => {
     const { p, deps, counters } = makeDeps("fail");
-    p.insertSubmission({ id: "s1", exerciseId: "ep", studentId: "2025001", studentName: "张三",
-      code: "m", source: "manual", submittedAt: 100, review: null, codeHash: "h", gitSynced: true });
-    await requestReview(deps, baseInput);
+    insertNotify(p, "n1", "ex-a", "c1");
+    await requestReview(deps, fileInput);
     const rec = deps.stateManager.listRecords()[0];
     expect(rec).toBeTruthy();
     const failEvents = rec!.events.filter((e) => e.subtype === "review_fail");
@@ -66,34 +143,28 @@ describe("运行触发评审（reviews/request）", () => {
     expect(counters.snapshotPushes).toBe(1);
   });
 
-  it("无提交记录：仅回传评审，不落库不注入", async () => {
-    const d = makeDeps("pass");
-    const r = await requestReview(d.deps, baseInput);
-    expect(r.ok && r.submissionId).toBe(null);
-    expect(d.p.getSubmissionsByStudent("2025001")).toEqual([]);
-    expect(d.deps.stateManager.listRecords()).toEqual([]);
-  });
-
-  it("校验链：名册/未发布/项目缺 files", async () => {
-    const { p, deps } = makeDeps("pass");
+  it("校验链：名册/未发布/项目缺 files/超 50KB", async () => {
+    const { p, deps } = makeDeps();
     // 1) 名册未命中
-    expect((await requestReview(deps, { ...baseInput, studentId: "999" })).ok).toBe(false);
-    // 2) 练习未发布：a2 未发布 + 关联练习 ep2（写入 makeDeps 自己的持久层）
+    expect((await requestReview(deps, { ...fileInput, studentId: "999" })).ok).toBe(false);
+    // 2) 练习未发布：a2 未发布 + 关联练习 ex2（lesson9/x.py）
     p.upsertAssignment({ id: "a2", title: "t", week: 9, isPublished: false, createdAt: 1 });
-    p.upsertExercise({ id: "ep2", assignmentId: "a2", order: 1, filename: "x.py",
+    p.setAssignmentWeekDir("a2", "lesson9");
+    p.upsertExercise({ id: "ex2", assignmentId: "a2", order: 1, filename: "x.py",
       problemStatement: "s", starterCode: "", testCases: [], versionHash: "v", isActive: true, createdAt: 1,
-      kind: "project", dir: "app9", entry: "main.py" });
-    const unpublished = await requestReview(deps, { studentId: "2025001", exerciseId: "ep2", code: "m", files });
+      kind: "file" });
+    const unpublished = await requestReview(deps, { ...fileInput, filePath: "lesson9/x.py" });
     expect(unpublished.ok).toBe(false);
-    if (unpublished.ok) return;
-    expect(unpublished.error).toBe("练习未发布");
+    if (!unpublished.ok) expect(unpublished.error).toBe("练习未发布");
     // 3) 项目练习缺 files
-    expect((await requestReview(deps, { ...baseInput, files: undefined })).ok).toBe(false);
+    expect((await requestReview(deps, { ...projectInput, files: undefined })).ok).toBe(false);
+    // 4) 超 50KB
+    expect((await requestReview(deps, { ...fileInput, code: "a".repeat(50 * 1024 + 1) })).ok).toBe(false);
   });
 
   it("畸形输入：studentId 为数字直接 400（防 .trim() TypeError 把路由挂起）", async () => {
-    const { deps } = makeDeps("pass");
-    const r = await requestReview(deps, { ...baseInput, studentId: 123 as unknown as string });
+    const { deps } = makeDeps();
+    const r = await requestReview(deps, { ...fileInput, studentId: 123 as unknown as string });
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.status).toBe(400);
