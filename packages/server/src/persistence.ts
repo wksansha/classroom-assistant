@@ -77,6 +77,11 @@ export interface Persistence {
   getLatestSubmissionByExerciseStudent(exerciseId: string, studentId: string): Submission | null;
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; exerciseId: string; versionHash: string; review: ReviewResult }): void;
+  // —— notify 轻量索引（学生分支直连模型，纯增量）——
+  getExercisesByDir(dirName: string): Exercise[];
+  insertNotifyRow(row: { id: string; exerciseId: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
+  getNotifyRowsByStudent(studentId: string): { id: string; exerciseId: string; commitHash: string; submittedAt: number; reviewJson: string | null }[];
+  updateNotifyReview(id: string, review: ReviewResult): void;
 }
 
 export function createPersistence(dbPath?: string): Persistence {
@@ -171,6 +176,17 @@ export function createPersistence(dbPath?: string): Persistence {
       hit_count INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS submission_notify (
+      id TEXT PRIMARY KEY,
+      exercise_id TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      student_name TEXT NOT NULL,
+      commit_hash TEXT NOT NULL,
+      files_json TEXT NOT NULL,
+      submitted_at INTEGER NOT NULL,
+      review_json TEXT,
+      UNIQUE(exercise_id, student_id, commit_hash)
+    )
   `);
 
   // V2.0 迁移：存量库补列（CREATE TABLE IF NOT EXISTS 不会给旧表加列）
@@ -342,6 +358,25 @@ export function createPersistence(dbPath?: string): Persistence {
           source = excluded.source, model = excluded.model`)
         .run(row.cacheKey, row.exerciseId, row.versionHash, row.review.status, row.review.reason,
           row.review.source, row.review.model, Date.now());
+    },
+    // —— notify 轻量索引（学生分支直连模型，纯增量）——
+    getExercisesByDir(dirName) {
+      return (db.prepare(`SELECT e.* FROM exercises e JOIN assignments a ON e.assignment_id = a.id
+        WHERE a.week_dir = ? ORDER BY e.order_no`).all(dirName) as ExerciseDbRow[]).map(toExercise);
+    },
+    insertNotifyRow(row) {
+      const r = db.prepare(`INSERT OR IGNORE INTO submission_notify (id, exercise_id, student_id, student_name, commit_hash, files_json, submitted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(row.id, row.exerciseId, row.studentId, row.studentName, row.commitHash, row.filesJson, row.submittedAt);
+      return r.changes === 1;
+    },
+    getNotifyRowsByStudent(studentId) {
+      return db.prepare(`SELECT id, exercise_id AS exerciseId, commit_hash AS commitHash, submitted_at AS submittedAt, review_json AS reviewJson
+        FROM submission_notify WHERE student_id = ? ORDER BY submitted_at`).all(studentId) as
+        { id: string; exerciseId: string; commitHash: string; submittedAt: number; reviewJson: string | null }[];
+    },
+    updateNotifyReview(id, review) {
+      db.prepare("UPDATE submission_notify SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
     },
   };
 }

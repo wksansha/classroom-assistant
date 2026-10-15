@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Persistence } from "../persistence";
 import { createSubmission, type SubmissionDeps } from "../controllers/submissionController";
+import { handleNotify } from "../controllers/notifyController";
 import { logEvent } from "../logger";
 
 export function registerSubmissionRoutes(app: Express, deps: SubmissionDeps & { persistence: Persistence }) {
@@ -11,6 +12,10 @@ export function registerSubmissionRoutes(app: Express, deps: SubmissionDeps & { 
       return res.status(r.status).json({ error: r.error });
     }
     return res.status(r.created ? 201 : 200).json({ submission: r.submission });
+  });
+  app.post("/api/submissions/notify", (req, res) => {
+    const r = handleNotify(deps, req.body);
+    return res.status(r.status).json(r.body);
   });
   app.get("/api/submissions/exercise/:exerciseId", (req, res) =>
     res.json(deps.persistence.getSubmissionsByExercise(req.params.exerciseId)));
