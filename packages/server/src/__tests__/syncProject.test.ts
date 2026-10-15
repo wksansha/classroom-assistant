@@ -7,22 +7,12 @@ import { createPersistence } from "../persistence";
 import { createSyncService } from "../syncService";
 import type { GitService } from "../gitService";
 
-// 最小假 git：只读对账不再回写，main 侧写方法保留但不应被 sync 调用
-function makeFakeGit(): GitService & { mainWrites: { files: { path: string; content: string }[]; message: string }[] } {
-  const g = {
-    mainWrites: [] as { files: { path: string; content: string }[]; message: string }[],
+// 最小假 git：GitService 已瘦身为只读对齐（ensureClone/alignToRemote），写路径在接口层不存在
+function makeFakeGit(): GitService {
+  return {
     async ensureClone() {},
     async alignToRemote() {},
-    async hasUnpushedMainCommits() { return false; },
-    async pushMain() { return "ok" as const; },
-    async commitAndPushMain(files: { path: string; content: string }[], message: string) {
-      g.mainWrites.push({ files, message });
-      return "ok" as const;
-    },
-    async readFileFromMain() { return ""; },
-    async listFilesFromMain() { return []; },
   };
-  return g as unknown as GitService & typeof g;
 }
 
 describe("syncService 项目扫描", () => {
@@ -55,7 +45,6 @@ describe("syncService 项目扫描", () => {
     expect(ex!.problemStatement).toContain("做天气");
     expect(r.importedNew).toBe(1);
     expect(r.warnings.some((w) => w.includes("notes"))).toBe(true);   // 无 manifest 警告
-    expect(git.mainWrites).toHaveLength(0);                            // 只读：不回写教师仓库
   });
 
   it("manifest id 优先（exerciseId 退化为 exercises 表内部主键）；versionHash 变更计入 updated", async () => {
