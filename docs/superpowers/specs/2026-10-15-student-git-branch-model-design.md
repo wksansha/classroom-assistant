@@ -106,7 +106,7 @@
 
 1. 旧身份归档 = `add -A + commit + push`（失败中止切换，不变）
 2. 清空/重建 = `git checkout student-<新学号>`（分支不存在则自 origin/main 创建）+ `git clean -fdX`（清除前一位学生残留的 ignored 缓存垃圾；A 的自建文件已在归档步骤随 add -A 进入 A 的分支，checkout 时自动从工作区清除——共用机隐私优于现状）
-3. 同步 = `git pull origin student-<新学号>`
+3. 同步 = `git pull origin student-<新学号>`（远端分支尚不存在 = 新学生首次使用 → 忽略 pull 失败，工作区即刚创建的 main 基线）
 4. untracked 自建文件天然跟随
 
 ### 4.7 会话确认门禁
@@ -122,7 +122,7 @@ POST /api/submissions/notify
 { studentId, studentName, commitHash, files: string[], pushedAt }
 ```
 
-- `files` 为本次 commit 的文件清单（`git diff --name-only HEAD~1`，纯 git 信息，学生端零识别）
+- `files` 为本次 push 涉及的文件清单（`git diff --name-only <push 前远端分支指针> HEAD`；离线补推时一次 push 可能含多个积压 commit，故按 push 范围而非单 commit 取清单；学生端零识别）
 - 服务端拿文件清单对照 exercises 表得出练习明细，写入轻量索引 + SSE 广播 `submission_received`（监控面板数据源不变）
 
 **选扩展主动 notify 而非 Gitea webhook 的理由**：扩展是唯一知道本次推送语义的地方；webhook 需服务端反向解析 commit diff，复杂且易错。通知失败由扩展端重试。
