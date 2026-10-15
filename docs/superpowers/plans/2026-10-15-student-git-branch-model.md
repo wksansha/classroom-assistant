@@ -438,16 +438,27 @@ function recorder(responses: (args: string[]) => string | Error) {
 }
 
 describe("ensureStudentBranch", () => {
-  it("本地无分支 → 自 origin/main 创建并 checkout", async () => {
+  it("本地无分支且远端无分支（新学生首用）→ 自 origin/main 创建并 checkout", async () => {
     const { calls, git } = recorder((a) => {
       if (a[0] === "branch" && a[1] === "--list") return "";          // 无本地分支
+      if (a[0] === "rev-parse" && a[2]?.startsWith("origin/")) throw new Error("unknown revision");  // 远端也无
       return "";
     });
     await ensureStudentBranch(git, "0001");
     expect(calls.some((c) => c.join(" ").includes("branch student-0001 origin/main"))).toBe(true);
     expect(calls.some((c) => c[0] === "checkout" && c[1] === "student-0001")).toBe(true);
   });
-  it("已有分支 → 直接 checkout", async () => {
+  it("本地无分支但远端已有（换电脑）→ 基于 origin/student-X 建（保住历史）", async () => {
+    const { calls, git } = recorder((a) => {
+      if (a[0] === "branch" && a[1] === "--list") return "";
+      if (a[0] === "rev-parse") return "abc123";                       // 远端分支存在
+      return "";
+    });
+    await ensureStudentBranch(git, "0001");
+    expect(calls.some((c) => c.join(" ").includes("branch student-0001 origin/student-0001"))).toBe(true);
+    expect(calls.some((c) => c.join(" ").includes("branch student-0001 origin/main"))).toBe(false);
+  });
+  it("已有本地分支 → 直接 checkout", async () => {
     const { calls, git } = recorder((a) => (a[0] === "branch" && a[1] === "--list" ? "student-0001\n" : ""));
     await ensureStudentBranch(git, "0001");
     expect(calls.some((c) => c.join(" ").includes("branch student-0001 origin/main"))).toBe(false);
@@ -508,7 +519,11 @@ export async function ensureStudentBranch(git: GitClient, studentId: string): Pr
   const branch = `student-${studentId}`;
   await git.run(["fetch", "origin"]);
   const local = await git.run(["branch", "--list", branch]);
-  if (!local.trim()) await git.run(["branch", branch, "origin/main"]);
+  if (!local.trim()) {
+    // 远端已有学生分支 → 基于它建（换电脑场景，保住历史）；否则自 origin/main 建（新学生首用）
+    const remote = await git.run(["rev-parse", "--verify", `origin/${branch}`]).catch(() => "");
+    await git.run(["branch", branch, remote.trim() ? `origin/${branch}` : "origin/main"]);
+  }
   await git.run(["checkout", branch]);
 }
 
