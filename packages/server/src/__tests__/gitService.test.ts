@@ -26,7 +26,7 @@ beforeAll(() => {
   run(["clone", remoteUrl, teacherDir], base);
   run(["-c", "user.name=teacher", "-c", "user.email=t@x", "commit", "--allow-empty", "-m", "init"], teacherDir);
   run(["push", "origin", "main"], teacherDir);
-});
+}, 60_000);   // 默认 hook 超时 10s：全量并发下（git 密集测试文件并行）git 进程排队可超
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
 const makeServer = () => createGitService({
