@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import type { Assignment, Exercise, Explanation, ReviewResult, RosterEntry, Submission, TestCase } from "@classroom/shared";
+import type { Explanation, ReviewResult, RosterEntry, Submission } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 export interface EventRow {
@@ -19,30 +19,14 @@ export interface EventRow {
   codeSnippet?: string | null;
 }
 
-// —— 行映射（作业/练习/提交，snake_case DB 行 → camelCase 领域对象）——
-type AssignmentDbRow = { id: string; title: string; week: number; due_at: number | null; created_at: number; week_dir?: string | null };
-function toAssignment(r: AssignmentDbRow): Assignment {
-  return { id: r.id, title: r.title, week: r.week, dueAt: r.due_at ?? undefined,
-    createdAt: r.created_at, weekDir: r.week_dir ?? undefined };
-}
-type ExerciseDbRow = { id: string; assignment_id: string; order_no: number; filename: string; problem_statement: string; starter_code: string | null; test_cases_json: string | null; version_hash: string; is_active: number; created_at: number; kind?: string; dir?: string | null; entry?: string | null };
-function toExercise(r: ExerciseDbRow): Exercise {
-  return { id: r.id, assignmentId: r.assignment_id, order: r.order_no, filename: r.filename,
-    problemStatement: r.problem_statement, starterCode: r.starter_code ?? undefined,
-    testCases: r.test_cases_json ? (JSON.parse(r.test_cases_json) as TestCase[]) : [],
-    versionHash: r.version_hash, isActive: r.is_active === 1, createdAt: r.created_at,
-    kind: (r.kind as Exercise["kind"]) ?? "file",
-    dir: r.dir ?? undefined,
-    entry: r.entry ?? undefined };
-}
-// 轻量索引行（spec §6.2：submissions 表即索引，不存代码全文）
-type SubmissionDbRow = { id: string; exercise_id: string; student_id: string; student_name: string; commit_hash: string; files_json: string | null; submitted_at: number; review_json: string | null };
+// —— 行映射（提交轻量索引，snake_case DB 行 → camelCase 领域对象；spec §0：每次 push 一行）——
+type SubmissionDbRow = { id: string; student_id: string; student_name: string; commit_hash: string; files_json: string | null; submitted_at: number; review_json: string | null };
 function toSubmission(r: SubmissionDbRow): Submission {
-  return { id: r.id, exerciseId: r.exercise_id, studentId: r.student_id, studentName: r.student_name,
+  return { id: r.id, studentId: r.student_id, studentName: r.student_name,
     commitHash: r.commit_hash,
     files: r.files_json ? (JSON.parse(r.files_json) as string[]) : null,
     submittedAt: r.submitted_at,
-    review: r.review_json ? JSON.parse(r.review_json) : null };
+    review: r.review_json ? (JSON.parse(r.review_json) as Record<string, ReviewResult>) : null };
 }
 
 export interface Persistence {
@@ -52,32 +36,21 @@ export interface Persistence {
   getCachedExplanation(rawHash: string): Explanation | null;
   saveCache(rawHash: string, rawMessage: string, exp: Explanation, source: string): void;
   getCacheStats(): { total: number; totalHits: number };
-  // —— 作业系统（名册/作业/练习/提交索引/评审缓存）——
+  // —— 花名册 ——
   replaceRoster(entries: RosterEntry[]): void;
   getRoster(): RosterEntry[];
   getRosterEntry(studentId: string): RosterEntry | null;
-  upsertAssignment(a: Assignment): void;
-  updateAssignmentMeta(id: string, patch: { title?: string; dueAt?: number | null }): void;
-  setAssignmentWeekDir(id: string, weekDir: string): void;
-  getAssignments(): Assignment[];
-  getAssignment(id: string): Assignment | null;
-  upsertExercise(e: Exercise): void;
-  getExercises(assignmentId: string): Exercise[];
-  getExercise(id: string): Exercise | null;
-  findExerciseByPath(week: number, filename: string): Exercise | null;
-  deactivateMissingExercises(week: number, activeIds: string[]): void;
-  getSubmissionsByExercise(exerciseId: string): Submission[];
+  // —— 提交轻量索引（notify 链；spec §0：每次 push 一行，UNIQUE(student, commit)）——
   getSubmissionsByStudent(studentId: string): Submission[];
-  getLatestSubmissionByExerciseStudent(exerciseId: string, studentId: string): Submission | null;
+  insertNotifyRow(row: { id: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
+  updateNotifyReview(id: string, filePath: string, review: ReviewResult): void;
+  // —— 评审缓存（内容寻址：key = sha256(filePath + 评审输入)）——
   getCachedReview(cacheKey: string): ReviewResult | null;
-  saveReviewCache(row: { cacheKey: string; exerciseId: string; versionHash: string; review: ReviewResult }): void;
-  // —— 提交轻量索引写入（notify 链；spec §5/§6.2）——
-  getExercisesByDir(dirName: string): Exercise[];
-  insertNotifyRow(row: { id: string; exerciseId: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
-  updateNotifyReview(id: string, review: ReviewResult): void;
-  // —— student_tokens（学生分支直连模型，纯增量）——
+  saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
+  // —— student_tokens（学生分支直连模型）——
   saveStudentToken(studentId: string, token: string): void;
   getStudentToken(studentId: string): string | null;
+  close(): void;
 }
 
 export function createPersistence(dbPath?: string): Persistence {
@@ -87,6 +60,22 @@ export function createPersistence(dbPath?: string): Persistence {
   }
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
+
+  // —— 作业域退役迁移（spec §0：不考虑迁移成本）——
+  const tableExists = (name: string) =>
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  const colsOf = (table: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (tableExists("exercises")) db.exec("DROP TABLE exercises");
+  if (tableExists("assignments")) db.exec("DROP TABLE assignments");
+  if (tableExists("submissions")) {
+    const cols = colsOf("submissions");
+    // 旧快照表（无 commit_hash）与 exercise 对照版轻量索引（有 exercise_id）均弃用重建
+    if (!cols.includes("commit_hash") || cols.includes("exercise_id")) db.exec("DROP TABLE submissions");
+  }
+  if (tableExists("review_cache") && colsOf("review_cache").includes("exercise_id")) {
+    db.exec("DROP TABLE review_cache");   // 旧 key 公式（含 versionHash）已失效，丢弃无损
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
@@ -125,30 +114,8 @@ export function createPersistence(dbPath?: string): Persistence {
       student_name TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS assignments (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      week INTEGER NOT NULL UNIQUE,
-      due_at INTEGER,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS exercises (
-      id TEXT PRIMARY KEY,
-      assignment_id TEXT NOT NULL REFERENCES assignments(id),
-      order_no INTEGER NOT NULL,
-      filename TEXT NOT NULL,
-      problem_statement TEXT NOT NULL,
-      starter_code TEXT,
-      test_cases_json TEXT,
-      version_hash TEXT NOT NULL,
-      is_active INTEGER DEFAULT 1,
-      created_at INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_assignment ON exercises(assignment_id, filename);
     CREATE TABLE IF NOT EXISTS review_cache (
       cache_key TEXT PRIMARY KEY,
-      exercise_id TEXT NOT NULL,
-      version_hash TEXT NOT NULL,
       status TEXT NOT NULL,
       reason TEXT NOT NULL,
       source TEXT NOT NULL,
@@ -159,46 +126,19 @@ export function createPersistence(dbPath?: string): Persistence {
     CREATE TABLE IF NOT EXISTS student_tokens (
       student_id TEXT PRIMARY KEY,
       token TEXT NOT NULL
-    )
-  `);
-
-  // —— 提交轻量索引定名（spec §6.2 / Ruling 1 收尾）：submission_notify → submissions ——
-  // 旧快照 submissions 表（快照入库模型）直接弃用重建，不考虑迁移（新建库即可）
-  const tableExists = (name: string) =>
-    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
-  const colsOf = (table: string) =>
-    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
-  if (tableExists("submissions") && !colsOf("submissions").includes("commit_hash")) {
-    db.exec("DROP TABLE submissions");
-  }
-  if (!tableExists("submissions") && tableExists("submission_notify")) {
-    db.exec("ALTER TABLE submission_notify RENAME TO submissions");
-  }
-  db.exec(`
+    );
     CREATE TABLE IF NOT EXISTS submissions (
       id TEXT PRIMARY KEY,
-      exercise_id TEXT NOT NULL,
       student_id TEXT NOT NULL,
       student_name TEXT NOT NULL,
       commit_hash TEXT NOT NULL,
       files_json TEXT NOT NULL,
       submitted_at INTEGER NOT NULL,
       review_json TEXT,
-      UNIQUE(exercise_id, student_id, commit_hash)
+      UNIQUE(student_id, commit_hash)
     );
-    CREATE INDEX IF NOT EXISTS idx_submissions_exercise ON submissions(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
   `);
-
-  // V2.0 迁移：存量库补列（CREATE TABLE IF NOT EXISTS 不会给旧表加列）
-  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-  };
-  addColumnIfMissing("exercises", "kind", "kind TEXT NOT NULL DEFAULT 'file'");
-  addColumnIfMissing("exercises", "dir", "dir TEXT");
-  addColumnIfMissing("exercises", "entry", "entry TEXT");
-  addColumnIfMissing("assignments", "week_dir", "week_dir TEXT");
 
   return {
     insertEvent(r) {
@@ -242,7 +182,7 @@ export function createPersistence(dbPath?: string): Persistence {
       const totalHits = (db.prepare("SELECT COALESCE(SUM(hit_count), 0) AS c FROM error_cache").get() as { c: number }).c;
       return { total, totalHits };
     },
-    // —— 作业系统 ——
+    // —— 花名册 ——
     replaceRoster(entries) {
       const tx = db.transaction(() => {
         db.prepare("DELETE FROM roster").run();
@@ -257,66 +197,24 @@ export function createPersistence(dbPath?: string): Persistence {
     getRosterEntry(studentId) {
       return (db.prepare("SELECT student_id AS studentId, student_name AS studentName FROM roster WHERE student_id = ?").get(studentId) as RosterEntry) ?? null;
     },
-    upsertAssignment(a) {
-      db.prepare(`INSERT INTO assignments (id, title, week, due_at, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET title = excluded.title, due_at = excluded.due_at`)
-        .run(a.id, a.title, a.week, a.dueAt ?? null, a.createdAt);
-    },
-    updateAssignmentMeta(id, patch) {
-      if (patch.title !== undefined) db.prepare("UPDATE assignments SET title = ? WHERE id = ?").run(patch.title, id);
-      if (patch.dueAt !== undefined) db.prepare("UPDATE assignments SET due_at = ? WHERE id = ?").run(patch.dueAt, id);
-    },
-    setAssignmentWeekDir(id, weekDir) {
-      db.prepare("UPDATE assignments SET week_dir = ? WHERE id = ?").run(weekDir, id);
-    },
-    getAssignments() {
-      return (db.prepare("SELECT * FROM assignments ORDER BY week").all() as AssignmentDbRow[]).map(toAssignment);
-    },
-    getAssignment(id) {
-      const r = db.prepare("SELECT * FROM assignments WHERE id = ?").get(id) as AssignmentDbRow | undefined;
-      return r ? toAssignment(r) : null;
-    },
-    upsertExercise(e) {
-      db.prepare(`INSERT INTO exercises (id, assignment_id, order_no, filename, problem_statement, starter_code, test_cases_json, version_hash, is_active, created_at, kind, dir, entry)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET order_no = excluded.order_no, problem_statement = excluded.problem_statement,
-          starter_code = excluded.starter_code, test_cases_json = excluded.test_cases_json,
-          version_hash = excluded.version_hash, is_active = excluded.is_active,
-          kind = excluded.kind, dir = excluded.dir, entry = excluded.entry`)
-        .run(e.id, e.assignmentId, e.order, e.filename, e.problemStatement, e.starterCode ?? null,
-          JSON.stringify(e.testCases ?? []), e.versionHash, e.isActive ? 1 : 0, e.createdAt,
-          e.kind ?? "file", e.dir ?? null, e.entry ?? null);
-    },
-    getExercises(assignmentId) {
-      return (db.prepare("SELECT * FROM exercises WHERE assignment_id = ? ORDER BY order_no").all(assignmentId) as ExerciseDbRow[]).map(toExercise);
-    },
-    getExercise(id) {
-      const r = db.prepare("SELECT * FROM exercises WHERE id = ?").get(id) as ExerciseDbRow | undefined;
-      return r ? toExercise(r) : null;
-    },
-    findExerciseByPath(week, filename) {
-      const r = db.prepare(`SELECT e.* FROM exercises e JOIN assignments a ON e.assignment_id = a.id
-        WHERE a.week = ? AND e.filename = ?`).get(week, filename) as ExerciseDbRow | undefined;
-      return r ? toExercise(r) : null;
-    },
-    deactivateMissingExercises(week, activeIds) {
-      const placeholders = activeIds.map(() => "?").join(",") || "''";
-      db.prepare(`UPDATE exercises SET is_active = 0 WHERE is_active = 1 AND assignment_id IN
-        (SELECT id FROM assignments WHERE week = ?) AND id NOT IN (${placeholders})`).run(week, ...activeIds);
-    },
-    // —— 提交轻量索引（spec §6.2：submissions 表即 notify 索引，查询统一）——
-    getSubmissionsByExercise(exerciseId) {
-      return (db.prepare("SELECT * FROM submissions WHERE exercise_id = ? ORDER BY submitted_at DESC").all(exerciseId) as SubmissionDbRow[]).map(toSubmission);
-    },
+    // —— 提交轻量索引（spec §0：原样入库，不做练习对照）——
     getSubmissionsByStudent(studentId) {
       return (db.prepare("SELECT * FROM submissions WHERE student_id = ? ORDER BY submitted_at DESC").all(studentId) as SubmissionDbRow[]).map(toSubmission);
     },
-    getLatestSubmissionByExerciseStudent(exerciseId, studentId) {
-      const r = db.prepare("SELECT * FROM submissions WHERE exercise_id = ? AND student_id = ? ORDER BY submitted_at DESC LIMIT 1")
-        .get(exerciseId, studentId) as SubmissionDbRow | undefined;
-      return r ? toSubmission(r) : null;
+    insertNotifyRow(row) {
+      const r = db.prepare(`INSERT OR IGNORE INTO submissions (id, student_id, student_name, commit_hash, files_json, submitted_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(row.id, row.studentId, row.studentName, row.commitHash, row.filesJson, row.submittedAt);
+      return r.changes === 1;
     },
+    updateNotifyReview(id, filePath, review) {
+      const row = db.prepare("SELECT review_json FROM submissions WHERE id = ?").get(id) as { review_json: string | null } | undefined;
+      if (!row) return;
+      const map = row.review_json ? (JSON.parse(row.review_json) as Record<string, ReviewResult>) : {};
+      map[filePath] = review;
+      db.prepare("UPDATE submissions SET review_json = ? WHERE id = ?").run(JSON.stringify(map), id);
+    },
+    // —— 评审缓存（内容寻址）——
     getCachedReview(cacheKey) {
       const r = db.prepare("SELECT status, reason, source, model FROM review_cache WHERE cache_key = ?").get(cacheKey) as
         { status: string; reason: string; source: string; model: string | null } | undefined;
@@ -326,28 +224,13 @@ export function createPersistence(dbPath?: string): Persistence {
         reviewedAt: 0, model: r.model ?? "", source: r.source as ReviewResult["source"] };
     },
     saveReviewCache(row) {
-      db.prepare(`INSERT INTO review_cache (cache_key, exercise_id, version_hash, status, reason, source, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO review_cache (cache_key, status, reason, source, model, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(cache_key) DO UPDATE SET status = excluded.status, reason = excluded.reason,
           source = excluded.source, model = excluded.model`)
-        .run(row.cacheKey, row.exerciseId, row.versionHash, row.review.status, row.review.reason,
-          row.review.source, row.review.model, Date.now());
+        .run(row.cacheKey, row.review.status, row.review.reason, row.review.source, row.review.model, Date.now());
     },
-    // —— 提交轻量索引写入（notify 链；spec §5/§6.2）——
-    getExercisesByDir(dirName) {
-      return (db.prepare(`SELECT e.* FROM exercises e JOIN assignments a ON e.assignment_id = a.id
-        WHERE a.week_dir = ? ORDER BY e.order_no`).all(dirName) as ExerciseDbRow[]).map(toExercise);
-    },
-    insertNotifyRow(row) {
-      const r = db.prepare(`INSERT OR IGNORE INTO submissions (id, exercise_id, student_id, student_name, commit_hash, files_json, submitted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(row.id, row.exerciseId, row.studentId, row.studentName, row.commitHash, row.filesJson, row.submittedAt);
-      return r.changes === 1;
-    },
-    updateNotifyReview(id, review) {
-      db.prepare("UPDATE submissions SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
-    },
-    // —— student_tokens（学生分支直连模型，纯增量）——
+    // —— student_tokens（学生分支直连模型）——
     saveStudentToken(studentId, token) {
       db.prepare(`INSERT INTO student_tokens (student_id, token) VALUES (?, ?)
         ON CONFLICT(student_id) DO UPDATE SET token = excluded.token`).run(studentId, token);
@@ -355,6 +238,9 @@ export function createPersistence(dbPath?: string): Persistence {
     getStudentToken(studentId) {
       const r = db.prepare("SELECT token FROM student_tokens WHERE student_id = ?").get(studentId) as { token: string } | undefined;
       return r?.token ?? null;
+    },
+    close() {
+      db.close();
     },
   };
 }
