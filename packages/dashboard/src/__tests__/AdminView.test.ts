@@ -1,51 +1,39 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { createPinia } from "pinia";
 
-vi.mock("../api/assignments", () => ({
-  assignmentsApi: {
-    list: vi.fn(async () => [
-      { id: "a1", title: "第 1 周作业", week: 1, createdAt: 1, exercises: [
-        { id: "e1", assignmentId: "a1", order: 1, filename: "exercise-01.py", problemStatement: "题", testCases: [], versionHash: "v", isActive: true, createdAt: 1 },
-      ] },
-    ]),
+vi.mock("../api/admin", () => ({
+  adminApi: {
     roster: vi.fn(async () => [{ studentId: "0001", studentName: "张三" }]),
-    submissionsByExercise: vi.fn(async () => []),
-    submissionsByStudent: vi.fn(async () => []),
     importRoster: vi.fn(async () => ({ ok: true, count: 2 })),
-    sync: vi.fn(async () => ({ importedNew: 3, updated: 0, deactivated: 0, warnings: ["lesson5/a.py 已有提交，内容已变更——评审基准已切换，请通知学生（A30）"] })),
   },
 }));
 
 import AdminView from "../views/AdminView.vue";
-import { assignmentsApi } from "../api/assignments";
+import { adminApi } from "../api/admin";
 
-describe("AdminView（#/admin，A23/A16/A18/A30）", () => {
-  it("立即同步 → 显示导入结果与 A30 警示（注入回写已退役，无注入计数）", async () => {
-    const w = mount(AdminView, { global: { plugins: [createPinia()] } });
+describe("AdminView（#/admin，作业域退役后仅花名册面板）", () => {
+  it("挂载加载花名册并渲染表格", async () => {
+    const w = mount(AdminView);
     await new Promise((r) => setTimeout(r, 0));
-    await w.find("button.sync").trigger("click");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(w.text()).toContain("新增 3");
-    expect(w.text()).not.toContain("注入 ID");
-    expect(w.text()).toContain("评审基准已切换");            // A30 警示
+    expect(adminApi.roster).toHaveBeenCalled();
+    expect(w.text()).toContain("0001");
+    expect(w.text()).toContain("张三");
   });
-  it("名册面板导入调用 importRoster", async () => {
-    const w = mount(AdminView, { global: { plugins: [createPinia()] } });
+  it("名册面板导入调用 importRoster 并刷新", async () => {
+    const w = mount(AdminView);
     await new Promise((r) => setTimeout(r, 0));
+    (adminApi.roster as ReturnType<typeof vi.fn>).mockClear();
     await w.find("textarea").setValue("0001 张三\n0002 李四");
     await w.find("button.import-roster").trigger("click");
     await new Promise((r) => setTimeout(r, 0));
-    expect(assignmentsApi.importRoster).toHaveBeenCalledWith("0001 张三\n0002 李四");
+    expect(adminApi.importRoster).toHaveBeenCalledWith("0001 张三\n0002 李四");
     expect(w.text()).toContain("已导入 2 人");
+    expect(adminApi.roster).toHaveBeenCalled();   // refreshed → 重载
   });
-  it("作业行显示题数，不显示发布状态与截止日期", async () => {
-    const w = mount(AdminView, { global: { plugins: [createPinia()] } });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(w.text()).toContain("1 题");
-    expect(w.text()).not.toContain("已发布");
-    expect(w.text()).not.toContain("草稿");
-    expect(w.text()).not.toContain("截止");
-    expect(w.find("input.due-at").exists()).toBe(false);
+  it("作业列表与立即同步已退役：无相关 UI 残留", () => {
+    const w = mount(AdminView);
+    expect(w.find("button.sync").exists()).toBe(false);
+    expect(w.find(".assignment-list").exists()).toBe(false);
+    expect(w.text()).not.toContain("立即同步");
   });
 });

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import { useClassroom } from "./stores/classroom";
-import { useAssignmentsStore } from "./stores/assignments";
 import { connectClassroom } from "./api/sse";
 import AlertPanel from "./components/AlertPanel.vue";
 import StudentMatrix from "./components/StudentMatrix.vue";
@@ -11,7 +10,6 @@ import StudentDrawer from "./components/StudentDrawer.vue";
 import AdminView from "./views/AdminView.vue";
 
 const store = useClassroom();
-const assignmentsStore = useAssignmentsStore();
 
 const isAdmin = ref(window.location.hash === "#/admin");
 function onHashChange() { isAdmin.value = window.location.hash === "#/admin"; }
@@ -19,9 +17,7 @@ window.addEventListener("hashchange", onHashChange);
 
 let stopSse: (() => void) | null = null;
 onMounted(() => {
-  stopSse = connectClassroom(store, {
-    onAssignmentMessage: (m) => void assignmentsStore.applyAssignmentMessage(m),   // A9/A21
-  });
+  stopSse = connectClassroom(store);
 });
 onUnmounted(() => {
   stopSse?.();

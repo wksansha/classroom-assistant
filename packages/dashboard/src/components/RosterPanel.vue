@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { RosterEntry } from "@classroom/shared";
-import { assignmentsApi } from "../api/assignments";
+import { adminApi } from "../api/admin";
 
 const props = defineProps<{ roster: RosterEntry[] }>();
 const emit = defineEmits<{ refreshed: [] }>();
@@ -10,7 +10,7 @@ const message = ref("");
 
 async function importRoster() {
   try {
-    const r = await assignmentsApi.importRoster(text.value);
+    const r = await adminApi.importRoster(text.value);
     message.value = `已导入 ${r.count} 人`;
     text.value = "";
     emit("refreshed");
