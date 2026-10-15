@@ -40,7 +40,7 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
     },
     async protectBranch(studentId: string): Promise<void> {
       const r = await api(`/api/v1/repos/${deps.repo}/branch_protections`, "POST", {
-        branch_name: `student-${studentId}`, rule_name: `only-${studentId}`,
+        rule_name: `student-${studentId}`,   // Gitea 28：rule_name 即分支匹配模式（字面分支名 student-XXXX），branch_name 已废弃
         enable_push: true, enable_push_whitelist: true, push_whitelist_usernames: [studentId],
       });
       if (!r.ok && r.status !== 422) throw new Error(`gitea branch protect failed: ${r.status}`);

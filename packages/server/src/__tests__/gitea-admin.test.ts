@@ -89,7 +89,7 @@ describe("Gitea 管理联动", () => {
     await expect(admin.ensureStudentAccount("0001")).resolves.toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it("protectBranch：POST branch_protections，body 含 branch_name=student-0001 且 push_whitelist_usernames=[0001]", async () => {
+  it("protectBranch：POST branch_protections，rule_name=student-0001 即分支匹配模式（Gitea 28），不含 branch_name", async () => {
     const { calls, f } = fakeGitea();
     const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
     await admin.protectBranch("0001");
@@ -98,12 +98,12 @@ describe("Gitea 管理联动", () => {
     expect(c!.method).toBe("POST");
     expect(c!.url).toBe("http://gitea.test/api/v1/repos/classroom/exercises/branch_protections");
     expect(c!.body).toEqual({
-      branch_name: "student-0001",
-      rule_name: "only-0001",
+      rule_name: "student-0001",   // rule_name 即分支模式（字面分支名 student-XXXX）
       enable_push: true,
       enable_push_whitelist: true,
       push_whitelist_usernames: ["0001"],
     });
+    expect(c!.body.branch_name).toBeUndefined();   // branch_name 已废弃，不得出现
   });
 
   it("用户创建 500 → 抛错（非 409/422 不容忍）", async () => {
