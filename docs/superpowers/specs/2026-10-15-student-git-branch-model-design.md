@@ -23,6 +23,7 @@
 | 前提 | 说明 | 破坏时的兜底 |
 |---|---|---|
 | 题目不可变 | main 分支对已有题面文件只有新增（新作业目录/新文件），无修改 | 「只新增」拉取策略使修改天然不生效，学生端零事故 |
+| 路径不可变 | 作业目录名、文件名、文件位置一经 push 到 main 不再改名/挪动 | 「只新增」策略使移动表现为「旧路径消失 + 新路径新增」，旧提交历史仍完整可溯 |
 | 目录命名自由 | 作业不再强制 `week-数字` 命名；任意名一级子目录均可（识别规则见 2.1） | — |
 | 学生零 Git 认知 | git 全部由扩展代执行（child_process 调本机 git CLI），学生只见按钮 | — |
 | 门禁强度不变 | 身份仍经服务端花名册校验（`/api/identity/validate`），分支名由 globalState 学号派生；冒充难度与现状实质等价 | — |
@@ -34,10 +35,10 @@
 
 - 提交/恢复/切换操作对象 = 整个工作区（.gitignore 挡 `__pycache__`、`*.pyc`、`.venv/` 等垃圾）
 - 学生自建文件（笔记、草稿）一并进入个人分支——分支语义从「作业归档」升级为「学生工作区归档」，丢机恢复更完整；教师浏览以 `submit:` commit 记录为准，无干扰
-- **练习定位靠文件头元数据**：题目文件头部嵌有服务端注入的 exercise-id（现有机制），F5 评审时扩展读文件头取 exerciseId，无需目录/内容识别
+- **练习定位靠文件路径**：路径不可变前提下，(路径 → 题目) 为稳定映射——F5 评审请求直接带文件路径 + commitHash，服务端按路径查 exercises 表。**文件头 exercise-id 注入机制整体退役**（教师 push 即完成，服务端只读不回写，「教师写新作业前需先 pull」的注入回推陷阱随之消失）
 - 教师仓库目录命名自由（`week-数字` 约定退役，任意一级子目录均可）
 
-**服务端侧识别保留**（与学生提交无关）：syncNow 扫描教师仓库维护 exercises 表（评审需读题面 + 测试用例锚点），扫描规则放宽为内容特征（目录内 `.py` = 单文件练习；含 `exercise.json` 的子目录 = 项目练习；下划线开头或无特征 = 排除）。作业标题默认 = 目录名（管理页可改）。
+**服务端侧识别保留**（与学生提交无关）：syncNow 扫描教师仓库维护 exercises 表（评审需读题面 + 测试用例锚点），扫描规则放宽为内容特征（目录内 `.py` = 单文件练习；含 `exercise.json` 的子目录 = 项目练习；下划线开头或无特征 = 排除）。作业标题默认 = 目录名（管理页可改）。exerciseId 退化为 exercises 表内部主键；review_cache key 改为 `sha256(路径 + versionHash + code)`。
 
 ## 3. 总体架构
 
@@ -130,15 +131,14 @@ POST /api/submissions/notify
 
 ### 6.2 改造
 
-- `submissions` 表 → 轻量索引：`id / student_id / student_name / exercise_id / commit_hash / submitted_at / review_json`（不存 code/files 全文）
-- 评审回填：按 `(exercise_id, student_id, commit_hash)` 定位记录（F5 评审请求需增加 commitHash 字段）
+- `submissions` 表 → 轻量索引：`id / student_id / student_name / exercise_id（服务端按路径对照 exercises 表得出）/ commit_hash / files_json（路径清单）/ submitted_at / review_json`（不存代码全文）
+- 评审回填：按 `(exercise_id, student_id, commit_hash)` 定位记录；F5 评审请求改带**文件路径 + commitHash**（服务端按路径解析练习）
 
 ### 6.3 保留不动
 
 - L1 归档全链路（`/api/trace/archive`、位点续传）
-- F5 评审触发、review_cache（key = exerciseId + versionHash + code，请求自带代码文本）
-- SSE 监控、roster/身份校验
-- 题目同步（syncNow 对账 + exercise-id 注入：exercises 表继续由其维护，评审读题面依赖它）；gitService 仅保留 main 侧操作；对账扫描正则从 `^week-(\d+)$` 放宽为 2.1 的内容特征识别
+- F5 评审触发、review_cache（key 改为 路径 + versionHash + code，请求自带代码文本与文件路径）
+- 题目同步（syncNow 对账维护 exercises 表：题面 + 测试用例锚点，评审依赖它；**注入回写退役**，服务端对教师仓库只读）；gitService 仅保留 main 侧操作；对账扫描正则从 `^week-(\d+)$` 放宽为 2.1 的内容特征识别
 - 管理页（作业列表、学生名册、立即同步）
 
 ## 7. 部署前提（一次性）
