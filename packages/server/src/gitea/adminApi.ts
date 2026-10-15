@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 export interface GiteaAdminDeps {
   baseUrl: string;
@@ -9,7 +9,7 @@ export interface GiteaAdminDeps {
 }
 
 export interface GiteaAdmin {
-  /** 每生一 Gitea 账户（用户名=学号）+ 专属 token；返回该生 token sha1 */
+  /** 每生一 Gitea 账户（用户名=学号），密码收敛为服务端持有的 gitSecret；返回该生 gitSecret（学生 git 用「学号:密码」Basic 认证） */
   ensureStudentAccount(studentId: string): Promise<string>;
   /** student-<学号> 分支保护：仅该生可推 */
   protectBranch(studentId: string): Promise<void>;
@@ -24,25 +24,19 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
-  async function createToken(studentId: string): Promise<string> {
-    const name = `classroom-${studentId}`;
-    const created = await api(`/api/v1/users/${studentId}/tokens`, "POST", { name, scopes: ["write:repository", "read:repository"] });
-    if (!created.ok) throw new Error(`gitea token create failed: ${created.status}`);
-    return ((await created.json()) as { sha1: string }).sha1;
-  }
   return {
     async ensureStudentAccount(studentId: string): Promise<string> {
+      // Gitea 的 token 创建 API 不允许 token 认证（须用户密码 Basic），admin 代建 token 不可行；
+      // 改为：服务端生成密码 → 建号携带 → 无条件 PATCH 收敛（已存在用户的旧密码也统一到服务端持有值）
+      const gitSecret = randomBytes(12).toString("base64url");   // base64url 仅字母数字+-_，无 :/@?# 等 URL 特殊字符
       const create = await api("/api/v1/admin/users", "POST", {
         username: studentId, email: `${studentId}@classroom.local`,
-        full_name: studentId, password: randomUUID(), must_change_password: false,
+        full_name: studentId, password: gitSecret, must_change_password: false,
       });
-      if (!create.ok && create.status !== 422) throw new Error(`gitea user create failed: ${create.status}`);   // 422=已存在
-      try {
-        return await createToken(studentId);                       // 已有同名 token → 422 → 删旧重建
-      } catch {
-        await api(`/api/v1/users/${studentId}/tokens/classroom-${studentId}`, "DELETE").catch(() => {});
-        return createToken(studentId);
-      }
+      if (!create.ok && create.status !== 409 && create.status !== 422) throw new Error(`gitea user create failed: ${create.status}`);   // 409/422=已存在
+      const patch = await api(`/api/v1/admin/users/${studentId}`, "PATCH", { password: gitSecret });
+      if (!patch.ok && patch.status !== 404) throw new Error(`gitea password patch failed: ${patch.status}`);
+      return gitSecret;
     },
     async protectBranch(studentId: string): Promise<void> {
       const r = await api(`/api/v1/repos/${deps.repo}/branch_protections`, "POST", {
