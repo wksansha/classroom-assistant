@@ -563,15 +563,15 @@ export async function pullNewOnly(git: GitClient, studentId: string): Promise<{ 
 
 **Interfaces:**
 - Produces: `submitAll(deps: SubmitDeps): Promise<SubmitResult>`
-- `SubmitDeps = { git: GitClient; studentId: string; studentName: string; remoteWithToken: () => string; notify: (p: { studentId: string; studentName: string; commitHash: string; files: string[]; pushedAt: number }) => Promise<void> }`
-- `SubmitResult = { kind: "ok" } | { kind: "nothing" } | { kind: "branchMismatch" } | { kind: "rebaseConflict" } | { kind: "pushFailed" }`
+- `SubmitDeps = { git: GitClient; studentId: string; studentName: string; remoteWithToken: () => string; confirmDelete?: (n: number) => Promise<boolean>; notify: (p: { studentId: string; studentName: string; commitHash: string; files: string[]; pushedAt: number }) => Promise<void> }`
+- `SubmitResult = { kind: "ok" } | { kind: "nothing" } | { kind: "branchMismatch" } | { kind: "deleteCancelled" } | { kind: "rebaseConflict" } | { kind: "pushFailed" }`
 
-- [ ] **Step 1: 写失败测试**（recorder 同 Task 4 模式，覆盖五条分支：正常提交+notify；nothing-to-commit 幂等；分支不匹配拒绝；rebase 冲突；push 失败但 commit 已保留）
+- [ ] **Step 1: 写失败测试**（recorder 同 Task 4 模式，覆盖六条分支：正常提交+notify；nothing-to-commit 幂等；分支不匹配拒绝；删除被取消中止；rebase 冲突；push 失败但 commit 已保留）
 
 ```ts
 // src/test/git/commitOps.test.ts 核心用例
-it("正常链路：断言→add→commit→rebase→记远端指针→push→diff 清单→notify", async () => {
-  // fake: rev-parse 返回 student-0001；commit 成功；push 前远端指针 origin/student-0001=oldhash；push 成功
+it("正常链路：断言→删除检测→add→commit→rebase→记远端指针→push→diff 清单→notify", async () => {
+  // fake: status 无 D 条目；rev-parse 返回 student-0001；commit 成功；push 前远端指针 origin/student-0001=oldhash；push 成功
   // diff oldhash..HEAD 返回 ["lesson5/a.py"]
   const notified: unknown[] = [];
   const r = await submitAll({ git, studentId: "0001", studentName: "张三",
@@ -583,6 +583,13 @@ it("正常链路：断言→add→commit→rebase→记远端指针→push→dif
 });
 it("nothing to commit → kind=nothing，不 notify", async () => { /* commit 抛 stderr 含 nothing to commit */ });
 it("分支不匹配 → kind=branchMismatch，不执行 add", async () => { /* rev-parse 返回 student-0002 */ });
+it("status 含 D 条目且 confirmDelete 返回 false → kind=deleteCancelled，不 add", async () => {
+  // fake: status --porcelain 返回 " D lesson5/a.py\n"
+  const r = await submitAll({ git, studentId: "0001", studentName: "张三",
+    remoteWithToken: () => "http://t@g/r.git", confirmDelete: async () => false, notify: async () => {} });
+  expect(r.kind).toBe("deleteCancelled");
+});
+it("status 含 D 条目且 confirmDelete 返回 true → 正常继续提交", async () => { /* confirmDelete: async () => true → kind=ok */ });
 it("rebase 冲突 → kind=rebaseConflict", async () => { /* rebase 抛错 */ });
 it("push 失败 → kind=pushFailed（本地 commit 保留）", async () => { /* push 抛网络错 */ });
 ```
@@ -599,14 +606,21 @@ import { assertCurrentBranch } from "./branchOps";
 export interface SubmitDeps {
   git: GitClient; studentId: string; studentName: string;
   remoteWithToken: () => string;
+  confirmDelete?: (n: number) => Promise<boolean>;   // spec 4.4 第 2 步：删除检测确认
   notify: (p: { studentId: string; studentName: string; commitHash: string; files: string[]; pushedAt: number }) => Promise<void>;
 }
-export type SubmitResult = { kind: "ok" } | { kind: "nothing" } | { kind: "branchMismatch" } | { kind: "rebaseConflict" } | { kind: "pushFailed" };
+export type SubmitResult = { kind: "ok" } | { kind: "nothing" } | { kind: "branchMismatch" } | { kind: "deleteCancelled" } | { kind: "rebaseConflict" } | { kind: "pushFailed" };
 
 export async function submitAll(deps: SubmitDeps): Promise<SubmitResult> {
   const { git, studentId, studentName } = deps;
   const branch = `student-${studentId}`;
   if (!(await assertCurrentBranch(git, studentId))) return { kind: "branchMismatch" };
+  const status = await git.run(["status", "--porcelain"]);
+  const deleted = status.split("\n").filter((l) => /(^| )D /.test(l));
+  if (deleted.length > 0) {
+    const ok = deps.confirmDelete ? await deps.confirmDelete(deleted.length) : true;
+    if (!ok) return { kind: "deleteCancelled" };
+  }
   await git.run(["add", "-A"]);
   try {
     await git.run(["commit", "-m", `submit: workspace by ${studentId} ${studentName}`,

@@ -86,10 +86,11 @@
 ### 4.4 提交
 
 1. **分支断言**：校验当前分支 == `student-<globalState 学号>`，不一致直接拒绝（防手动 `git checkout` 绕过身份绑定；凭证级防护由 Gitea 分支保护兜底）
-2. `git add -A`（整个工作区，.gitignore 挡垃圾文件；学生自建文件一并归档）
-3. `git commit`（author 由扩展按 globalState 身份写入：`学号 姓名 <学号@classroom>`；时间戳由本机 git 落，服务端 notify 时间以 DB `submitted_at` 为准）
-4. push 前自动 `fetch + rebase`（同一学生多台电脑都有离线提交时收敛分叉）；rebase 冲突 → 提示「与你在其他电脑的提交冲突，需选择保留版本」
-5. `git push origin student-<学号>`
+2. **删除检测**：`git status --porcelain` 含删除条目（状态 `D`）时弹确认「本次提交将删除 N 个文件，确定？」——学生手滑误删的最后一道闸；取消则中止提交（误删的题目文件下次拉取自动恢复，自己的代码可用「同步」找回）
+3. `git add -A`（整个工作区，.gitignore 挡垃圾文件；学生自建文件一并归档）
+4. `git commit`（author 由扩展按 globalState 身份写入：`学号 姓名 <学号@classroom>`；时间戳由本机 git 落，服务端 notify 时间以 DB `submitted_at` 为准）
+5. push 前自动 `fetch + rebase`（同一学生多台电脑都有离线提交时收敛分叉）；rebase 冲突 → 提示「与你在其他电脑的提交冲突，需选择保留版本」
+6. `git push origin student-<学号>`
 
 断网场景：commit 本地成功、push 失败 → 提示「已本地保存，联网后可补推」（新增的离线提交能力）。
 
@@ -171,6 +172,7 @@ POST /api/submissions/notify
 | 学生机 git 缺失/版本过旧 | 扩展启动时探测 `git --version`，缺失时给出安装引导提示 |
 | push 时网络中断 | commit 已本地保存，提示补推；notify 失败扩展端重试 |
 | 学生删本地克隆 | 重新 clone + checkout 自己分支即全量恢复（本地丢失不再依赖服务端 DB） |
+| 学生误删文件后提交（git 静默把删除当修改） | 提交前删除检测确认（4.4 第 2 步）；题目文件误删后下次拉取自动恢复（diff-filter=A 重新视为新增）；自己的代码已提交被删 → 历史 commit 可找回（教师 `git checkout <旧commit> -- <path>`） |
 | 单生 token 泄露 | 仅能写该生自己的分支（Gitea 分支保护拒绝越权 push），影响面限于本人；可单独重置该生 token，其他学生不受影响 |
 | 同一学生多台电脑离线提交分叉 | push 前自动 fetch + rebase 收敛；rebase 冲突时提示选择保留版本（触发条件苛刻：两台机都离线提交且改同一文件） |
 
