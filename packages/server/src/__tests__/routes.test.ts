@@ -95,7 +95,7 @@ describe("名册与身份校验（A16/A25）", () => {
     await request(app).post("/api/identity/validate").send({ studentId: "0001", studentName: "李四" })
       .expect(400, { code: "name_mismatch", message: "姓名与该学号不匹配，请检查或联系教员" });
     await request(app).post("/api/identity/validate").send({ studentId: " 0001 ", studentName: " 张三 " })
-      .expect(200, { ok: true, studentName: "张三" });   // trim + 返回规范姓名
+      .expect(200, { ok: true, studentName: "张三", gitToken: null });   // trim + 返回规范姓名 + gitToken（学生分支直连模型）
   });
 });
 

@@ -82,6 +82,9 @@ export interface Persistence {
   insertNotifyRow(row: { id: string; exerciseId: string; studentId: string; studentName: string; commitHash: string; filesJson: string; submittedAt: number }): boolean;
   getNotifyRowsByStudent(studentId: string): { id: string; exerciseId: string; commitHash: string; submittedAt: number; reviewJson: string | null }[];
   updateNotifyReview(id: string, review: ReviewResult): void;
+  // —— student_tokens（学生分支直连模型，纯增量）——
+  saveStudentToken(studentId: string, token: string): void;
+  getStudentToken(studentId: string): string | null;
 }
 
 export function createPersistence(dbPath?: string): Persistence {
@@ -186,6 +189,10 @@ export function createPersistence(dbPath?: string): Persistence {
       submitted_at INTEGER NOT NULL,
       review_json TEXT,
       UNIQUE(exercise_id, student_id, commit_hash)
+    );
+    CREATE TABLE IF NOT EXISTS student_tokens (
+      student_id TEXT PRIMARY KEY,
+      token TEXT NOT NULL
     )
   `);
 
@@ -377,6 +384,15 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     updateNotifyReview(id, review) {
       db.prepare("UPDATE submission_notify SET review_json = ? WHERE id = ?").run(JSON.stringify(review), id);
+    },
+    // —— student_tokens（学生分支直连模型，纯增量）——
+    saveStudentToken(studentId, token) {
+      db.prepare(`INSERT INTO student_tokens (student_id, token) VALUES (?, ?)
+        ON CONFLICT(student_id) DO UPDATE SET token = excluded.token`).run(studentId, token);
+    },
+    getStudentToken(studentId) {
+      const r = db.prepare("SELECT token FROM student_tokens WHERE student_id = ?").get(studentId) as { token: string } | undefined;
+      return r?.token ?? null;
     },
   };
 }

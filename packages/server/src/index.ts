@@ -16,6 +16,7 @@ import { createReviewService } from "./reviewService";
 import { createGitService, type GitService } from "./gitService";
 import { createSyncService, type SyncService } from "./syncService";
 import { registerRosterRoutes } from "./routes/roster";
+import { createGiteaAdmin } from "./gitea/adminApi";
 import { registerAssignmentRoutes } from "./routes/assignments";
 import { registerSubmissionRoutes } from "./routes/submissions";
 import { type SubmissionDeps } from "./controllers/submissionController";
@@ -207,7 +208,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub; 
   });
 
   // 作业评审路由（roster / assignments / submissions，T7）
-  registerRosterRoutes(app, { persistence });
+  // Gitea 管理联动（学生分支直连模型）：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 三环境变量齐备才启用；缺任一则跳过（info 一条）
+  const gitea = process.env.GITEA_URL && process.env.GITEA_ADMIN_TOKEN && process.env.GITEA_REPO
+    ? createGiteaAdmin({ baseUrl: process.env.GITEA_URL, adminToken: process.env.GITEA_ADMIN_TOKEN, repo: process.env.GITEA_REPO })
+    : null;
+  if (!gitea) {
+    logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
+  }
+  registerRosterRoutes(app, { persistence, gitea });
   registerAssignmentRoutes(app, { persistence, git, repoDir: gitDeps?.repoDir ?? "", sync });
   registerSubmissionRoutes(app, { ...submissionDeps, persistence });
 
