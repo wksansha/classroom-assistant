@@ -40,6 +40,17 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     if (!r.ok) return res.status(400).json({ code: r.code, message: r.message });
     // 学生分支直连模型：校验通过后下发该生 gitSecret（null=离线/未建号，扩展端自行提示）
     const studentId = ((req.body ?? {}) as { studentId?: string }).studentId?.trim() ?? "";
-    res.json({ ok: true, studentName: r.studentName, gitSecret: deps.persistence.getStudentToken(studentId) });
+    const payload: Record<string, unknown> = {
+      ok: true,
+      studentName: r.studentName,
+      gitSecret: deps.persistence.getStudentToken(studentId),
+    };
+    // 学生机零配置：校验通过即下发课堂仓库地址（GITEA_PUBLIC_BASE=学生机可达的 Gitea 地址，
+    // 与服务端 GITEA_URL 可不同——服务端走 127.0.0.1，学生走内网 IP；未配置则不下发，扩展端回退设置）
+    const base = process.env.GITEA_PUBLIC_BASE;
+    if (base && process.env.GITEA_REPO) {
+      payload.gitRepoUrl = `${base.replace(/\/+$/, "")}/${process.env.GITEA_REPO}.git`;
+    }
+    res.json(payload);
   });
 }

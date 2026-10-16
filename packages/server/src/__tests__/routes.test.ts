@@ -36,6 +36,22 @@ describe("名册与身份校验（A16/A25）", () => {
     await request(app).post("/api/identity/validate").send({ studentId: " 0001 ", studentName: " 张三 " })
       .expect(200, { ok: true, studentName: "张三", gitSecret: null });   // trim + 返回规范姓名 + gitSecret（学生分支直连模型）
   });
+  it("identity/validate 下发 gitRepoUrl（GITEA_PUBLIC_BASE+GITEA_REPO，尾斜杠归一；未配置不下发）", async () => {
+    process.env.GITEA_PUBLIC_BASE = "http://192.168.1.100:3001/";
+    process.env.GITEA_REPO = "classroom/exercises";
+    try {
+      const { app } = makeApp();
+      await request(app).post("/api/roster").send({ text: "0001 张三" }).expect(200);
+      await request(app).post("/api/identity/validate").send({ studentId: "0001", studentName: "张三" })
+        .expect(200, {
+          ok: true, studentName: "张三", gitSecret: null,
+          gitRepoUrl: "http://192.168.1.100:3001/classroom/exercises.git",
+        });
+    } finally {
+      delete process.env.GITEA_PUBLIC_BASE;
+      delete process.env.GITEA_REPO;
+    }
+  });
 });
 
 describe("作业域 + notify 全部退役后路由（spec §0）", () => {
