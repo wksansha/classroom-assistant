@@ -210,6 +210,47 @@ describe("Gitea 管理联动", () => {
   });
 });
 
+describe("花名册 CRUD 路由（Gitea 联动，spec roster §1.1）", () => {
+  it("POST /api/roster/entry：异步 provision 逐生建号+保护（与导入共用逻辑）", async () => {
+    const persistence = createPersistence(":memory:");
+    const { calls, f } = fakeGitea();
+    const gitea = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    const app = express();
+    app.use(express.json());
+    registerRosterRoutes(app, { persistence, gitea });
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200, { ok: true });
+    await until(() => persistence.getStudentToken("0001") !== null);
+    expect(calls.filter((c) => c.url.includes("branch_protections"))).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "PUT" && c.url.includes("/collaborators/"))).toHaveLength(1);
+  });
+  it("POST /api/roster/entry/:id/purge：Gitea 联动失败 → 502 且名册/token 均不动", async () => {
+    const persistence = createPersistence(":memory:");
+    const { f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }], deleteStatus: 500 });
+    const gitea = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    const app = express();
+    app.use(express.json());
+    registerRosterRoutes(app, { persistence, gitea });
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    await request(app).post("/api/roster/entry/0001/purge").expect(502, { error: "Gitea 清除失败，名册未变动，可重试" });
+    await request(app).get("/api/roster").expect(200, [{ studentId: "0001", studentName: "张三" }]);
+  });
+  it("DELETE /api/roster/entry/:id 软删后 token 保留；purge 后 token 清除", async () => {
+    const persistence = createPersistence(":memory:");
+    const { f } = fakeGitea();
+    const gitea = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    const app = express();
+    app.use(express.json());
+    registerRosterRoutes(app, { persistence, gitea });
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    await until(() => persistence.getStudentToken("0001") !== null);
+    const secret = persistence.getStudentToken("0001");
+    await request(app).delete("/api/roster/entry/0001").expect(200);
+    expect(persistence.getStudentToken("0001")).toBe(secret);   // 软删：凭证无缝复用
+    await request(app).post("/api/roster/entry/0001/purge").expect(200);
+    expect(persistence.getStudentToken("0001")).toBeNull();     // 硬删：token 清除
+  });
+});
+
 describe("purgeStudent（spec roster §1.1 硬删除联动）", () => {
   it("调用顺序：删分支保护(带 rule id) → 删 student-<id> 分支 → 删 Gitea 账户", async () => {
     const { calls, f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }] });

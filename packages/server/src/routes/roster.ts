@@ -1,11 +1,31 @@
 import type { Express } from "express";
+import type { RosterEntry } from "@classroom/shared";
 import type { Persistence } from "../persistence";
 import { parseRosterText, validateIdentity } from "../controllers/rosterController";
 import { logEvent } from "../logger";
 import type { GiteaAdmin } from "../gitea/adminApi";
 
+/** 逐生建号+协作者+分支保护（异步不阻塞响应；单生失败仅告警，幂等重试）——整体导入与单条新增共用（spec roster §1.2） */
+function provisionEntries(persistence: Persistence, gitea: GiteaAdmin, entries: RosterEntry[]): void {
+  void (async () => {
+    for (const e of entries) {
+      try {
+        // F4 防重复轮换：已有 gitSecret 的学生跳过建号/改密；gitSecret 生成即入库；协作者授权与分支保护幂等照常执行
+        if (persistence.getStudentToken(e.studentId) === null) {
+          persistence.saveStudentToken(e.studentId, await gitea.ensureStudentAccount(e.studentId));
+        }
+        await gitea.addCollaborator(e.studentId);   // write 协作者权限：学生 push 自己分支的前提
+        await gitea.protectBranch(e.studentId);
+      } catch (err) {
+        logEvent({ event: "gitea.provision_failed", level: "warn", data: {
+          studentId: e.studentId, error: err instanceof Error ? err.message : String(err),
+        } });
+      }
+    }
+  })();
+}
+
 export function registerRosterRoutes(app: Express, deps: { persistence: Persistence; gitea?: GiteaAdmin | null }) {
-  const gitea = deps.gitea ?? null;
   app.post("/api/roster", (req, res) => {
     const text = typeof req.body?.text === "string" ? req.body.text : "";
     const entries = parseRosterText(text);
@@ -13,28 +33,55 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     deps.persistence.replaceRoster(entries);
     logEvent({ event: "api.roster_imported", level: "info", data: { count: entries.length } });
     // 学生分支直连模型：导入成功后逐生建号+分支保护+gitSecret 入库（异步不阻塞响应；单生失败仅警告，幂等重试）
-    if (gitea) {
-      void (async () => {
-        for (const e of entries) {
-          try {
-            // F4 防重复轮换：已有 gitSecret 的学生跳过建号/改密（重复导入不再使学生已用密码失效 push 401）；
-            // gitSecret 生成即入库（后续步骤失败不丢密码，下次导入自动跳过重建）；协作者授权与分支保护幂等照常执行
-            if (deps.persistence.getStudentToken(e.studentId) === null) {
-              deps.persistence.saveStudentToken(e.studentId, await gitea.ensureStudentAccount(e.studentId));
-            }
-            await gitea.addCollaborator(e.studentId);   // write 协作者权限：学生 push 自己分支的前提
-            await gitea.protectBranch(e.studentId);
-          } catch (err) {
-            logEvent({ event: "gitea.provision_failed", level: "warn", data: {
-              studentId: e.studentId, error: err instanceof Error ? err.message : String(err),
-            } });
-          }
-        }
-      })();
-    }
+    if (deps.gitea) provisionEntries(deps.persistence, deps.gitea, entries);
     res.json({ ok: true, count: entries.length });
   });
   app.get("/api/roster", (_req, res) => res.json(deps.persistence.getRoster()));
+  // —— 单条新增（补录转学生，spec roster §1.1）——
+  app.post("/api/roster/entry", (req, res) => {
+    const studentId = typeof req.body?.studentId === "string" ? req.body.studentId.trim() : "";
+    const studentName = typeof req.body?.studentName === "string" ? req.body.studentName.trim() : "";
+    if (!studentId || !studentName) return res.status(400).json({ error: "学号和姓名不能为空" });
+    if (deps.persistence.getRosterEntry(studentId)) return res.status(409).json({ error: "该学号已在名册中" });
+    deps.persistence.upsertRosterEntry(studentId, studentName);
+    logEvent({ event: "api.roster_entry_added", level: "info", data: { studentId } });
+    if (deps.gitea) provisionEntries(deps.persistence, deps.gitea, [{ studentId, studentName }]);
+    res.json({ ok: true });
+  });
+  // —— 改姓名（学号是主键不可改，spec roster §1.1）——
+  app.patch("/api/roster/entry/:studentId", (req, res) => {
+    const studentId = (req.params.studentId ?? "").trim();
+    const studentName = typeof req.body?.studentName === "string" ? req.body.studentName.trim() : "";
+    if (!studentName) return res.status(400).json({ error: "姓名不能为空" });
+    if (!deps.persistence.updateRosterEntry(studentId, studentName)) return res.status(404).json({ error: "该学号不在名册中" });
+    logEvent({ event: "api.roster_entry_renamed", level: "info", data: { studentId } });
+    res.json({ ok: true, studentId, studentName });
+  });
+  // —— 软删除：仅移出名册，student_tokens 保留（重新导入无缝复用凭证）——
+  app.delete("/api/roster/entry/:studentId", (req, res) => {
+    const studentId = (req.params.studentId ?? "").trim();
+    if (!deps.persistence.deleteRosterEntry(studentId)) return res.status(404).json({ error: "该学号不在名册中" });
+    logEvent({ event: "api.roster_entry_removed", level: "info", data: { studentId } });
+    res.json({ ok: true });
+  });
+  // —— 硬删除：Gitea 联动彻底清除（删保护→删分支→删账户）+ 名册/token 清除；Gitea 失败则名册不动可重试 ——
+  app.post("/api/roster/entry/:studentId/purge", async (req, res) => {
+    const studentId = (req.params.studentId ?? "").trim();
+    if (!studentId) return res.status(400).json({ error: "缺少学号" });
+    if (deps.gitea) {
+      try {
+        await deps.gitea.purgeStudent(studentId);
+      } catch (err) {
+        logEvent({ event: "gitea.purge_failed", level: "warn", data: {
+          studentId, error: err instanceof Error ? err.message : String(err),
+        } });
+        return res.status(502).json({ error: "Gitea 清除失败，名册未变动，可重试" });
+      }
+    }
+    deps.persistence.purgeRosterEntry(studentId);
+    logEvent({ event: "api.roster_purged", level: "info", data: { studentId } });
+    res.json({ ok: true });
+  });
   app.post("/api/identity/validate", (req, res) => {
     const r = validateIdentity(deps.persistence, req.body ?? {});
     if (!r.ok) return res.status(400).json({ code: r.code, message: r.message });

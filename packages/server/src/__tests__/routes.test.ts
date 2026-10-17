@@ -69,6 +69,43 @@ describe("作业域 + notify 全部退役后路由（spec §0）", () => {
   });
 });
 
+describe("花名册单条 CRUD 路由（spec roster §1.1，无 Gitea 环境）", () => {
+  it("POST /api/roster/entry：空字段 400；成功 200 且 GET 可见；重复 409", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster/entry").send({ studentId: "", studentName: "张三" }).expect(400);
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "" }).expect(400);
+    await request(app).post("/api/roster/entry").send({ studentId: " 0001 ", studentName: " 张三 " }).expect(200, { ok: true });
+    await request(app).get("/api/roster").expect(200, [{ studentId: "0001", studentName: "张三" }]);
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "李四" }).expect(409, { error: "该学号已在名册中" });
+  });
+  it("PATCH /api/roster/entry/:id：仅改姓名；不存在 404；空姓名 400", async () => {
+    const { app } = makeApp();
+    await request(app).patch("/api/roster/entry/0001").send({ studentName: "李四" }).expect(404);
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    await request(app).patch("/api/roster/entry/0001").send({ studentName: "  " }).expect(400);
+    await request(app).patch("/api/roster/entry/0001").send({ studentName: " 张三丰 " })
+      .expect(200, { ok: true, studentId: "0001", studentName: "张三丰" });
+    await request(app).get("/api/roster").expect(200, [{ studentId: "0001", studentName: "张三丰" }]);
+  });
+  it("DELETE /api/roster/entry/:id：软删出册；不存在 404", async () => {
+    const { app, persistence } = makeApp();
+    await request(app).delete("/api/roster/entry/0001").expect(404, { error: "该学号不在名册中" });
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    await request(app).delete("/api/roster/entry/0001").expect(200, { ok: true });
+    await request(app).get("/api/roster").expect(200, []);
+    expect(persistence.getStudentToken("0001")).toBeNull();   // 无 Gitea 环境：本就无 token
+  });
+  it("POST /api/roster/entry/:id/purge：无 Gitea 时幂等清 token + 名册行", async () => {
+    const { app, persistence } = makeApp();
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    persistence.saveStudentToken("0001", "tok-1");
+    await request(app).post("/api/roster/entry/0001/purge").expect(200, { ok: true });
+    expect(persistence.getStudentToken("0001")).toBeNull();
+    await request(app).get("/api/roster").expect(200, []);
+    await request(app).post("/api/roster/entry/0001/purge").expect(200, { ok: true });   // 幂等
+  });
+});
+
 describe("teacherHub.publishMessage（A9/A21）", () => {
   it("向已连接客户端写类型化消息；snapshot 流不受影响", () => {
     const hub = createTeacherHub(() => ({ ts: 0, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [] }));
