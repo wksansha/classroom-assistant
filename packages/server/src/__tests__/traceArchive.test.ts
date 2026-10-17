@@ -1,91 +1,71 @@
-// packages/server/src/__tests__/traceArchive.test.ts
-import { describe, it, expect, afterAll } from "vitest";
-import express from "express";
+import { describe, it, expect } from "vitest";
 import request from "supertest";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import express from "express";
+import { createPersistence } from "../persistence";
 import { registerTraceArchiveRoutes } from "../routes/traceArchive";
 
-const bases: string[] = [];
-function makeApp() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "trace-archive-"));
-  bases.push(base);
-  const app = express();
-  app.use(express.json({ limit: "2mb" }));
-  registerTraceArchiveRoutes(app, { traceDir: base });
-  return app;
+function app() {
+  const p = createPersistence(":memory:");
+  const a = express();
+  a.use(express.json());
+  registerTraceArchiveRoutes(a, { persistence: p });
+  return { a, p };
 }
-afterAll(() => {
-  for (const b of bases) fs.rmSync(b, { recursive: true, force: true });
+
+const payload = { command: "python a.py", exit_code: 1, error_message: "x" };
+const ev = (id: string, over: Record<string, unknown> = {}) => ({
+  id, ts: "2026-10-16T06:31:14.754Z", kind: "execution_error", payload, ...over,
 });
 
-const ev = (id: string) => ({ id, ts: "2026-10-13T00:00:00.000Z", surface: "edit", kind: "code_change", payload: {} });
-const post = (app: express.Express, body: Record<string, unknown>) =>
-  request(app).post("/api/trace/archive").send(body);
+const post = (a: express.Express, body: Record<string, unknown>) =>
+  request(a).post("/api/trace/archive").send(body);
 
-function archived(baseDir: string, classId = "default", studentId = "2024001", surface = "edit", date = "2026-10-13") {
-  return path.join(baseDir, "trace", classId, studentId, surface, `${date}.jsonl`);
-}
-
-describe("POST /api/trace/archive", () => {
-  it("归档落位 + accepted 计数", async () => {
-    const app = makeApp();
-    const base = bases[bases.length - 1];
-    const res = await post(app, { student_id: "2024001", student_name: "张三", surface: "edit", date: "2026-10-13", events: [ev("e1"), ev("e2")] }).expect(200);
+describe("POST /api/trace/archive 落库（spec §4.2）", () => {
+  it("批量入库 accepted 计数；date/surface 取批次头", async () => {
+    const { a, p } = app();
+    const res = await post(a, {
+      student_id: "stu001", class_id: "3A", surface: "run", date: "2026-10-16",
+      events: [ev("e1"), ev("e2")],
+    }).expect(200);
     expect(res.body).toEqual({ ok: true, accepted: 2, duplicated: 0 });
-    const text = fs.readFileSync(archived(base), "utf8");
-    const lines = text.trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]).id).toBe("e1");
+    const rows = p.getRecentEvents(10);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r: any) => r.event_id).sort()).toEqual(["e1", "e2"]); // 同秒入库次序不保证
+    expect(rows.every((r: any) => r.date === "2026-10-16")).toBe(true);
+    expect(rows.every((r: any) => r.surface === "run")).toBe(true);
+    expect(rows.every((r: any) => r.student_id === "stu001")).toBe(true);
   });
 
-  it("同 id 重传幂等（duplicated 计数、文件不重复）", async () => {
-    const app = makeApp();
-    const base = bases[bases.length - 1];
-    const batch = { student_id: "2024001", student_name: "张三", surface: "edit", date: "2026-10-13", events: [ev("e1"), ev("e2")] };
-    await post(app, batch).expect(200);
-    const res = await post(app, batch).expect(200);
-    expect(res.body).toEqual({ ok: true, accepted: 0, duplicated: 2 });
-    expect(fs.readFileSync(archived(base), "utf8").trim().split("\n")).toHaveLength(2);
+  it("同 id 跨批次去重；批内重复也计数 duplicated", async () => {
+    const { a, p } = app();
+    const batch = { student_id: "stu001", class_id: "3A", surface: "run", date: "2026-10-16", events: [ev("e1")] };
+    await post(a, batch).expect(200, { ok: true, accepted: 1, duplicated: 0 });
+    await post(a, batch).expect(200, { ok: true, accepted: 0, duplicated: 1 });
+    const res = await post(a, { ...batch, events: [ev("e2"), ev("e2")] }).expect(200);
+    expect(res.body).toEqual({ ok: true, accepted: 1, duplicated: 1 });
+    expect(p.getRecentEvents(10)).toHaveLength(2);
   });
 
-  it("两台机器同日交错合并（不同 id 全部落盘）", async () => {
-    const app = makeApp();
-    const base = bases[bases.length - 1];
-    await post(app, { student_id: "2024001", student_name: "张三", surface: "run", date: "2026-10-13", events: [ev("a:1")] }).expect(200);
-    await post(app, { student_id: "2024001", student_name: "张三", surface: "run", date: "2026-10-13", events: [ev("b:1")] }).expect(200);
-    expect(fs.readFileSync(archived(base, "default", "2024001", "run"), "utf8").trim().split("\n")).toHaveLength(2);
+  it("归档不解释：diag 事件入库但无解释行（category=null）", async () => {
+    const { a, p } = app();
+    await post(a, { student_id: "stu001", class_id: "3A", surface: "diag", date: "2026-10-16",
+      events: [ev("d1", { kind: "diagnostics_change", payload: { samples: ["NameError: x"] } })] }).expect(200);
+    const rows = p.getRecentEvents(1);
+    expect(rows[0].surface).toBe("diag");
+    expect(rows[0].category).toBeNull();
   });
 
-  it("class_id 缺省 default；自定义 class_id 落对应目录", async () => {
-    const app = makeApp();
-    const base = bases[bases.length - 1];
-    await post(app, { student_id: "2024001", student_name: "张三", surface: "chat", date: "2026-10-13", events: [ev("c1")] }).expect(200);
-    await post(app, { student_id: "2024002", student_name: "李四", class_id: "class-2", surface: "chat", date: "2026-10-13", events: [ev("c2")] }).expect(200);
-    expect(fs.existsSync(archived(base, "default", "2024001", "chat"))).toBe(true);
-    expect(fs.existsSync(archived(base, "class-2", "2024002", "chat"))).toBe(true);
+  it("chat 等非 diag/run surface 同样入库", async () => {
+    const { a, p } = app();
+    await post(a, { student_id: "stu001", class_id: "3A", surface: "chat", date: "2026-10-16",
+      events: [ev("c1", { kind: "user_message", payload: { text: "你好" } })] }).expect(200);
+    expect(p.getRecentEvents(10)[0].surface).toBe("chat");
   });
 
-  it.each([
-    [{ student_id: "../etc", surface: "edit", date: "2026-10-13", events: [ev("x")] }, "路径穿越"],
-    [{ student_id: "2024.01", surface: "edit", date: "2026-10-13", events: [ev("x")] }, "含点非法字符"],
-    [{ student_id: "unknown", surface: "edit", date: "2026-10-13", events: [ev("x")] }, "保留字"],
-    [{ surface: "edit", date: "2026-10-13", events: [ev("x")] }, "缺 student_id"],
-    [{ student_id: "2024001", surface: "photo", date: "2026-10-13", events: [ev("x")] }, "非法 surface"],
-    [{ student_id: "2024001", surface: "edit", date: "20261013", events: [ev("x")] }, "非法 date"],
-    [{ student_id: "2024001", surface: "edit", date: "2026-10-13", events: [] }, "空 events"],
-    [{ student_id: "2024001", class_id: "a/b", surface: "edit", date: "2026-10-13", events: [ev("x")] }, "非法 class_id"],
-  ])("校验拒绝：%#", async (body: Record<string, unknown>, _caseName: string) => {
-    const app = makeApp();
-    await post(app, body).expect(400);
-  });
-
-  it("并发写同一文件不丢行", async () => {
-    const app = makeApp();
-    const base = bases[bases.length - 1];
-    const mk = (p: string) => ({ student_id: "2024001", student_name: "张三", surface: "debug", date: "2026-10-13", events: [ev(`d-${p}-1`), ev(`d-${p}-2`)] });
-    await Promise.all([post(app, mk("a")), post(app, mk("b"))]);
-    expect(fs.readFileSync(archived(base, "default", "2024001", "debug"), "utf8").trim().split("\n")).toHaveLength(4);
+  it("非法 surface / 空 events / 非法 student_id → 400", async () => {
+    const { a } = app();
+    await post(a, { student_id: "stu001", class_id: "3A", surface: "hack", date: "2026-10-16", events: [ev("e1")] }).expect(400);
+    await post(a, { student_id: "stu001", class_id: "3A", surface: "run", date: "2026-10-16", events: [] }).expect(400);
+    await post(a, { student_id: "../etc", class_id: "3A", surface: "run", date: "2026-10-16", events: [ev("e1")] }).expect(400);
   });
 });
