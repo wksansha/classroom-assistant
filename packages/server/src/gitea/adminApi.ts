@@ -15,6 +15,8 @@ export interface GiteaAdmin {
   protectBranch(studentId: string): Promise<void>;
   /** 学生加入教师仓库为协作者（write 权限——push 自己分支的前提，真实 Gitea 28 联调实测必需） */
   addCollaborator(studentId: string): Promise<void>;
+  /** 硬删除联动（spec roster §1.1）：删分支保护规则 → 删 student-<id> 分支 → 删 Gitea 账户；任一步 404 视为已完成继续 */
+  purgeStudent(studentId: string): Promise<void>;
 }
 
 export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
@@ -51,6 +53,24 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
       const r = await api(`/api/v1/repos/${deps.repo}/collaborators/${studentId}`, "PUT", { permission: "write" });
       // 204/200=成功；409=已是协作者（幂等重试容忍）；其余状态抛错
       if (r.status !== 204 && r.status !== 200 && r.status !== 409) throw new Error(`gitea collaborator add failed: ${r.status}`);
+    },
+    async purgeStudent(studentId: string): Promise<void> {
+      // 1. 找到该生分支保护规则并删除（Gitea 28 按规则 id 删；无规则则跳过）
+      const list = await api(`/api/v1/repos/${deps.repo}/branch_protections`, "GET");
+      if (list.ok) {
+        const rules = (await list.json()) as Array<{ id: number; rule_name: string }>;
+        const rule = rules.find((r) => r.rule_name === `student-${studentId}`);
+        if (rule) {
+          const del = await api(`/api/v1/repos/${deps.repo}/branch_protections/${rule.id}`, "DELETE");
+          if (!del.ok && del.status !== 404) throw new Error(`gitea branch protection delete failed: ${del.status}`);
+        }
+      }
+      // 2. 删学生分支（404=已无分支，视为已完成）
+      const delBranch = await api(`/api/v1/repos/${deps.repo}/branches/student-${studentId}`, "DELETE");
+      if (!delBranch.ok && delBranch.status !== 404) throw new Error(`gitea branch delete failed: ${delBranch.status}`);
+      // 3. 删 Gitea 账户（404=已删，视为已完成）
+      const delUser = await api(`/api/v1/admin/users/${studentId}`, "DELETE");
+      if (!delUser.ok && delUser.status !== 404) throw new Error(`gitea user delete failed: ${delUser.status}`);
     },
   };
 }

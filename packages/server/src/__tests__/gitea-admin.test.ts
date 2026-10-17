@@ -14,7 +14,11 @@ type FakeCall = { method: string; url: string; body?: any };
  * - 建号 / 分支保护默认 201
  * - token API 已弃用（Gitea 不允许 token 认证建 token，401 死路）：fake 不再提供该端点，测试断言全程零 token 调用
  */
-function fakeGitea(opts?: { userCreateStatus?: number; patchStatus?: number; collabStatus?: number }) {
+function fakeGitea(opts?: {
+  userCreateStatus?: number; patchStatus?: number; collabStatus?: number;
+  protections?: Array<{ id: number; rule_name: string }>;   // purge 用：GET branch_protections 返回
+  deleteStatus?: number;                                     // purge 用：注入 DELETE 各步失败状态码
+}) {
   const calls: FakeCall[] = [];
   const f: typeof fetch = async (url, init) => {
     calls.push({
@@ -24,11 +28,17 @@ function fakeGitea(opts?: { userCreateStatus?: number; patchStatus?: number; col
     });
     const u = String(url);
     if (u.includes("/admin/users")) {
+      if ((init?.method ?? "GET") === "DELETE") return new Response(null, { status: opts?.deleteStatus ?? 204 });
       if ((init?.method ?? "GET") === "PATCH") return new Response("{}", { status: opts?.patchStatus ?? 200 });
       return new Response("{}", { status: opts?.userCreateStatus ?? 201 });
     }
-    if (u.includes("/collaborators/")) return new Response(null, { status: opts?.collabStatus ?? 204 });   // 协作者授权成功（204 无 body：Response 构造要求 null）
-    if (u.includes("branch_protections")) return new Response("{}", { status: 201 });
+    if (u.includes("/collaborators/")) return new Response(null, { status: opts?.collabStatus ?? 204 });
+    if (u.includes("branch_protections")) {
+      if ((init?.method ?? "GET") === "GET") return new Response(JSON.stringify(opts?.protections ?? []), { status: 200 });
+      if ((init?.method ?? "GET") === "DELETE") return new Response(null, { status: opts?.deleteStatus ?? 204 });
+      return new Response("{}", { status: 201 });
+    }
+    if ((init?.method ?? "GET") === "DELETE" && u.includes("/branches/")) return new Response(null, { status: opts?.deleteStatus ?? 204 });
     return new Response("{}", { status: 200 });
   };
   return { calls, f };
@@ -197,5 +207,37 @@ describe("Gitea 管理联动", () => {
     expect(calls.filter((c) => c.url.includes("/tokens"))).toHaveLength(0);   // 全程零 token API 调用
     // 分支保护幂等照常执行（每生再各一条）
     expect(calls.filter((c) => c.url.includes("branch_protections")).length).toBe(4);
+  });
+});
+
+describe("purgeStudent（spec roster §1.1 硬删除联动）", () => {
+  it("调用顺序：删分支保护(带 rule id) → 删 student-<id> 分支 → 删 Gitea 账户", async () => {
+    const { calls, f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }] });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    await admin.purgeStudent("0001");
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET http://gitea.test/api/v1/repos/classroom/exercises/branch_protections",
+      "DELETE http://gitea.test/api/v1/repos/classroom/exercises/branch_protections/7",
+      "DELETE http://gitea.test/api/v1/repos/classroom/exercises/branches/student-0001",
+      "DELETE http://gitea.test/api/v1/admin/users/0001",
+    ]);
+  });
+  it("无分支保护规则 → 跳过 DELETE 保护步骤，继续删分支与账户", async () => {
+    const { calls, f } = fakeGitea({ protections: [] });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    await expect(admin.purgeStudent("0001")).resolves.toBeUndefined();
+    expect(calls.filter((c) => c.method === "DELETE" && c.url.includes("branch_protections"))).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "DELETE" && c.url.includes("/branches/"))).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "DELETE" && c.url.includes("/admin/users/"))).toHaveLength(1);
+  });
+  it("各步 404 容错（已删过/幂等重试）→ 不抛错", async () => {
+    const { f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }], deleteStatus: 404 });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    await expect(admin.purgeStudent("0001")).resolves.toBeUndefined();
+  });
+  it("非 404 失败（如 500）→ 抛错（路由层负责 502 + 名册不动）", async () => {
+    const { f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }], deleteStatus: 500 });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    await expect(admin.purgeStudent("0001")).rejects.toThrow("gitea branch protection delete failed: 500");
   });
 });
