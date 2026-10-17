@@ -57,3 +57,39 @@ describe("persistence（SQLite，:memory:）", () => {
     expect(stats.byCategory[0]).toEqual({ category: "运算错误", count: 2 });
   });
 });
+
+describe("花名册单条 CRUD（spec roster §1.2）", () => {
+  it("upsertRosterEntry：新增插入；已存在则仅改姓名（主键不变）", () => {
+    const p = createPersistence(":memory:");
+    p.upsertRosterEntry("0001", "张三");
+    expect(p.getRosterEntry("0001")).toEqual({ studentId: "0001", studentName: "张三" });
+    p.upsertRosterEntry("0001", "张叁");
+    expect(p.getRosterEntry("0001")).toEqual({ studentId: "0001", studentName: "张叁" });
+    expect(p.getRoster()).toHaveLength(1);
+  });
+  it("updateRosterEntry：改姓名；学号不存在返回 false", () => {
+    const p = createPersistence(":memory:");
+    p.upsertRosterEntry("0001", "张三");
+    expect(p.updateRosterEntry("0001", "李四")).toBe(true);
+    expect(p.getRosterEntry("0001")).toEqual({ studentId: "0001", studentName: "李四" });
+    expect(p.updateRosterEntry("9999", "王五")).toBe(false);
+  });
+  it("deleteRosterEntry：软删仅移出名册，student_tokens 保留（spec §1.1 关键语义）", () => {
+    const p = createPersistence(":memory:");
+    p.upsertRosterEntry("0001", "张三");
+    p.saveStudentToken("0001", "tok-1");
+    expect(p.deleteRosterEntry("0001")).toBe(true);
+    expect(p.getRosterEntry("0001")).toBeNull();
+    expect(p.getStudentToken("0001")).toBe("tok-1");   // 凭证保留：重新导入时 F4 幂等跳过建号
+    expect(p.deleteRosterEntry("0001")).toBe(false);
+  });
+  it("purgeRosterEntry：名册行 + student_tokens 一并清除，幂等可重复", () => {
+    const p = createPersistence(":memory:");
+    p.upsertRosterEntry("0001", "张三");
+    p.saveStudentToken("0001", "tok-1");
+    p.purgeRosterEntry("0001");
+    expect(p.getRosterEntry("0001")).toBeNull();
+    expect(p.getStudentToken("0001")).toBeNull();
+    expect(() => p.purgeRosterEntry("0001")).not.toThrow();   // 幂等
+  });
+});

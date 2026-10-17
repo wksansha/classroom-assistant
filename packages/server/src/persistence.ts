@@ -32,6 +32,10 @@ export interface Persistence {
   replaceRoster(entries: RosterEntry[]): void;
   getRoster(): RosterEntry[];
   getRosterEntry(studentId: string): RosterEntry | null;
+  upsertRosterEntry(studentId: string, studentName: string): void;
+  updateRosterEntry(studentId: string, studentName: string): boolean;
+  deleteRosterEntry(studentId: string): boolean;
+  purgeRosterEntry(studentId: string): void;
   // —— 评审缓存（内容寻址：key = sha256(filePath + 评审输入)）——
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
@@ -169,6 +173,24 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     getRosterEntry(studentId) {
       return (db.prepare("SELECT student_id AS studentId, student_name AS studentName FROM roster WHERE student_id = ?").get(studentId) as RosterEntry) ?? null;
+    },
+    upsertRosterEntry(studentId, studentName) {
+      db.prepare(`INSERT INTO roster (student_id, student_name, created_at) VALUES (?, ?, ?)
+        ON CONFLICT(student_id) DO UPDATE SET student_name = excluded.student_name`)
+        .run(studentId, studentName, Date.now());
+    },
+    updateRosterEntry(studentId, studentName) {
+      return db.prepare("UPDATE roster SET student_name = ? WHERE student_id = ?").run(studentName, studentId).changes > 0;
+    },
+    deleteRosterEntry(studentId) {
+      return db.prepare("DELETE FROM roster WHERE student_id = ?").run(studentId).changes > 0;
+    },
+    purgeRosterEntry(studentId) {
+      const tx = db.transaction(() => {
+        db.prepare("DELETE FROM roster WHERE student_id = ?").run(studentId);
+        db.prepare("DELETE FROM student_tokens WHERE student_id = ?").run(studentId);
+      });
+      tx();
     },
     // —— 评审缓存（内容寻址）——
     getCachedReview(cacheKey) {
