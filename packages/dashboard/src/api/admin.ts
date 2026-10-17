@@ -16,8 +16,21 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
   return (await r.json()) as T;
 }
 
-/** 管理页 API（作业域退役后仅剩花名册） */
+/** 管理页 API（花名册行内优先交互，spec roster §4） */
 export const adminApi = {
   roster: () => get<RosterEntry[]>("/api/roster"),
-  importRoster: (text: string) => send<{ ok: true; count: number }>("/api/roster", "POST", { text }),
+  /** 单条新增（补录转学生） */
+  addRosterEntry: (studentId: string, studentName: string) =>
+    send<{ ok: true }>("/api/roster/entry", "POST", { studentId, studentName }),
+  /** 仅改姓名（学号不可改） */
+  renameRosterEntry: (studentId: string, studentName: string) =>
+    send<{ ok: true; studentId: string; studentName: string }>(`/api/roster/entry/${encodeURIComponent(studentId)}`, "PATCH", { studentName }),
+  /** 软删除：仅移出名册，Gitea 凭证保留 */
+  removeRosterEntry: (studentId: string) =>
+    send<{ ok: true }>(`/api/roster/entry/${encodeURIComponent(studentId)}`, "DELETE"),
+  /** 硬删除：删 Gitea 账户与学生分支（前端已二次确认） */
+  purgeRosterEntry: (studentId: string) =>
+    send<{ ok: true }>(`/api/roster/entry/${encodeURIComponent(studentId)}/purge`, "POST"),
+  /** 学期换血：整表替换（覆盖式导入，每行「学号 姓名」） */
+  replaceRoster: (text: string) => send<{ ok: true; count: number }>("/api/roster", "POST", { text }),
 };
