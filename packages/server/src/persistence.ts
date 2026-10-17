@@ -50,7 +50,7 @@ export interface Persistence {
   hasExplanation(eventId: string): boolean;
   getRecentEvents(limit: number): any[];
   getEventStats(): { total: number; todayCount: number; byCategory: { category: string; count: number }[] };
-  getCachedExplanation(rawHash: string): Explanation | null;
+  getCachedExplanation(rawHash: string): (Explanation & { source: string }) | null;
   saveCache(rawHash: string, rawMessage: string, exp: Explanation, source: string): void;
   getCacheStats(): { total: number; totalHits: number };
   // —— 花名册 ——
@@ -216,10 +216,10 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     // 缓存命中/未命中/写入由 explainService/cache.ts 统一记录（cache.* 事件），此处不再重复打日志
     getCachedExplanation(rawHash) {
-      const row = db.prepare("SELECT category, subtype, knowledge FROM error_cache WHERE raw_hash = ?").get(rawHash) as Explanation | undefined;
+      const row = db.prepare("SELECT category, subtype, knowledge, source FROM error_cache WHERE raw_hash = ?").get(rawHash) as (Explanation & { source: string }) | undefined;
       if (!row) return null;
       db.prepare("UPDATE error_cache SET hit_count = hit_count + 1 WHERE raw_hash = ?").run(rawHash);
-      return { category: row.category, subtype: row.subtype, knowledge: row.knowledge };
+      return { category: row.category, subtype: row.subtype, knowledge: row.knowledge, source: row.source };
     },
     saveCache(rawHash, rawMessage, exp, source) {
       db.prepare(`INSERT INTO error_cache (raw_hash, raw_message, category, subtype, knowledge, source)

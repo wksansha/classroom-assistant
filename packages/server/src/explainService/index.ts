@@ -4,7 +4,7 @@ import type { Cache } from "./cache";
 import { logEvent } from "../logger";
 
 export interface ExplainService {
-  explain(ev: NormalizedEvent): Promise<Explanation>;
+  explain(ev: NormalizedEvent): Promise<Explanation & { source: "llm" | "mock" }>;
 }
 
 export function createExplainService(cache: Cache): ExplainService {
@@ -19,9 +19,9 @@ export function createExplainService(cache: Cache): ExplainService {
           success: ev.success,
           hasCacheKey: !!ev.cacheKey,
         } });
-        return { category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确" };
+        return { category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确", source: "mock" as const };
       }
-      const llm = await cache.getExplanation(ev.cacheKey, () =>
+      const { exp, source } = await cache.getExplanation(ev.cacheKey, () =>
         callLLM({
           errorType: ev.errorType ?? "DiagnosticError",
           errorMessage: ev.rawMessage || ev.errorMessage || "",
@@ -29,8 +29,8 @@ export function createExplainService(cache: Cache): ExplainService {
         }),
       );
       const result = ev.eventType === "run"
-        ? { ...llm, category: categoryFor(ev.errorType) }
-        : llm;
+        ? { ...exp, category: categoryFor(ev.errorType), source }
+        : { ...exp, source };
       logEvent({ event: "explain.completed", level: "debug", data: {
         studentId: ev.studentId,
         eventType: ev.eventType,

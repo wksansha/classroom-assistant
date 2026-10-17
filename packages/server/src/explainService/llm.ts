@@ -90,20 +90,21 @@ async function callRealLLM(input: ExplainInput): Promise<Explanation> {
   return parsed;
 }
 
-export async function callLLM(input: ExplainInput): Promise<Explanation> {
+export async function callLLM(input: ExplainInput): Promise<Explanation & { source: "llm" | "mock" }> {
   if (!API_KEY) {
     logEvent({ event: "llm.mock_fallback", level: "debug", data: { reason: "no_api_key" } });
-    return mockExplain(input);
+    return { ...mockExplain(input), source: "mock" };
   }
 
   try {
-    return await callRealLLM(input);
+    const parsed = await callRealLLM(input);
+    return { ...parsed, source: "llm" };
   } catch (err) {
     logEvent({ event: "llm.mock_fallback", level: "warn", data: {
       reason: "api_error",
       error: err instanceof Error ? err.message : String(err),
       model: MODEL,
     } });
-    return mockExplain(input);
+    return { ...mockExplain(input), source: "mock" };
   }
 }
