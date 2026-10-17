@@ -4,6 +4,7 @@ import request from "supertest";
 import { createPersistence } from "../persistence";
 import { createTeacherHub } from "../teacherHub";
 import { registerRosterRoutes } from "../routes/roster";
+import { createGiteaAdmin } from "../gitea/adminApi";
 
 function makeApp() {
   const persistence = createPersistence(":memory:");
@@ -102,7 +103,49 @@ describe("花名册单条 CRUD 路由（spec roster §1.1，无 Gitea 环境）"
     await request(app).post("/api/roster/entry/0001/purge").expect(200, { ok: true });
     expect(persistence.getStudentToken("0001")).toBeNull();
     await request(app).get("/api/roster").expect(200, []);
-    await request(app).post("/api/roster/entry/0001/purge").expect(200, { ok: true });   // 幂等
+    await request(app).post("/api/roster/entry/0001/purge").expect(404, { error: "该学号不存在或已彻底清除" });   // F3：名册+token 均已清 → 404
+  });
+});
+
+describe("studentId 白名单与 purge 存在性（最终审查 F1/F3）", () => {
+  function makeAppWithGitea() {
+    const persistence = createPersistence(":memory:");
+    const calls: { method: string; url: string }[] = [];
+    const f: typeof fetch = async (url, init) => {
+      const method = init?.method ?? "GET";
+      calls.push({ method, url: String(url) });
+      if (method === "GET" && String(url).includes("branch_protections")) return new Response("[]", { status: 200 });
+      return new Response(null, { status: method === "DELETE" ? 204 : 200 });
+    };
+    const gitea = createGiteaAdmin({ baseUrl: "http://gitea.test", adminToken: "t", repo: "classroom/exercises", fetchImpl: f });
+    const app: Express = express();
+    app.use(express.json({ limit: "2mb" }));
+    registerRosterRoutes(app, { persistence, gitea });
+    return { app, persistence, calls };
+  }
+  it("F1 路径穿越：purge ..%2Fvictim → 400，Gitea 端点零调用", async () => {
+    const { app, calls } = makeAppWithGitea();
+    await request(app).post("/api/roster/entry/..%2Fvictim/purge").expect(400, { error: "invalid studentId" });
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    expect(calls).toHaveLength(0);   // 校验前置：Gitea 完全不被触达
+  });
+  it("F1 非法字符：entry body 学号含 / → 400；PATCH/DELETE/purge URL param 含 %2F → 400", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster/entry").send({ studentId: "a/b", studentName: "张三" }).expect(400, { error: "invalid studentId" });
+    await request(app).patch("/api/roster/entry/a%2Fb").send({ studentName: "张三" }).expect(400, { error: "invalid studentId" });
+    await request(app).delete("/api/roster/entry/a%2Fb").expect(400, { error: "invalid studentId" });
+    await request(app).post("/api/roster/entry/a%2Fb/purge").expect(400, { error: "invalid studentId" });
+  });
+  it("F3 存在性：名册与 token 均无 → 404；软删后仅剩 token 仍可 purge → 200", async () => {
+    const { app, persistence } = makeApp();
+    await request(app).post("/api/roster/entry/0099/purge").expect(404, { error: "该学号不存在或已彻底清除" });
+    // 软删（token 保留）→ purge 可达（存在性=名册或 token 任一存在）
+    await request(app).post("/api/roster/entry").send({ studentId: "0001", studentName: "张三" }).expect(200);
+    persistence.saveStudentToken("0001", "tok-1");
+    await request(app).delete("/api/roster/entry/0001").expect(200);
+    expect(persistence.getRosterEntry("0001")).toBeNull();
+    await request(app).post("/api/roster/entry/0001/purge").expect(200, { ok: true });
+    expect(persistence.getStudentToken("0001")).toBeNull();
   });
 });
 

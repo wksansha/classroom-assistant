@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { logEvent } from "../logger";
 
 export interface GiteaAdminDeps {
   baseUrl: string;
@@ -64,6 +65,9 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
           const del = await api(`/api/v1/repos/${deps.repo}/branch_protections/${rule.id}`, "DELETE");
           if (!del.ok && del.status !== 404) throw new Error(`gitea branch protection delete failed: ${del.status}`);
         }
+      } else {
+        // F4：列取分支保护规则非 2xx 不再静默跳过（规则可能残留），记 warn 供排查
+        logEvent({ event: "gitea.protection_list_failed", level: "warn", data: { studentId, status: list.status } });
       }
       // 2. 删学生分支（404=已无分支，视为已完成）
       const delBranch = await api(`/api/v1/repos/${deps.repo}/branches/student-${studentId}`, "DELETE");

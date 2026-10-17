@@ -5,6 +5,12 @@ import { parseRosterText, validateIdentity } from "../controllers/rosterControll
 import { logEvent } from "../logger";
 import type { GiteaAdmin } from "../gitea/adminApi";
 
+/** F1 路径穿越防护：学号格式白名单（字母/数字/下划线/连字符）。Express 会解码 %2F，
+ * "..%2Fvictim" 等若放行会拼进 Gitea admin API 路径操作任意账户；四条单条路由共用，不通过 → 400 */
+function isValidStudentId(id: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(id);
+}
+
 /** 逐生建号+协作者+分支保护（异步不阻塞响应；单生失败仅告警，幂等重试）——整体导入与单条新增共用（spec roster §1.2） */
 function provisionEntries(persistence: Persistence, gitea: GiteaAdmin, entries: RosterEntry[]): void {
   void (async () => {
@@ -42,6 +48,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     const studentId = typeof req.body?.studentId === "string" ? req.body.studentId.trim() : "";
     const studentName = typeof req.body?.studentName === "string" ? req.body.studentName.trim() : "";
     if (!studentId || !studentName) return res.status(400).json({ error: "学号和姓名不能为空" });
+    if (!isValidStudentId(studentId)) return res.status(400).json({ error: "invalid studentId" });
     if (deps.persistence.getRosterEntry(studentId)) return res.status(409).json({ error: "该学号已在名册中" });
     deps.persistence.upsertRosterEntry(studentId, studentName);
     logEvent({ event: "api.roster_entry_added", level: "info", data: { studentId } });
@@ -51,6 +58,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
   // —— 改姓名（学号是主键不可改，spec roster §1.1）——
   app.patch("/api/roster/entry/:studentId", (req, res) => {
     const studentId = (req.params.studentId ?? "").trim();
+    if (!isValidStudentId(studentId)) return res.status(400).json({ error: "invalid studentId" });
     const studentName = typeof req.body?.studentName === "string" ? req.body.studentName.trim() : "";
     if (!studentName) return res.status(400).json({ error: "姓名不能为空" });
     if (!deps.persistence.updateRosterEntry(studentId, studentName)) return res.status(404).json({ error: "该学号不在名册中" });
@@ -60,6 +68,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
   // —— 软删除：仅移出名册，student_tokens 保留（重新导入无缝复用凭证）——
   app.delete("/api/roster/entry/:studentId", (req, res) => {
     const studentId = (req.params.studentId ?? "").trim();
+    if (!isValidStudentId(studentId)) return res.status(400).json({ error: "invalid studentId" });
     if (!deps.persistence.deleteRosterEntry(studentId)) return res.status(404).json({ error: "该学号不在名册中" });
     logEvent({ event: "api.roster_entry_removed", level: "info", data: { studentId } });
     res.json({ ok: true });
@@ -68,6 +77,12 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
   app.post("/api/roster/entry/:studentId/purge", async (req, res) => {
     const studentId = (req.params.studentId ?? "").trim();
     if (!studentId) return res.status(400).json({ error: "缺少学号" });
+    if (!isValidStudentId(studentId)) return res.status(400).json({ error: "invalid studentId" });
+    // F3 存在性前置校验：名册与 token 均无 → 404，不对不存在目标触发 Gitea 联动删除
+    //（软删后仅剩 token 的学号必须仍可 purge，故存在性=名册或 token 任一存在）
+    if (deps.persistence.getRosterEntry(studentId) === null && deps.persistence.getStudentToken(studentId) === null) {
+      return res.status(404).json({ error: "该学号不存在或已彻底清除" });
+    }
     if (deps.gitea) {
       try {
         await deps.gitea.purgeStudent(studentId);
