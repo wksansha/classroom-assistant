@@ -24,6 +24,9 @@ export interface Explanation {
   knowledge: string;
 }
 
+export const TRACE_SURFACES = ["edit", "run", "chat", "debug", "diag", "behavior"] as const;
+export type TraceSurface = (typeof TRACE_SURFACES)[number];
+
 /** eventIngress.normalize 的输出，服务端全链路统一用这个 */
 export interface NormalizedEvent {
   studentId: string;
@@ -49,4 +52,17 @@ export interface NormalizedEvent {
   lineNo?: number;
   /** epoch ms */
   ts: number;
+}
+
+/**
+ * /api/events 新格式（spec §4.1）：TraceEvent 原样平铺 + 身份三字段。
+ * eventType 仅 diag/run 有值（stateManager/解释链路专用）；其他 surface 为 undefined。
+ */
+export interface IngressEvent extends Omit<NormalizedEvent, "eventType"> {
+  id: string;
+  surface: TraceSurface;
+  kind: string;
+  payload: Record<string, unknown>;
+  sessionId?: string;
+  eventType?: "diag" | "run";
 }
