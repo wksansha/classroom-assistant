@@ -13,10 +13,10 @@ export function parseRosterText(text: string): RosterEntry[] {
   return entries;
 }
 
-export interface IdentityValidateBody { studentId?: string; studentName?: string; }
+export interface IdentityValidateBody { studentId?: string; studentName?: string; previousStudentId?: string; }
 
 export type IdentityValidateResult =
-  | { ok: true; studentName: string }
+  | { ok: true; studentName: string; previousIdInRoster?: boolean }
   | { ok: false; code: "roster_empty" | "student_id_not_found" | "name_mismatch"; message: string };
 
 /** 身份校验（A25）：错误码与文案 = spec §6.5 表格逐字 */
@@ -30,6 +30,12 @@ export function validateIdentity(p: Persistence, body: IdentityValidateBody): Id
   }
   if (entry.studentName !== (body.studentName ?? "").trim()) {
     return { ok: false, code: "name_mismatch", message: "姓名与该学号不匹配，请检查或联系教员" };
+  }
+  // 名册裁决（spec roster §2）：previousStudentId 存在且 ≠ 新学号时返回旧学号是否仍在册；
+  // 服务端只回 boolean，不暴露名册其他信息
+  const prev = (body.previousStudentId ?? "").trim();
+  if (prev && prev !== (body.studentId ?? "").trim()) {
+    return { ok: true, studentName: entry.studentName, previousIdInRoster: p.getRosterEntry(prev) !== null };
   }
   return { ok: true, studentName: entry.studentName };
 }

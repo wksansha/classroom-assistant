@@ -91,6 +91,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
       ok: true,
       studentName: r.studentName,
       gitSecret: deps.persistence.getStudentToken(studentId),
+      ...(r.previousIdInRoster !== undefined ? { previousIdInRoster: r.previousIdInRoster } : {}),
     };
     // 学生机零配置：校验通过即下发课堂仓库地址（GITEA_PUBLIC_BASE=学生机可达的 Gitea 地址，
     // 与服务端 GITEA_URL 可不同——服务端走 127.0.0.1，学生走内网 IP；未配置则不下发，扩展端回退设置）

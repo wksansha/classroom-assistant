@@ -106,6 +106,40 @@ describe("花名册单条 CRUD 路由（spec roster §1.1，无 Gitea 环境）"
   });
 });
 
+describe("validate 名册裁决扩展（spec roster §2）", () => {
+  it("带 previousStudentId：旧学号在名册 → previousIdInRoster=true（正常换机，走归档链路）", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster").send({ text: "0001 张三\n0002 李四" }).expect(200);
+    const v = await request(app).post("/api/identity/validate")
+      .send({ studentId: "0002", studentName: "李四", previousStudentId: "0001" }).expect(200);
+    expect(v.body).toEqual({ ok: true, studentName: "李四", gitSecret: null, previousIdInRoster: true });
+  });
+  it("带 previousStudentId：旧学号已不在名册 → false（学期更替，扩展端走清空三分叉）", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster").send({ text: "0002 李四" }).expect(200);
+    const v = await request(app).post("/api/identity/validate")
+      .send({ studentId: "0002", studentName: "李四", previousStudentId: "0001" }).expect(200);
+    expect(v.body).toEqual({ ok: true, studentName: "李四", gitSecret: null, previousIdInRoster: false });
+  });
+  it("不带 previousStudentId / 同学号重存 → 响应不含 previousIdInRoster 字段（向后兼容）", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster").send({ text: "0002 李四" }).expect(200);
+    const v1 = await request(app).post("/api/identity/validate")
+      .send({ studentId: "0002", studentName: "李四" }).expect(200);
+    expect(v1.body).toEqual({ ok: true, studentName: "李四", gitSecret: null });
+    const v2 = await request(app).post("/api/identity/validate")
+      .send({ studentId: "0002", studentName: "李四", previousStudentId: "0002" }).expect(200);
+    expect(v2.body).toEqual({ ok: true, studentName: "李四", gitSecret: null });
+  });
+  it("校验失败（姓名不匹配）→ 400 不含裁决字段", async () => {
+    const { app } = makeApp();
+    await request(app).post("/api/roster").send({ text: "0002 李四" }).expect(200);
+    await request(app).post("/api/identity/validate")
+      .send({ studentId: "0002", studentName: "王五", previousStudentId: "0001" })
+      .expect(400, { code: "name_mismatch", message: "姓名与该学号不匹配，请检查或联系教员" });
+  });
+});
+
 describe("teacherHub.publishMessage（A9/A21）", () => {
   it("向已连接客户端写类型化消息；snapshot 流不受影响", () => {
     const hub = createTeacherHub(() => ({ ts: 0, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [] }));
