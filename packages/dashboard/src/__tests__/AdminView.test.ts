@@ -4,7 +4,11 @@ import { mount } from "@vue/test-utils";
 vi.mock("../api/admin", () => ({
   adminApi: {
     roster: vi.fn(async () => [{ studentId: "0001", studentName: "张三" }]),
-    importRoster: vi.fn(async () => ({ ok: true, count: 2 })),
+    addRosterEntry: vi.fn(async () => ({ ok: true })),
+    renameRosterEntry: vi.fn(async () => ({ ok: true, studentId: "0001", studentName: "张三" })),
+    removeRosterEntry: vi.fn(async () => ({ ok: true })),
+    purgeRosterEntry: vi.fn(async () => ({ ok: true })),
+    replaceRoster: vi.fn(async () => ({ ok: true, count: 2 })),
   },
 }));
 
@@ -19,16 +23,10 @@ describe("AdminView（#/admin，作业域退役后仅花名册面板）", () => 
     expect(w.text()).toContain("0001");
     expect(w.text()).toContain("张三");
   });
-  it("名册面板导入调用 importRoster 并刷新", async () => {
+  it("无常驻导入文本框残留（行内交互取代两段式导入，spec roster §4）", () => {
     const w = mount(AdminView);
-    await new Promise((r) => setTimeout(r, 0));
-    (adminApi.roster as ReturnType<typeof vi.fn>).mockClear();
-    await w.find("textarea").setValue("0001 张三\n0002 李四");
-    await w.find("button.import-roster").trigger("click");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(adminApi.importRoster).toHaveBeenCalledWith("0001 张三\n0002 李四");
-    expect(w.text()).toContain("已导入 2 人");
-    expect(adminApi.roster).toHaveBeenCalled();   // refreshed → 重载
+    expect(w.find("button.import-roster").exists()).toBe(false);
+    expect(adminApi.roster).toHaveBeenCalled();
   });
   it("作业列表与立即同步已退役：无相关 UI 残留", () => {
     const w = mount(AdminView);
