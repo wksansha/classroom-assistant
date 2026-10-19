@@ -78,6 +78,50 @@ describe("RosterPanel 行内优先交互", () => {
     expect(adminApi.addRosterEntry).not.toHaveBeenCalled();
   });
 
+  it("人数徽章：标题旁显示名册人数", () => {
+    const w = mountPanel();
+    expect(w.find(".count-badge").text()).toBe("2 人");
+  });
+
+  it("搜索过滤：按姓名即时过滤行；无匹配提示；清空恢复", async () => {
+    const w = mountPanel();
+    expect(w.findAll("tbody tr").length).toBe(2);
+    await w.find("input.search").setValue("张三");
+    expect(w.findAll("tbody tr").length).toBe(1);
+    expect(w.text()).toContain("0001");
+    expect(w.text()).not.toContain("李四");
+    await w.find("input.search").setValue("9999");
+    expect(w.text()).toContain("无匹配学生");
+    await w.find("input.search").setValue("");
+    expect(w.findAll("tbody tr").length).toBe(2);
+  });
+
+  it("空名册：显示添加引导文案", () => {
+    const w = mount(RosterPanel, { props: { roster: [] } });
+    expect(w.text()).toContain("名册为空");
+    expect(w.text()).toContain("添加第一位学生");
+  });
+
+  it("学号本地查重：已存在学号即时标红提示，保存被拦截", async () => {
+    const w = mountPanel();
+    await w.find("input.add-id").setValue("0001");
+    expect(w.find(".dup-hint").text()).toContain("该学号已在名册中");
+    expect(w.find("input.add-id").classes()).toContain("dup");
+    await w.find("input.add-name").setValue("王五");
+    await w.find("button.add-entry").trigger("click");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(adminApi.addRosterEntry).not.toHaveBeenCalled();
+  });
+
+  it("改名按 ESC 取消编辑，不发请求", async () => {
+    const w = mountPanel();
+    await w.findAll(".name-text")[0].trigger("click");
+    expect(w.find("input.edit-name").exists()).toBe(true);
+    await w.find("input.edit-name").trigger("keyup", { key: "Escape" });
+    expect(w.find("input.edit-name").exists()).toBe(false);
+    expect(adminApi.renameRosterEntry).not.toHaveBeenCalled();
+  });
+
   it("移出（软删除）：一键执行无确认弹窗", async () => {
     const confirmSpy = vi.spyOn(window, "confirm");
     const w = mountPanel();
@@ -113,6 +157,16 @@ describe("RosterPanel 行内优先交互", () => {
     expect(w.find(".dialog").exists()).toBe(false);
   });
 
+  it("确认框按 ESC 关闭且不执行清除", async () => {
+    const w = mountPanel();
+    await w.findAll("button.purge-entry")[0].trigger("click");
+    expect(w.find(".dialog").exists()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(w.find(".dialog").exists()).toBe(false);
+    expect(adminApi.purgeRosterEntry).not.toHaveBeenCalled();
+  });
+
   describe("批量移除（勾选模式，软移出）", () => {
     it("进入勾选模式：行复选框出现、行操作隐藏、未勾选时对钩禁用；✕ 退出不发起请求", async () => {
       const w = mountPanel();
@@ -142,7 +196,7 @@ describe("RosterPanel 行内优先交互", () => {
       expect(w.find("button.batch-remove-confirm").text()).toContain("(2)");
     });
 
-    it("确认移除：逐条软移出 + refreshed + 退出勾选模式 + toast 汇总", async () => {
+    it("确认移除：逐条软移出 + refreshed + 退出勾选模式 + toast 带名单", async () => {
       const tw = mount(Toast);
       const w = mountPanel();
       await w.find("button.batch-remove").trigger("click");
@@ -155,6 +209,19 @@ describe("RosterPanel 行内优先交互", () => {
       expect(w.emitted("refreshed")).toBeTruthy();
       expect(w.find("input.check-one").exists()).toBe(false);
       expect(tw.text()).toContain("已移出 2 人");
+      expect(tw.text()).toContain("0001、0002");
+    });
+
+    it("全选作用于过滤结果：搜索后全选只勾选可见行", async () => {
+      const w = mountPanel();
+      await w.find("input.search").setValue("张三");
+      await w.find("button.batch-remove").trigger("click");
+      await w.find("input.check-all").trigger("change");
+      expect(w.find("button.batch-remove-confirm").text()).toContain("(1)");
+      await w.find("button.batch-remove-confirm").trigger("click");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(adminApi.removeRosterEntry).toHaveBeenCalledTimes(1);
+      expect(adminApi.removeRosterEntry).toHaveBeenCalledWith("0001");
     });
   });
 });

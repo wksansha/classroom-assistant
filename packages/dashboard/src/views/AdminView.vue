@@ -14,7 +14,9 @@ onMounted(() => void load());
 
 <template>
   <div class="admin-view">
-    <h2>课堂助手 · 管理</h2>
+    <header class="app-header">
+      <h1>课堂助手 · 管理</h1>
+    </header>
     <RosterPanel :roster="roster" @refreshed="load()" />
   </div>
 </template>

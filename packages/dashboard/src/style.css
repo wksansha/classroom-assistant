@@ -53,11 +53,16 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 
 /* —— 隐藏管理页（#/admin，A23）—— */
 .admin-view { display: flex; flex-direction: column; gap: 16px; padding: 16px; max-width: 860px; margin: 0 auto; min-height: 100vh; }
+.admin-view .app-header { margin: -16px -16px 0; }   /* 深色顶栏与主界面统一，出血到容器边缘 */
 .admin-view h2 { margin: 0; font-size: 18px; }
 .admin-view h3 { margin: 0 0 8px; font-size: 15px; }
 .roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; flex: 1; min-height: 0; }
 .roster-panel .roster-head { display: flex; align-items: center; justify-content: space-between; }
 .roster-panel .roster-head h3 { margin: 0; font-size: 15px; }
+.roster-panel .count-badge { margin-left: 6px; font-size: 12px; font-weight: normal; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; vertical-align: 1px; }
+.roster-panel .roster-toolbar { display: flex; align-items: center; gap: 10px; }
+.roster-panel .search { width: 170px; padding: 4px 10px; font-size: 13px; font-family: inherit; border: 1px solid var(--border); border-radius: 6px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
+.roster-panel .search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px #2563eb26; }
 .roster-panel .roster-head-actions { display: flex; align-items: center; gap: 8px; }
 .roster-panel .batch-remove { padding: 4px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); }
 .roster-panel .batch-remove:hover { border-color: var(--red); color: var(--red); }
@@ -67,13 +72,50 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .roster-panel .batch-remove-exit:hover { color: var(--text); }
 .roster-table .check-col { width: 36px; text-align: center; padding: 6px 4px; }
 .roster-table .check-col input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
-.roster-table-wrap { flex: 1; min-height: 0; overflow-y: auto; }
+.roster-table-wrap { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.roster-table-wrap::-webkit-scrollbar { width: 8px; }
+.roster-table-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.roster-table-wrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.roster-table-wrap::-webkit-scrollbar-track { background: transparent; }
 .roster-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .roster-table th, .roster-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
-.roster-table thead th { position: sticky; top: 0; background: var(--card); }
+.roster-table thead th { position: sticky; top: 0; background: var(--bg); }
+.roster-table td.sid { font-variant-numeric: tabular-nums; }
+.roster-table td.empty-roster { text-align: center; color: var(--muted); padding: 24px 0; }
 /* 常驻添加行吸底：滚动录长名册时输入行始终可见 */
 .roster-table tfoot { position: sticky; bottom: 0; z-index: 1; }
 .roster-table tfoot td { background: var(--card); }
+
+/* —— 名册表行内控件：按钮分危险/常规/主操作三档，输入框统一聚焦光环 —— */
+.roster-table tbody tr:hover { background: #2563eb0a; }
+.roster-table td:last-child { white-space: nowrap; }
+.roster-table td button + button { margin-left: 6px; }
+.roster-table .remove-entry, .roster-table .purge-entry, .roster-table .save-edit {
+  padding: 3px 10px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+.roster-table .remove-entry { border: 1px solid var(--border); background: var(--card); color: var(--muted); }
+.roster-table .remove-entry:hover { border-color: var(--accent); color: var(--accent); }
+.roster-table .purge-entry { border: 1px solid transparent; background: none; color: var(--red); opacity: 0.72; }
+.roster-table .purge-entry:hover { border-color: var(--red); background: #ef44441a; opacity: 1; }
+.roster-table .save-edit { border: 1px solid var(--accent); background: var(--card); color: var(--accent); }
+.roster-table .add-entry {
+  padding: 4px 12px; font-size: 12px; border: 1px solid var(--accent); border-radius: 4px;
+  background: var(--accent); color: #fff; cursor: pointer; transition: background 0.15s;
+}
+.roster-table .add-entry:hover { background: #1d4ed8; }
+.roster-table input.add-id, .roster-table input.add-name, .roster-table input.edit-name {
+  width: 100%; padding: 3px 8px; font-size: 13px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 4px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.roster-table input.add-id:focus, .roster-table input.add-name:focus, .roster-table input.edit-name:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px #2563eb26;
+}
+.roster-table input.edit-name { margin-right: 6px; }
+.roster-table input.add-id.dup { border-color: var(--red); }
+.roster-table .dup-hint { margin-top: 2px; font-size: 11px; color: var(--red); }
+.roster-table .name-text { cursor: pointer; border-bottom: 1px dashed transparent; }
+.roster-table .name-text:hover { border-bottom-color: var(--muted); }
 
 /* —— 全局浮动提示（Toast，替换原生弹窗/行内 msg）—— */
 .toast-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 1000; }

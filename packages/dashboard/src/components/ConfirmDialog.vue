@@ -1,7 +1,15 @@
 <script setup lang="ts">
-/** 自定义确认框（替换原生 window.confirm；danger=true 时确认按钮红色警示） */
+import { onBeforeUnmount, onMounted } from "vue";
+
+/** 自定义确认框（替换原生 window.confirm；danger=true 时确认按钮红色警示；ESC 关闭） */
 defineProps<{ title: string; body: string; confirmText?: string; danger?: boolean }>();
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === "Escape") emit("cancel");
+}
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>

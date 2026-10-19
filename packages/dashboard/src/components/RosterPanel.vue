@@ -10,7 +10,17 @@ const emit = defineEmits<{ refreshed: [] }>();
 const toast = useToast();
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-// —— 行内改名（姓名直接改；学号不可改）——
+// —— 搜索过滤（长名册快速定位；全选作用于过滤结果，所见即所选）——
+const searchText = ref("");
+const filteredRoster = computed(() => {
+  const q = searchText.value.trim().toLowerCase();
+  if (!q) return props.roster;
+  return props.roster.filter((r) =>
+    r.studentId.toLowerCase().includes(q) || r.studentName.toLowerCase().includes(q),
+  );
+});
+
+// —— 行内改名（姓名直接改；学号不可改；ESC 取消）——
 const editingId = ref<string | null>(null);
 const editName = ref("");
 function startEdit(r: RosterEntry) { editingId.value = r.studentId; editName.value = r.studentName; }
@@ -30,9 +40,15 @@ const addId = ref("");
 const addName = ref("");
 const addIdInput = ref<HTMLInputElement | null>(null);
 const addNameInput = ref<HTMLInputElement | null>(null);
+/** 学号本地查重：输入时即时比对名册，避免提交后才发现重复 */
+const addIdDup = computed(() => {
+  const id = addId.value.trim();
+  return id !== "" && props.roster.some((r) => r.studentId === id);
+});
 async function addEntry() {
   const id = addId.value.trim(), name = addName.value.trim();
   if (!id || !name) { toast.error("请填写学号和姓名"); return; }
+  if (addIdDup.value) { toast.error("该学号已在名册中"); return; }
   try {
     await adminApi.addRosterEntry(id, name);
     toast.success(`已添加 ${id} ${name}`);
@@ -47,11 +63,14 @@ async function addEntry() {
 const selectMode = ref(false);
 const selected = ref(new Set<string>());
 const selectedCount = computed(() => selected.value.size);
-const allSelected = computed(() => props.roster.length > 0 && selected.value.size === props.roster.length);
+const allSelected = computed(() =>
+  filteredRoster.value.length > 0 && filteredRoster.value.every((r) => selected.value.has(r.studentId)),
+);
 function enterSelectMode() { selectMode.value = true; selected.value = new Set(); }
 function exitSelectMode() { selectMode.value = false; selected.value = new Set(); }
 function toggleAll() {
-  selected.value = allSelected.value ? new Set() : new Set(props.roster.map((r) => r.studentId));
+  if (allSelected.value) filteredRoster.value.forEach((r) => selected.value.delete(r.studentId));
+  else filteredRoster.value.forEach((r) => selected.value.add(r.studentId));
 }
 function toggleOne(id: string) {
   if (selected.value.has(id)) selected.value.delete(id); else selected.value.add(id);
@@ -60,13 +79,14 @@ async function removeSelected() {
   const ids = [...selected.value];
   if (ids.length === 0) return;
   let ok = 0;
+  const okIds: string[] = [];
   const failed: string[] = [];
   for (const id of ids) {
-    try { await adminApi.removeRosterEntry(id); ok++; } catch { failed.push(id); }
+    try { await adminApi.removeRosterEntry(id); ok++; okIds.push(id); } catch { failed.push(id); }
   }
   exitSelectMode();
   if (ok > 0) {
-    toast.success(`已移出 ${ok} 人${failed.length ? `，失败 ${failed.length} 人（${failed.join("、")}）` : ""}，Git 凭证保留`);
+    toast.success(`已移出 ${ok} 人：${okIds.join("、")}${failed.length ? `；失败 ${failed.length} 人：${failed.join("、")}` : ""}`);
     emit("refreshed");
   } else {
     toast.error(`移出失败：${failed.join("、")}`);
@@ -99,13 +119,16 @@ async function confirmPurge() {
 <template>
   <section class="roster-panel">
     <div class="roster-head">
-      <h3>名册管理</h3>
-      <div v-if="!selectMode" class="roster-head-actions">
-        <button class="batch-remove" @click="enterSelectMode">批量移除</button>
-      </div>
-      <div v-else class="roster-head-actions">
-        <button class="batch-remove-confirm" :disabled="selectedCount === 0" @click="removeSelected">✓ 移除 ({{ selectedCount }})</button>
-        <button class="batch-remove-exit" title="退出勾选" @click="exitSelectMode">✕</button>
+      <h3>名册管理 <span class="count-badge">{{ props.roster.length }} 人</span></h3>
+      <div class="roster-toolbar">
+        <input class="search" v-model="searchText" placeholder="搜索学号/姓名" />
+        <div v-if="!selectMode" class="roster-head-actions">
+          <button class="batch-remove" @click="enterSelectMode">批量移除</button>
+        </div>
+        <div v-else class="roster-head-actions">
+          <button class="batch-remove-confirm" :disabled="selectedCount === 0" @click="removeSelected">✓ 移除 ({{ selectedCount }})</button>
+          <button class="batch-remove-exit" title="退出勾选" @click="exitSelectMode">✕</button>
+        </div>
       </div>
     </div>
     <div class="roster-table-wrap">
@@ -121,14 +144,19 @@ async function confirmPurge() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in props.roster" :key="r.studentId">
+          <tr v-if="filteredRoster.length === 0">
+            <td class="empty-roster" :colspan="selectMode ? 4 : 3">
+              {{ props.roster.length === 0 ? "名册为空，在下方输入学号和姓名，按 Enter 添加第一位学生" : "无匹配学生" }}
+            </td>
+          </tr>
+          <tr v-for="r in filteredRoster" :key="r.studentId">
             <td v-if="selectMode" class="check-col">
               <input type="checkbox" class="check-one" :checked="selected.has(r.studentId)" @change="toggleOne(r.studentId)" />
             </td>
-            <td>{{ r.studentId }}</td>
+            <td class="sid">{{ r.studentId }}</td>
             <td>
               <template v-if="editingId === r.studentId">
-                <input class="edit-name" v-model="editName" @keyup.enter="saveEdit(r)" />
+                <input class="edit-name" v-model="editName" @keyup.enter="saveEdit(r)" @keyup.esc="editingId = null" />
                 <button class="save-edit" @click="saveEdit(r)">保存</button>
               </template>
               <template v-else><span class="name-text" @click="startEdit(r)">{{ r.studentName }}</span></template>
@@ -143,7 +171,10 @@ async function confirmPurge() {
         <tfoot>
           <tr class="add-row">
             <td v-if="selectMode"></td>
-            <td><input class="add-id" ref="addIdInput" v-model="addId" placeholder="学号" @keyup.enter="addNameInput?.focus()" /></td>
+            <td>
+              <input class="add-id" :class="{ dup: addIdDup }" ref="addIdInput" v-model="addId" placeholder="学号" @keyup.enter="addNameInput?.focus()" />
+              <div v-if="addIdDup" class="dup-hint">该学号已在名册中</div>
+            </td>
             <td><input class="add-name" ref="addNameInput" v-model="addName" placeholder="姓名" @keyup.enter="addEntry" /></td>
             <td><button class="add-entry" @click="addEntry">+ 添加学生</button></td>
           </tr>
