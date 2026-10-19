@@ -7,38 +7,42 @@ function app() {
 }
 
 const flatError = {
+  id: "run:it-error-000001", ts: new Date().toISOString(), surface: "run", kind: "execution_error",
+  payload: {
+    command: "python a.py", exit_code: 1, error_type: "ZeroDivisionError",
+    error_message: "division by zero",
+    code_snippet: "def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))",
+  },
   student_id: "stu001", student_name: "张三", class_id: "3A",
-  timestamp: new Date().toISOString(), event_type: "run",
-  raw_message: "division by zero", error_type: "ZeroDivisionError",
-  error_message: "division by zero", exit_code: 1,
-  code_snippet: "def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))",
 };
 const flatSuccess = {
+  id: "run:it-success-0001", ts: new Date().toISOString(), surface: "run", kind: "execution_success",
+  payload: { command: "python a.py", exit_code: 0 },
   student_id: "stu001", student_name: "张三", class_id: "3A",
-  timestamp: new Date().toISOString(), event_type: "run",
-  raw_message: "run success", error_type: "RunSuccess", error_message: "", exit_code: 0,
 };
 
 describe("POST /api/events 主流程（测试环境无 LLM_API_KEY → mock 兜底）", () => {
-  it("报错上报 → 200；summary 黄色；events 落库带三字段（run 静态映射）", async () => {
+  it("报错上报 → 200；summary 黄色；trace_events 落库带解释三字段（run 静态映射）", async () => {
     const a = app();
-    await request(a).post("/api/events").send(flatError).expect(200, { ok: true });
+    await request(a).post("/api/events").send(flatError).expect(200, { ok: true, duplicated: false });
     const summary = (await request(a).get("/api/summary").expect(200)).body;
     expect(summary.students).toHaveLength(1);
     expect(summary.students[0].status).toBe("yellow");
     const events = (await request(a).get("/api/events").expect(200)).body;
     expect(events[0].category).toBe("运算错误");
     expect(events[0].subtype).toBe("除数为0");
-    expect(events[0].code_snippet).toBe("def divide(a, b):\n    return a / b\n\nprint(divide(10, 0))");
+    expect(events[0].payload).toBe(JSON.stringify(flatError.payload));
+    expect(events[0].event_id).toBe(flatError.id);
+    expect(events[0].surface).toBe("run");
   });
 
-  it("runSuccess → 200，不产生解释（category=运行成功），学生绿色", async () => {
+  it("runSuccess → 200，学生绿色；无解释行（category=null）", async () => {
     const a = app();
-    await request(a).post("/api/events").send(flatSuccess).expect(200);
+    await request(a).post("/api/events").send(flatSuccess).expect(200, { ok: true, duplicated: false });
     const summary = (await request(a).get("/api/summary").expect(200)).body;
     expect(summary.students[0].status).toBe("green");
     const events = (await request(a).get("/api/events").expect(200)).body;
-    expect(events[0].category).toBe("运行成功");
+    expect(events[0].category).toBeNull();
     expect(events[0].subtype).toBeNull();
   });
 
@@ -46,11 +50,19 @@ describe("POST /api/events 主流程（测试环境无 LLM_API_KEY → mock 兜�
     await request(app()).post("/api/events").send({ foo: 1 }).expect(400);
   });
 
-  it("缺少 student_id → 400（不落库、不调 LLM）", async () => {
+  it("student_id 非法/缺失 → 400（不落库、不调 LLM）", async () => {
     await request(app())
       .post("/api/events")
-      .send({ event_type: "run", raw_message: "x", error_type: "NameError", error_message: "x" })
-      .expect(400, { error: "缺少 student_id" });
+      .send({ id: "run:it-nostudent01", ts: new Date().toISOString(), surface: "run", kind: "execution_error", payload: {} })
+      .expect(400, { error: "student_id 非法" });
+  });
+
+  it("幂等重放：同 id 重复上报 → 200 + duplicated:true，不重复落库不重复推看板", async () => {
+    const a = app();
+    await request(a).post("/api/events").send(flatError).expect(200, { ok: true, duplicated: false });
+    await request(a).post("/api/events").send(flatError).expect(200, { ok: true, duplicated: true });
+    const events = (await request(a).get("/api/events").expect(200)).body;
+    expect(events).toHaveLength(1);
   });
 });
 

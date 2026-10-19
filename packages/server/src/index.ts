@@ -1,9 +1,9 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import path from "node:path";
-import type { TeacherSnapshot } from "@classroom/shared";
-import { createPersistence } from "./persistence";
-import { normalize } from "./eventIngress";
+import type { TeacherSnapshot, IngressEvent } from "@classroom/shared";
+import { createPersistence, type TraceEventRow } from "./persistence";
+import { normalize, isDiagRunEvent } from "./eventIngress";
 import { createCache } from "./explainService/cache";
 import { createExplainService } from "./explainService";
 import { createStateManager } from "./stateManager";
@@ -26,19 +26,8 @@ export interface AppDeps {
   staticDir?: string | null;
   /** LLM 聊天代理配置；缺省读环境变量（LLM_API_KEY 等为空则不启用代理），测试可注入假上游 */
   llmConfig?: LlmProxyConfig | null;
-  /** 归档根目录；缺省 classroom-assistant 同级 L1-data（resolveTraceDir 解析） */
-  traceDir?: string;
   /** 评审 LLM 注入（测试传 fetchImpl）；缺省读环境变量，无 key 时 mock 兜底 */
   reviewConfig?: ReviewLlmOptions | null;
-}
-
-/**
- * 归档根目录解析：显式传入 > TRACE_DIR 环境变量 > 缺省 classroom-assistant 同级 L1-data。
- * 缺省锚定 __dirname（packages/server/src）向上四级到仓库同级，不随启动 cwd 漂移，
- * 本机与部署机同一套相对约定（spec：docs/superpowers/specs/2026-10-13-l1-trace-archive-design.md §5）。
- */
-export function resolveTraceDir(explicit?: string): string {
-  return explicit ?? process.env.TRACE_DIR ?? path.resolve(__dirname, "..", "..", "..", "..", "L1-data");
 }
 
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
@@ -57,6 +46,17 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   const hub = createTeacherHub(buildSnapshot);
 
+  const toRow = (ev: IngressEvent): TraceEventRow => {
+    const tsIso = new Date(ev.ts).toISOString();
+    return {
+      eventId: ev.id, studentId: ev.studentId, studentName: ev.studentName, classId: ev.classId,
+      surface: ev.surface, kind: ev.kind, ts: tsIso,
+      sessionId: ev.sessionId ?? null,
+      payload: JSON.stringify(ev.payload ?? {}),
+      date: tsIso.slice(0, 10),
+    };
+  };
+
   // —— 作业评审模块装配（T8）——
   const reviewService = createReviewService(persistence, deps.reviewConfig ?? undefined);
 
@@ -68,60 +68,52 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   // SSE（spec §6）
   app.get("/api/stream/teacher", (req, res) => hub.handleStream(req, res));
 
-  // 学生上报（learner 零改造：flat 格式不变）
+  // 学生上报（TraceEvent 原样平铺，全 surface；spec §4.1）
   app.post("/api/events", async (req, res) => {
     const startTime = Date.now();
     try {
       const ev = normalize(req.body);
       if (!ev) {
-        logEvent({ event: "route.invalid_body", level: "warn", data: {
-          path: req.path, bodyKeys: Object.keys(req.body ?? {}),
-        } });
+        logEvent({ event: "route.invalid_body", level: "warn", data: { path: req.path, bodyKeys: Object.keys(req.body ?? {}) } });
         return res.status(400).json({ error: "缺少必要字段" });
       }
-      if (!ev.studentId) {
-        logEvent({ event: "route.missing_student_id", level: "warn", data: {
-          path: req.path, bodyKeys: Object.keys(req.body ?? {}),
-        } });
-        return res.status(400).json({ error: "缺少 student_id" });
+      if (!ev.studentId || !/^[A-Za-z0-9_-]+$/.test(ev.studentId) || ev.studentId === "unknown") {
+        logEvent({ event: "route.missing_student_id", level: "warn", data: { path: req.path, studentId: ev.studentId } });
+        return res.status(400).json({ error: "student_id 非法" });
       }
 
       logEvent({ event: "route.event_received", data: {
-        studentId: ev.studentId,
-        studentName: ev.studentName,
-        classId: ev.classId,
-        eventType: ev.eventType,
-        success: ev.success,
-        errorType: ev.errorType,
-        cacheKey: ev.cacheKey,
-        ts: ev.ts,
-        hasCodeSnippet: !!ev.codeSnippet,
+        eventId: ev.id, studentId: ev.studentId, studentName: ev.studentName, classId: ev.classId,
+        surface: ev.surface, kind: ev.kind, success: ev.success, ts: ev.ts,
       } });
 
-      // runSuccess 只记活动信号，不调 LLM（spec §5 / §11 差距 #2）
+      // 非 diag/run：仅入库（spec §2：原始行必写，不解释、不进内存看板）
+      if (!isDiagRunEvent(ev)) {
+        persistence.insertTraceEvent(toRow(ev));
+        logEvent({ event: "route.event_stored", data: { eventId: ev.id, surface: ev.surface, kind: ev.kind }, durationMs: Date.now() - startTime });
+        return res.json({ ok: true, duplicated: false });
+      }
+
+      // diag/run：成功事件只记活动信号不解释（现状语义保持）
       const explanation = ev.success ? null : await explainService.explain(ev);
+      const inserted = persistence.insertTraceEvent(toRow(ev), explanation ? {
+        category: explanation.category, subtype: explanation.subtype,
+        knowledge: explanation.knowledge, source: explanation.source,
+      } : undefined);
+
+      if (!inserted) {
+        // 幂等命中（典型：归档补传先到）：不解释、不推看板
+        logEvent({ event: "route.event_duplicated", data: { eventId: ev.id, studentId: ev.studentId } });
+        return res.json({ ok: true, duplicated: true });
+      }
 
       stateManager.apply(ev, explanation);
-      persistence.insertEvent({
-        studentId: ev.studentId, classId: ev.classId, eventType: ev.eventType,
-        rawMessage: ev.rawMessage,
-        category: ev.success ? "运行成功" : explanation!.category,
-        subtype: ev.success ? null : explanation!.subtype,
-        knowledge: ev.success ? null : explanation!.knowledge,
-        filePath: ev.filePath ?? null, lineNo: ev.lineNo ?? null,
-        exitCode: ev.exitCode ?? null,
-        timestamp: new Date(ev.ts).toISOString(),
-        codeSnippet: ev.codeSnippet ?? null,
-      });
-
       hub.publish(buildSnapshot());
       logEvent({ event: "route.event_processed", data: {
-        studentId: ev.studentId,
-        eventType: ev.eventType,
-        success: ev.success,
+        eventId: ev.id, studentId: ev.studentId, surface: ev.surface, success: ev.success,
         explanationCategory: explanation?.category,
       }, durationMs: Date.now() - startTime });
-      return res.json({ ok: true });
+      return res.json({ ok: true, duplicated: false });
     } catch (err) {
       // 兜底：未捕获异常返回 JSON（避免 Express 5 默认 HTML 500 + 堆栈泄漏）
       logEvent({ event: "route.event_error", level: "error", data: {
@@ -197,10 +189,8 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   };
   registerReviewRoutes(app, reviewRequestDeps);
 
-  // L1 全量归档（独立于分析链路；<traceDir>/trace/<classId>/<studentId>/...，TRACE_DIR 环境变量可覆盖）
-  registerTraceArchiveRoutes(app, {
-    traceDir: resolveTraceDir(deps.traceDir),
-  });
+  // L1 全量归档（独立于分析链路，只写 trace_events 原始表；按 event_id 幂等）
+  registerTraceArchiveRoutes(app, { persistence });
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());

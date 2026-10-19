@@ -1,5 +1,6 @@
 /**
- * 课堂实时演示脚本：先报错，2分钟后解决
+ * 课堂实时演示脚本：先报错，2分钟后解决（L1 统一入库版：TraceEvent 原样平铺）
+ * id 随机生成，重复运行脚本不会撞幂等。
  * 用法：node tools/demo-error-resolution.js
  */
 const URL = 'http://localhost:3000';
@@ -7,8 +8,10 @@ const STUDENT = {
   student_id: 'demo-stu001',
   student_name: '演示学生',
   class_id: '3A',
-  timestamp: new Date().toISOString(),
 };
+
+// 服务端 EVENT_ID_PATTERN: ^<surface>:[0-9A-Za-z-]{6,64}$
+const eventId = (surface) => `${surface}:demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 async function post(body) {
   const res = await fetch(`${URL}/api/events`, {
@@ -23,16 +26,19 @@ async function post(body) {
 async function main() {
   console.log('\n[Demo] 开始：学生上报编程错误');
   const error = await post({
+    id: eventId('run'),
+    ts: new Date().toISOString(),
+    surface: 'run',
+    kind: 'execution_error',
+    payload: {
+      command: 'python simple_functions.py',
+      exit_code: 1,
+      error_type: 'SyntaxError',
+      error_message: 'expected ":"',
+      file: 'simple_functions.py',
+      line: 12,
+    },
     ...STUDENT,
-    event_type: 'run',
-    raw_message: 'expected ":"',
-    error_type: 'SyntaxError',
-    error_message: 'expected ":"',
-    exit_code: 1,
-    file_path: 'simple_functions.py',
-    line_no: 12,
-    command: 'python simple_functions.py',
-    source: 'terminal',
   });
   console.log('[Demo] 错误已上报:', JSON.stringify(error));
 
@@ -41,15 +47,15 @@ async function main() {
 
   console.log('\n[Demo] 学生解决错误，上报成功结果');
   const success = await post({
+    id: eventId('run'),
+    ts: new Date().toISOString(),
+    surface: 'run',
+    kind: 'execution_success',
+    payload: {
+      command: 'python simple_functions.py',
+      exit_code: 0,
+    },
     ...STUDENT,
-    timestamp: new Date().toISOString(),
-    event_type: 'run',
-    raw_message: 'run success',
-    error_type: 'RunSuccess',
-    error_message: '',
-    exit_code: 0,
-    command: 'python simple_functions.py',
-    source: 'terminal',
   });
   console.log('[Demo] 成功结果已上报:', JSON.stringify(success));
 

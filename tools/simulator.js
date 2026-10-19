@@ -1,6 +1,7 @@
 /**
- * 学生端模拟器（升级版）
- * 发送与 learner reporter 完全一致的 flat 格式。
+ * 学生端模拟器（L1 统一入库版）
+ * 发送 /api/events 新格式：TraceEvent 原样平铺 + { id, ts, surface, kind, payload, student_id, student_name, class_id }。
+ * id 随机生成（<surface>: 前缀 + base36 时间戳 + 随机段），重跑不会撞幂等。
  * 用法：node tools/simulator.js [--url=http://localhost:3000] [--students=20] [--interval=2000] [--success-ratio=0.3]
  */
 const args = Object.fromEntries(
@@ -73,6 +74,11 @@ function codeSnippetFor(rawMessage) {
   return CODE_SNIPPETS[rawMessage] ?? "（未捕获到代码片段）";
 }
 
+// 服务端 EVENT_ID_PATTERN: ^<surface>:[0-9A-Za-z-]{6,64}$
+function eventId(surface) {
+  return `${surface}:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 async function post(body) {
   const res = await fetch(`${URL}/api/events`, {
     method: "POST",
@@ -88,17 +94,33 @@ function nextEvent() {
     student_id: `stu${String(i + 1).padStart(3, "0")}`,
     student_name: NAMES[i % NAMES.length],
     class_id: "3A",
-    timestamp: new Date().toISOString(),
   };
   if (Math.random() < SUCCESS_RATIO) {
-    return { ...student, event_type: "run", raw_message: "run success", error_type: "RunSuccess", error_message: "", exit_code: 0, command: "python simple_functions.py", source: "terminal" };
+    return {
+      id: eventId("run"), ts: new Date().toISOString(), surface: "run", kind: "execution_success",
+      payload: { command: "python simple_functions.py", exit_code: 0 },
+      ...student,
+    };
   }
   if (Math.random() < 0.5) {
     const sample = pick(DIAG_SAMPLES);
-    return { ...student, event_type: "diag", raw_message: sample, samples: [sample], file_path: "simple_functions.py", code_snippet: codeSnippetFor(sample) };
+    return {
+      id: eventId("diag"), ts: new Date().toISOString(), surface: "diag", kind: "diagnostics_change",
+      payload: { file: "simple_functions.py", samples: [sample], errors: 1, code_snippet: codeSnippetFor(sample) },
+      ...student,
+    };
   }
   const e = pick(RUN_ERRORS);
-  return { ...student, event_type: "run", raw_message: e.error_message, error_type: e.error_type, error_message: e.error_message, exit_code: 1, file_path: e.file, line_no: e.line, command: "python simple_functions.py", source: "terminal", code_snippet: codeSnippetFor(e.error_message) };
+  return {
+    id: eventId("run"), ts: new Date().toISOString(), surface: "run", kind: "execution_error",
+    payload: {
+      command: "python simple_functions.py", exit_code: 1,
+      error_type: e.error_type, error_message: e.error_message,
+      file: e.file, line: e.line,
+      code_snippet: codeSnippetFor(e.error_message),
+    },
+    ...student,
+  };
 }
 
 let sent = 0;

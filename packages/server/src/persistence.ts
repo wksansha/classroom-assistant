@@ -1,9 +1,10 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import type { Explanation, ReviewResult, RosterEntry } from "@classroom/shared";
+import type { Explanation, ReviewResult, RosterEntry, TraceSurface } from "@classroom/shared";
 import { logEvent } from "./logger";
 
+// 暂留至 Task 5（旧 /api/events handler 仍引用，届时随路由一并删除）
 export interface EventRow {
   studentId: string;
   classId: string;
@@ -19,13 +20,37 @@ export interface EventRow {
   codeSnippet?: string | null;
 }
 
+export interface TraceEventRow {
+  eventId: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  surface: TraceSurface;
+  kind: string;
+  ts: string;      // ISO-8601 UTC（字典序即时间序）
+  sessionId: string | null;
+  payload: string; // 原样 payload JSON
+  date: string;    // YYYY-MM-DD（UTC）
+}
+
+export interface EventExplanation {
+  category: string;
+  subtype: string;
+  knowledge: string;
+  source: string; // 'llm' | 'mock'
+}
+
 // —— 行映射（snake_case DB 行 → camelCase 领域对象）——
 
 export interface Persistence {
-  insertEvent(row: EventRow): void;
+  insertEvent(row: EventRow): void; // 暂留至 Task 5
+  insertTraceEvent(row: TraceEventRow, explanation?: EventExplanation): boolean;
+  insertTraceEvents(rows: TraceEventRow[]): { accepted: number; duplicated: number };
+  saveExplanation(eventId: string, exp: EventExplanation): void;
+  hasExplanation(eventId: string): boolean;
   getRecentEvents(limit: number): any[];
   getEventStats(): { total: number; todayCount: number; byCategory: { category: string; count: number }[] };
-  getCachedExplanation(rawHash: string): Explanation | null;
+  getCachedExplanation(rawHash: string): (Explanation & { source: string }) | null;
   saveCache(rawHash: string, rawMessage: string, exp: Explanation, source: string): void;
   getCacheStats(): { total: number; totalHits: number };
   // —— 花名册 ——
@@ -61,29 +86,35 @@ export function createPersistence(dbPath?: string): Persistence {
   if (tableExists("exercises")) db.exec("DROP TABLE exercises");
   if (tableExists("assignments")) db.exec("DROP TABLE assignments");
   if (tableExists("submissions")) db.exec("DROP TABLE submissions");   // notify 退役：提交流水以学生分支 git 历史为准
+  if (tableExists("events")) db.exec("DROP TABLE events"); // 事件表退役（spec §5.4，无 event_id 不迁移）
   if (tableExists("review_cache") && colsOf("review_cache").includes("exercise_id")) {
     db.exec("DROP TABLE review_cache");   // 旧 key 公式（含 versionHash）已失效，丢弃无损
   }
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      student_id TEXT NOT NULL,
-      class_id TEXT,
-      event_type TEXT NOT NULL CHECK(event_type IN ('diag','run')),
-      raw_message TEXT NOT NULL,
-      category TEXT NOT NULL,
-      subtype TEXT,
-      knowledge TEXT,
-      file_path TEXT,
-      line_no INTEGER,
-      exit_code INTEGER,
-      timestamp DATETIME NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      code_snippet TEXT
+    CREATE TABLE IF NOT EXISTS trace_events (
+      event_id     TEXT PRIMARY KEY,
+      student_id   TEXT NOT NULL,
+      student_name TEXT NOT NULL,
+      class_id     TEXT NOT NULL DEFAULT 'default',
+      surface      TEXT NOT NULL CHECK(surface IN ('edit','run','chat','debug','diag','behavior')),
+      kind         TEXT NOT NULL,
+      ts           TEXT NOT NULL,
+      session_id   TEXT,
+      payload      TEXT NOT NULL,
+      date         TEXT NOT NULL,
+      ingested_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS idx_events_student ON events(student_id);
-    CREATE INDEX IF NOT EXISTS idx_events_class_time ON events(class_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_trace_student_surface_ts ON trace_events(student_id, surface, ts);
+    CREATE INDEX IF NOT EXISTS idx_trace_class_ts           ON trace_events(class_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_trace_date               ON trace_events(date);
+    CREATE TABLE IF NOT EXISTS event_explanations (
+      event_id  TEXT PRIMARY KEY,
+      category  TEXT NOT NULL,
+      subtype   TEXT NOT NULL,
+      knowledge TEXT NOT NULL,
+      source    TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS error_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       raw_hash TEXT UNIQUE NOT NULL,
@@ -130,22 +161,65 @@ export function createPersistence(dbPath?: string): Persistence {
         hasCodeSnippet: r.codeSnippet != null,
       } });
     },
+    insertTraceEvent(row, explanation) {
+      const insertRow = db.prepare(`INSERT OR IGNORE INTO trace_events
+        (event_id, student_id, student_name, class_id, surface, kind, ts, session_id, payload, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const args = [row.eventId, row.studentId, row.studentName, row.classId, row.surface, row.kind, row.ts, row.sessionId, row.payload, row.date];
+      if (!explanation) {
+        return insertRow.run(...args).changes === 1;
+      }
+      const insertExp = db.prepare(`INSERT INTO event_explanations (event_id, category, subtype, knowledge, source) VALUES (?, ?, ?, ?, ?)`);
+      const tx = db.transaction(() => {
+        const ok = insertRow.run(...args).changes === 1;
+        if (ok) insertExp.run(row.eventId, explanation.category, explanation.subtype, explanation.knowledge, explanation.source);
+        return ok;
+      });
+      return tx();
+    },
+    insertTraceEvents(rows) {
+      const ins = db.prepare(`INSERT OR IGNORE INTO trace_events
+        (event_id, student_id, student_name, class_id, surface, kind, ts, session_id, payload, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const tx = db.transaction((rs: TraceEventRow[]) => {
+        let accepted = 0;
+        for (const r of rs) {
+          if (ins.run(r.eventId, r.studentId, r.studentName, r.classId, r.surface, r.kind, r.ts, r.sessionId, r.payload, r.date).changes === 1) accepted++;
+        }
+        return accepted;
+      });
+      const accepted = tx(rows);
+      return { accepted, duplicated: rows.length - accepted };
+    },
+    saveExplanation(eventId, exp) {
+      db.prepare(`INSERT INTO event_explanations (event_id, category, subtype, knowledge, source) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(event_id) DO UPDATE SET category = excluded.category, subtype = excluded.subtype,
+          knowledge = excluded.knowledge, source = excluded.source`)
+        .run(eventId, exp.category, exp.subtype, exp.knowledge, exp.source);
+    },
+    hasExplanation(eventId) {
+      return !!db.prepare("SELECT 1 FROM event_explanations WHERE event_id = ?").get(eventId);
+    },
     getRecentEvents(limit) {
-      return db.prepare("SELECT * FROM events ORDER BY created_at DESC, id DESC LIMIT ?").all(limit);
+      return db.prepare(`SELECT t.event_id, t.student_id, t.class_id, t.surface, t.kind, t.ts, t.session_id,
+           t.payload, t.date, t.ingested_at,
+           x.category, x.subtype, x.knowledge
+         FROM trace_events t LEFT JOIN event_explanations x ON x.event_id = t.event_id
+         ORDER BY t.ingested_at DESC, t.event_id DESC LIMIT ?`).all(limit);
     },
     getEventStats() {
-      const total = (db.prepare("SELECT COUNT(*) AS c FROM events").get() as { c: number }).c;
-      const byCategory = db.prepare("SELECT category, COUNT(*) AS count FROM events GROUP BY category ORDER BY count DESC").all() as { category: string; count: number }[];
+      const total = (db.prepare("SELECT COUNT(*) AS c FROM trace_events").get() as { c: number }).c;
       const today = new Date().toISOString().slice(0, 10);
-      const todayCount = (db.prepare("SELECT COUNT(*) AS c FROM events WHERE DATE(timestamp) = ?").get(today) as { c: number }).c;
+      const todayCount = (db.prepare("SELECT COUNT(*) AS c FROM trace_events WHERE date = ?").get(today) as { c: number }).c;
+      const byCategory = db.prepare("SELECT category, COUNT(*) AS count FROM event_explanations GROUP BY category ORDER BY count DESC").all() as { category: string; count: number }[];
       return { total, todayCount, byCategory };
     },
     // 缓存命中/未命中/写入由 explainService/cache.ts 统一记录（cache.* 事件），此处不再重复打日志
     getCachedExplanation(rawHash) {
-      const row = db.prepare("SELECT category, subtype, knowledge FROM error_cache WHERE raw_hash = ?").get(rawHash) as Explanation | undefined;
+      const row = db.prepare("SELECT category, subtype, knowledge, source FROM error_cache WHERE raw_hash = ?").get(rawHash) as (Explanation & { source: string }) | undefined;
       if (!row) return null;
       db.prepare("UPDATE error_cache SET hit_count = hit_count + 1 WHERE raw_hash = ?").run(rawHash);
-      return { category: row.category, subtype: row.subtype, knowledge: row.knowledge };
+      return { category: row.category, subtype: row.subtype, knowledge: row.knowledge, source: row.source };
     },
     saveCache(rawHash, rawMessage, exp, source) {
       db.prepare(`INSERT INTO error_cache (raw_hash, raw_message, category, subtype, knowledge, source)

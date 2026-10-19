@@ -1,99 +1,64 @@
-import type { NormalizedEvent } from "@classroom/shared";
+import type { IngressEvent, TraceSurface } from "@classroom/shared";
 import { logEvent } from "./logger";
 
 type AnyBody = Record<string, any>;
 
-export function normalize(body: unknown): NormalizedEvent | null {
+const SURFACE_VALUES = new Set<string>(["edit", "run", "chat", "debug", "diag", "behavior"]);
+const EVENT_ID_PATTERN = /^(edit|run|chat|debug|diag|behavior):[0-9A-Za-z-]{6,64}$/;
+
+export function isDiagRunEvent(ev: IngressEvent): ev is IngressEvent & { eventType: "diag" | "run" } {
+  return ev.eventType === "diag" || ev.eventType === "run";
+}
+
+export function normalize(body: unknown): IngressEvent | null {
   if (!body || typeof body !== "object") {
     logEvent({ event: "event.invalid_body", level: "debug", data: { body } });
     return null;
   }
   const b = body as AnyBody;
-  const ts = toMs(b.ts ?? b.timestamp);
-
-  // L1 格式（simulator）：{ surface, kind, ts, payload }
-  if (b.surface && b.payload) {
-    const p = b.payload as AnyBody;
-    if (b.surface !== "diag" && b.surface !== "run") {
-      logEvent({ event: "event.invalid_surface", level: "debug", data: { surface: b.surface } });
-      return null;
-    }
-    const eventType = b.surface;
-    const exitCode = typeof p.exit_code === "number" ? p.exit_code : undefined;
-    const success = eventType === "run" && exitCode === 0;
-    const samples: string[] = Array.isArray(p.samples) ? p.samples : [];
-    const errorType = eventType === "diag" ? null : (p.error_type ?? null);
-    const normalizedEvent: NormalizedEvent = {
-      studentId: p.student_id ?? b.student_id ?? null,
-      studentName: p.student_name ?? b.student_name ?? p.student_id ?? b.student_id ?? "unknown",
-      classId: p.class_id ?? b.class_id ?? "default",
-      eventType,
-      success,
-      errorType,
-      errorMessage: eventType === "diag" ? samples.join("; ") : (p.error_message ?? null),
-      samples,
-      rawMessage: eventType === "diag" ? (samples[0] ?? "") : (p.error_message ?? ""),
-      codeSnippet: p.code_snippet,
-      cacheKey: extractCacheKey(eventType, success, errorType, p.error_message, samples),
-      command: p.command,
-      exitCode,
-      filePath: p.file ?? p.file_path,
-      lineNo: p.line,
-      ts,
-    };
-
-    logEvent({ event: "event.normalized", level: "debug", data: {
-      format: "l1",
-      eventType: normalizedEvent.eventType,
-      success: normalizedEvent.success,
-      errorType: normalizedEvent.errorType,
-      cacheKey: normalizedEvent.cacheKey,
-      studentId: normalizedEvent.studentId,
-    } });
-
-    return normalizedEvent;
+  const idOk = typeof b.id === "string" && EVENT_ID_PATTERN.test(b.id);
+  const surfaceOk = typeof b.surface === "string" && SURFACE_VALUES.has(b.surface);
+  if (!idOk || !surfaceOk || typeof b.kind !== "string" || b.kind === "") {
+    logEvent({ event: "event.unrecognized", level: "debug", data: { body } });
+    return null;
   }
+  const surface = b.surface as TraceSurface;
+  const p: AnyBody = b.payload && typeof b.payload === "object" && !Array.isArray(b.payload) ? b.payload : {};
+  const ts = toMs(b.ts);
+  const isDiagRun = surface === "diag" || surface === "run";
+  const exitCode = typeof p.exit_code === "number" ? p.exit_code : undefined;
+  const success = isDiagRun && surface === "run" && exitCode === 0;
+  const samples: string[] = isDiagRun && Array.isArray(p.samples) ? p.samples : [];
+  const errorType = surface === "run" ? (p.error_type ?? null) : null;
 
-  // flat 格式（reporter.ts）
-  if (b.event_type === "diag" || b.event_type === "run") {
-    const eventType = b.event_type;
-    const exitCode = typeof b.exit_code === "number" ? b.exit_code : undefined;
-    const success = eventType === "run" && (exitCode === 0 || b.error_type === "RunSuccess");
-    const samples: string[] = Array.isArray(b.samples) ? b.samples : [];
-    const errorType = eventType === "diag" ? null : (b.error_type ?? null);
-    const normalizedEvent: NormalizedEvent = {
-      studentId: b.student_id ?? null,
-      studentName: b.student_name ?? b.student_id ?? "unknown",
-      classId: b.class_id ?? "default",
-      eventType,
-      success,
-      errorType,
-      errorMessage: eventType === "diag" ? samples.join("; ") : (b.error_message ?? null),
-      samples,
-      rawMessage: b.raw_message ?? b.error_message ?? "",
-      codeSnippet: b.code_snippet,
-      cacheKey: extractCacheKey(eventType, success, errorType, b.error_message, samples),
-      command: b.command,
-      exitCode,
-      filePath: b.file_path,
-      lineNo: b.line_no,
-      ts,
-    };
+  const ev: IngressEvent = {
+    id: b.id,
+    surface,
+    kind: b.kind,
+    payload: p,
+    sessionId: typeof b.session_id === "string" ? b.session_id : undefined,
+    studentId: p.student_id ?? b.student_id ?? null,
+    studentName: b.student_name ?? b.student_id ?? "unknown",
+    classId: b.class_id ?? "default",
+    eventType: isDiagRun ? surface : undefined,
+    success: isDiagRun ? success : false,
+    errorType,
+    errorMessage: surface === "diag" ? samples.join("; ") : (p.error_message ?? null),
+    samples,
+    rawMessage: surface === "diag" ? (samples[0] ?? "") : (p.error_message ?? ""),
+    codeSnippet: p.code_snippet,
+    cacheKey: isDiagRun ? extractCacheKey(surface as "diag" | "run", success, errorType, p.error_message, samples) : null,
+    command: p.command,
+    exitCode,
+    filePath: p.file ?? p.file_path,
+    lineNo: p.line,
+    ts,
+  };
 
-    logEvent({ event: "event.normalized", level: "debug", data: {
-      format: "flat",
-      eventType: normalizedEvent.eventType,
-      success: normalizedEvent.success,
-      errorType: normalizedEvent.errorType,
-      cacheKey: normalizedEvent.cacheKey,
-      studentId: normalizedEvent.studentId,
-    } });
-
-    return normalizedEvent;
-  }
-
-  logEvent({ event: "event.unrecognized", level: "debug", data: { body } });
-  return null;
+  logEvent({ event: "event.normalized", level: "debug", data: {
+    surface, kind: ev.kind, success: ev.success, cacheKey: ev.cacheKey, studentId: ev.studentId,
+  } });
+  return ev;
 }
 
 function extractCacheKey(

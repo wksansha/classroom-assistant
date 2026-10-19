@@ -68,20 +68,26 @@ classroom-assistant/
 
 **文件**：`packages/server/src/eventIngress.ts`
 
-职责：将不同来源的学生事件归一化为统一的 `NormalizedEvent`。
+职责：将学生事件归一化为统一的 `NormalizedEvent`（内存链路用）与 `IngressEvent`（入库用，spec §4.1 单一格式）。
 
-**支持的两种格式**：
+**单一格式（2026-10-16 起，Flat 双格式已退役）**：
 
-| 格式 | 来源 | 示例 |
-|------|------|------|
-| L1 | VS Code 模拟器 | `{surface: "diag", payload: {student_id, error_type, ...}}` |
-| Flat | vscode-pylearner reporter | `{event_type: "run", student_id, exit_code, error_message, ...}` |
+客户端上报 TraceEvent 原样平铺 + 身份三字段：
+
+```json
+{
+  "id": "run:01J0ARZ9V8B", "ts": "2026-10-16T06:31:14.754Z",
+  "surface": "run", "kind": "execution_error",
+  "payload": { "command": "python a.py", "exit_code": 1, "error_type": "ZeroDivisionError", "error_message": "division by zero", "code_snippet": "..." },
+  "student_id": "2024001", "student_name": "张三", "class_id": "3A", "session_id": "s1"
+}
+```
 
 **归一化逻辑**：
-1. 判断 `surface + payload` 或 `event_type` 字段识别格式
-2. 提取：`studentId`、`studentName`、`classId`、`eventType`（diag/run）、`ts`
-3. 计算成功标志：`success = (eventType === "run" && exitCode === 0)`
-4. 生成缓存键 `cacheKey`：
+1. 校验 `id`（`^<surface>:[0-9A-Za-z-]{6,64}$`）、`surface`（6 枚举）、`kind` 非空，任一不符 → null（400）
+2. 提取：`studentId`、`studentName`、`classId`、`eventType`（diag/run 才有值）、`ts`
+3. 计算成功标志：`success = (surface === "run" && payload.exit_code === 0)`
+4. 生成缓存键 `cacheKey`（仅 diag/run）：
    - run 成功 → null
    - run 失败 → `errorType: errorMessage`
    - diag → 首个样本（最短样本）
@@ -131,14 +137,14 @@ StoredEvent {
 
 **文件**：`packages/server/src/persistence.ts`
 
-职责：SQLite 数据库操作，学生、事件、LLM 解释缓存三张表。
+职责：SQLite 数据库操作，L1 事件流水两表 + 解释缓存表（roster/review_cache/student_tokens 见作业域）。
 
 **数据库结构**：
 
 | 表 | 用途 | 关键字段 |
 |----|------|----------|
-| students | 学生信息 | id, name, class_id, created_at |
-| events | 学生事件 | student_id, class_id, event_type, raw_message, category, subtype, knowledge, file_path, line_no, exit_code, timestamp, code_snippet |
+| trace_events | 事件原始事实表（全 surface，/api/events 与 /api/trace/archive 共用，按 event_id 幂等） | event_id, student_id, surface, kind, ts, session_id, payload, date |
+| event_explanations | LLM 解释侧表（与 trace_events 一对一，仅 diag/run 失败事件） | event_id, category, subtype, knowledge, source |
 | error_cache | 解释缓存 | raw_hash, raw_message, category, subtype, knowledge, source, hit_count |
 
 **缓存机制**：
@@ -293,19 +299,25 @@ StoredEvent {
 
 ```
 学生 Reporter → POST /api/events → [Express]
-  → eventIngress.normalize() → NormalizedEvent
-  → [成功？skip LLM / 失败？] explainService.explain()
-      → cache.getExplanation()
-          → 内存命中？返回
-          → SQLite 命中？回填内存后返回
-          → 并发去重？等待共享 Promise
-          → LLM 调用 → 解析 JSON → 缓存保存 → 返回
-  → stateManager.apply(ev, explanation)
-  → persistence.insertEvent()（带解释结果）
+  → eventIngress.normalize() → IngressEvent（400 兜底：非法格式/非法 student_id）
+  → persistence.insertTraceEvent(row)                     ← 原始行必写（全 surface）
+      → [diag/run 失败？] explainService.explain()
+          → cache.getExplanation()
+              → 内存命中？返回
+              → SQLite 命中？回填内存后返回
+              → 并发去重？等待共享 Promise
+              → LLM 调用 → 解析 JSON → 缓存保存（source 如实标注 llm/mock）→ 返回
+      → 解释与原始行同事务落库（event_explanations）
+  → 幂等命中（duplicated=true）？不解释、不推看板，返回 {ok: true, duplicated: true}
+  → [diag/run] stateManager.apply(ev, explanation)
   → hub.publish(buildSnapshot())
   → SSE 推送教师仪表盘
-  → 返回 {ok: true}
+  → 返回 {ok: true, duplicated: false}
 ```
+
+**归档通道**（`POST /api/trace/archive`）：扩展激活时批量上报（协议与客户端位点零改动），
+批次头 `{student_id, class_id, surface, date}` + events 数组 → 单事务 `insertTraceEvents`
+→ 只写 trace_events，不解释、不推看板 → 返回 `{ok, accepted, duplicated}`。
 
 ### 4.2 教师仪表盘
 
@@ -324,11 +336,10 @@ Dashboard → GET /api/student/:id → 学生事件详情（倒序）
 
 ### 5.1 共享类型（packages/shared/src/）
 
-#### NormalizedEvent（归一化事件）
-- 学生标识：`studentId`、`studentName`、`classId`
-- 事件类型：`eventType`（diag/run）、`success`
-- 错误信息：`errorType`、`errorMessage`、`samples`、`rawMessage`
-- 代码信息：`codeSnippet`、`filePath`、`lineNo`
+#### IngressEvent（上报事件，packages/shared/src/events.ts）
+- 事件本体：`id`（`<surface>:<ULID>`）、`surface`（6 枚举）、`kind`、`payload`（原样 JSON）
+- 身份：`studentId`、`studentName`、`classId`、`sessionId?`
+- 派生（仅 diag/run）：`eventType`、`success`、`errorType`、`errorMessage`、`samples`、`rawMessage`、`codeSnippet`、`filePath`、`lineNo`、`command`、`exitCode`
 - 缓存键：`cacheKey`（run: `errorType: errorMessage`，diag: 最短样本）
 
 #### Explanation（解释结果）
@@ -349,11 +360,14 @@ Dashboard → GET /api/student/:id → 学生事件详情（倒序）
 ### 5.2 数据库表
 
 ```sql
-students(id, name, class_id, created_at)
-events(id, student_id, class_id, event_type, raw_message, category, subtype,
-       knowledge, file_path, line_no, exit_code, timestamp, code_snippet)
+trace_events(event_id PK, student_id, student_name, class_id, surface CHECK(6 枚举),
+             kind, ts, session_id, payload, date, ingested_at)
+event_explanations(event_id PK/FK→trace_events, category, subtype, knowledge, source)
 error_cache(raw_hash UNIQUE, raw_message, category, subtype, knowledge,
            source, hit_count)
+roster(student_id PK, student_name, created_at)
+review_cache(cache_key PK, status, reason, source, model, hit_count, created_at)
+student_tokens(student_id PK, token)
 ```
 
 ---
@@ -453,7 +467,8 @@ PORT=3000
 
 | 方法 | 路径 | 请求体 | 响应 |
 |------|------|--------|------|
-| POST | `/api/events` | FlatReport | `{ok: true}` |
+| POST | `/api/events` | IngressEvent（单格式） | `{ok: true, duplicated: boolean}`；幂等命中 duplicated=true 且不推看板 |
+| POST | `/api/trace/archive` | `{student_id, class_id, surface, date, events[]}` | `{ok, accepted, duplicated}`；只写原始表不解释不推看板 |
 | GET | `/api/stream/teacher` | - | SSE (TeacherSnapshot) |
 | GET | `/api/summary` | - | TeacherSnapshot |
 | GET | `/api/student/:id` | - | StudentDetail |

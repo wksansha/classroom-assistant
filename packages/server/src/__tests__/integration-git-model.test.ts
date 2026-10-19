@@ -205,7 +205,6 @@ beforeAll(async () => {
     dbPath: ":memory:",
     staticDir: null,
     llmConfig: null,
-    traceDir: path.join(base, "trace"),
     reviewConfig: { apiKey: "test-key", fetchImpl: passFetch },
   });
   app = created.app;
