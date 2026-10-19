@@ -27,8 +27,9 @@ export function normalize(body: unknown): IngressEvent | null {
   const ts = toMs(b.ts);
   const isDiagRun = surface === "diag" || surface === "run";
   const exitCode = typeof p.exit_code === "number" ? p.exit_code : undefined;
-  const success = isDiagRun && surface === "run" && exitCode === 0;
   const samples: string[] = isDiagRun && Array.isArray(p.samples) ? p.samples : [];
+  // run：exit_code 0 即成功；diag：无错误样本 = 错误清零信号（活动信号，不解释、不告警）
+  const success = isDiagRun && (surface === "run" ? exitCode === 0 : samples.length === 0);
   const errorType = surface === "run" ? (p.error_type ?? null) : null;
 
   const ev: IngressEvent = {

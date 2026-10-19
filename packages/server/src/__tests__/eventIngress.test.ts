@@ -29,6 +29,14 @@ describe("normalize（spec §4.1 单一格式）", () => {
     expect(isDiagRunEvent(ev)).toBe(true);
   });
 
+  it("diag 清零（errors:0 无 samples）：success=true、cacheKey=null，不解释不告警", () => {
+    const ev = normalize({ ...base, id: "diag:01J0ARZ9V8BABCF0",
+      payload: { file: "a.py", errors: 0, warnings: 0 } })!;
+    expect(ev.success).toBe(true);
+    expect(ev.cacheKey).toBeNull();
+    expect(ev.rawMessage).toBe("");
+  });
+
   it("非 diag/run（chat）：eventType undefined，不派生 cacheKey/samples", () => {
     const ev = normalize({ ...base, id: "chat:01J0ARZ9V8BABCDE", surface: "chat", kind: "user_message",
       payload: { text: "你好" }, session_id: "s1" })!;
