@@ -1,6 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import ErrorAggPanel from "../components/ErrorAggPanel.vue";
 import { makeSnapshot, mountWithStore } from "./helpers";
+
+/** jsdom 无原生 canvas，chart.js 初始化会失败并向外抛 unhandled rejection；
+ * 测试只断言 DOM 文本不验图表行为，直接 mock 掉 chart.js */
+vi.mock("chart.js", () => {
+  class MockChart {
+    static register = vi.fn();
+    data = { labels: [] as string[], datasets: [{ data: [] as number[] }] };
+    update = vi.fn();
+    destroy = vi.fn();
+  }
+  const stub = class {};
+  return { Chart: MockChart, BarController: stub, BarElement: stub, CategoryScale: stub, LinearScale: stub, Tooltip: stub, Legend: stub };
+});
 
 const aggregates = [
   { subtype: "缺少冒号", category: "语法错误", knowledge: "函数定义末尾要加冒号", count: 8, students: [{ studentId: "stu001", studentName: "张三" }, { studentId: "stu002", studentName: "李四" }] },
