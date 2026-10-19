@@ -8,7 +8,6 @@ vi.mock("../api/admin", () => ({
     renameRosterEntry: vi.fn(async () => ({ ok: true, studentId: "0001", studentName: "张三" })),
     removeRosterEntry: vi.fn(async () => ({ ok: true })),
     purgeRosterEntry: vi.fn(async () => ({ ok: true })),
-    replaceRoster: vi.fn(async () => ({ ok: true, count: 2 })),
   },
 }));
 

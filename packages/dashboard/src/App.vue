@@ -8,6 +8,7 @@ import ErrorAggPanel from "./components/ErrorAggPanel.vue";
 import SuggestionBar from "./components/SuggestionBar.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
 import AdminView from "./views/AdminView.vue";
+import Toast from "./components/Toast.vue";
 
 const store = useClassroom();
 
@@ -42,4 +43,5 @@ onUnmounted(() => {
     </main>
     <StudentDrawer />
   </div>
+  <Toast />
 </template>

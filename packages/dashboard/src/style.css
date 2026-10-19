@@ -52,14 +52,41 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .empty { color: var(--muted); text-align: center; padding: 48px 0; }
 
 /* —— 隐藏管理页（#/admin，A23）—— */
-.admin-view { display: flex; flex-direction: column; gap: 16px; padding: 16px; max-width: 860px; margin: 0 auto; }
+.admin-view { display: flex; flex-direction: column; gap: 16px; padding: 16px; max-width: 860px; margin: 0 auto; min-height: 100vh; }
 .admin-view h2 { margin: 0; font-size: 18px; }
 .admin-view h3 { margin: 0 0 8px; font-size: 15px; }
-.roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
-.roster-panel textarea { width: 100%; font-family: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
-.roster-panel .import-roster { align-self: flex-start; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--card); color: var(--accent); font-size: 13px; cursor: pointer; }
-.roster-panel .msg { font-size: 13px; color: var(--muted); }
-.roster-table-wrap { max-height: 360px; overflow-y: auto; }
+.roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; flex: 1; min-height: 0; }
+.roster-panel .roster-head { display: flex; align-items: center; justify-content: space-between; }
+.roster-panel .roster-head h3 { margin: 0; font-size: 15px; }
+.roster-panel .roster-head-actions { display: flex; align-items: center; gap: 8px; }
+.roster-panel .batch-remove { padding: 4px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.roster-panel .batch-remove:hover { border-color: var(--red); color: var(--red); }
+.roster-panel .batch-remove-confirm { padding: 4px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; border: 1px solid var(--red); background: var(--red); color: #fff; }
+.roster-panel .batch-remove-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+.roster-panel .batch-remove-exit { border: none; background: none; font-size: 14px; padding: 4px 6px; color: var(--muted); cursor: pointer; }
+.roster-panel .batch-remove-exit:hover { color: var(--text); }
+.roster-table .check-col { width: 36px; text-align: center; padding: 6px 4px; }
+.roster-table .check-col input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+.roster-table-wrap { flex: 1; min-height: 0; overflow-y: auto; }
 .roster-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .roster-table th, .roster-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
 .roster-table thead th { position: sticky; top: 0; background: var(--card); }
+/* 常驻添加行吸底：滚动录长名册时输入行始终可见 */
+.roster-table tfoot { position: sticky; bottom: 0; z-index: 1; }
+.roster-table tfoot td { background: var(--card); }
+
+/* —— 全局浮动提示（Toast，替换原生弹窗/行内 msg）—— */
+.toast-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 1000; }
+.toast { padding: 8px 16px; border-radius: 6px; font-size: 13px; color: #fff; max-width: 70vw; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); cursor: pointer; }
+.toast.success { background: var(--green); }
+.toast.error { background: var(--red); }
+
+/* —— 自定义确认框（替换原生 confirm）—— */
+.dialog-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1100; }
+.dialog { width: 360px; max-width: 90vw; background: var(--card); border-radius: 8px; padding: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
+.dialog .dialog-title { margin: 0 0 8px; font-size: 15px; }
+.dialog .dialog-body { margin: 0 0 16px; font-size: 13px; color: var(--muted); white-space: pre-line; line-height: 1.6; }
+.dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog .dialog-cancel, .dialog .dialog-confirm { padding: 6px 16px; font-size: 13px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.dialog .dialog-confirm { border-color: var(--accent); color: var(--accent); }
+.dialog .dialog-confirm.danger { border-color: var(--red); background: var(--red); color: #fff; }

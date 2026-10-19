@@ -31,6 +31,4 @@ export const adminApi = {
   /** 硬删除：删 Gitea 账户与学生分支（前端已二次确认） */
   purgeRosterEntry: (studentId: string) =>
     send<{ ok: true }>(`/api/roster/entry/${encodeURIComponent(studentId)}/purge`, "POST"),
-  /** 学期换血：整表替换（覆盖式导入，每行「学号 姓名」） */
-  replaceRoster: (text: string) => send<{ ok: true; count: number }>("/api/roster", "POST", { text }),
 };
