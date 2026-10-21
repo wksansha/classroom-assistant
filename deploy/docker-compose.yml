@@ -1,0 +1,33 @@
+# 课堂助手云上部署：Gitea（题库/学生分支）+ 服务端（身份校验/建号/凭证下发）
+# 用法（仓库根目录执行）：
+#   首次： docker compose -f deploy/docker-compose.yml up -d --build
+#   升级： git pull && docker compose -f deploy/docker-compose.yml up -d --build
+# 前置： 仓库根目录旁路文件 packages/server/.env（见 docs/deploy-cloud.md 第四节）
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: classroom-gitea
+    restart: unless-stopped
+    ports:
+      - "3001:3000"            # 宿主 3001 → Gitea 容器 3000
+    volumes:
+      - ./data/gitea:/data     # 仓库/账号数据（备份这个目录）
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: classroom-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/server:/app/packages/server/data   # SQLite（备份这个目录）
+    env_file:
+      - ../packages/server/.env
+    environment:
+      # 容器网络内直达 Gitea（覆盖 .env 里的 127.0.0.1:3001，无需改 .env）
+      GITEA_URL: http://gitea:3000
+      PORT: "3000"
+    depends_on:
+      - gitea

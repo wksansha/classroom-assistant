@@ -5,6 +5,7 @@ dist/
 *.db-shm
 .env
 packages/server/data/
+deploy/data/
 *.log
 .tsbuildinfo/
 *.tsbuildinfo

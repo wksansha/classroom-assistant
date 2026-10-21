@@ -2,7 +2,7 @@
 
 场景：内网生产环境（见《内网部署指南》）**不退役**，另在百度云服务器部署一份**学生家庭练习环境**。学生在没有内网的电脑（家庭机）上拉题、交题、练习；课堂数据与家庭练习数据物理隔离，互不影响。
 
-> 与内网部署的核心差异：云服务器可直连公网（无需离线打包）；**不配置 LLM**（评审走 mock 兜底、聊天不可用）；无 HTTPS（纯 IP 无备案域名）；无管理端鉴权（见「安全与已知限制」）。
+> 与内网部署的核心差异：云服务器可直连公网（无需离线打包），**全程 Docker Compose 部署，宿主机只需装 Docker**；**不配置 LLM**（评审走 mock 兜底、聊天不可用）；无 HTTPS（纯 IP 无备案域名）；无管理端鉴权（见「安全与已知限制」）。
 
 ```text
 学生家庭机（公网，独立电脑）──扩展 teacher.url 指云──▶ ┌──────────────────────┐
@@ -35,75 +35,26 @@
 
 > SSH(22) 保持默认。服务器系统内 firewalld 也需放行同样端口（见下文命令）。
 
-## 三、安装 Node 与基础依赖（dnf）
+## 三、安装 Docker（宿主机唯一依赖）
 
 ```bash
-# 编译工具（better-sqlite3 预编译包拉取失败时的兜底）
-sudo dnf install -y git gcc gcc-c++ make python3
+# CentOS/openEuler/麒麟系（任选其一）
+sudo dnf install -y docker                       # 发行版仓库
+# curl -fsSL https://get.docker.com | bash        # 或官方脚本（版本更新）
 
-# Node 22 LTS（x86_64）
-curl -fsSL https://nodejs.org/dist/latest-v22.x/ -o /dev/null   # 查版本号后替换下方 URL
-sudo mkdir -p /opt/classroom
-curl -fsSL https://nodejs.org/dist/v22.x.x/node-v22.x.x-linux-x64.tar.xz -o /tmp/node.tar.xz
-sudo tar -xJf /tmp/node.tar.xz -C /opt/classroom
-sudo mv /opt/classroom/node-v22.x.x-linux-x64 /opt/classroom/node
-sudo ln -sf /opt/classroom/node/bin/node /usr/local/bin/node
-sudo ln -sf /opt/classroom/node/bin/corepack /usr/local/bin/corepack
-node -v && corepack enable && corepack prepare pnpm@latest --activate && pnpm -v
+sudo systemctl enable --now docker
+docker -v && docker compose version              # compose v2 为 compose 子命令；若只有 docker-compose v1 也可用
 ```
 
-## 四、部署 Gitea
-
-```bash
-curl -fsSL https://dl.gitea.com/gitea/release/latest/gitea-<版本>-linux-amd64 -o /tmp/gitea
-sudo mkdir -p /opt/classroom/gitea/{custom,data,log}
-sudo mv /tmp/gitea /opt/classroom/gitea/gitea && sudo chmod +x /opt/classroom/gitea/gitea
-sudo useradd -r -s /sbin/nologin gitea
-sudo chown -R gitea:gitea /opt/classroom/gitea
-```
-
-systemd unit `/etc/systemd/system/gitea.service`：
-
-```ini
-[Unit]
-Description=Gitea
-After=network.target
-
-[Service]
-User=gitea
-Group=gitea
-WorkingDirectory=/opt/classroom/gitea
-ExecStart=/opt/classroom/gitea/gitea web --port 3001
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now gitea
-sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload
-```
-
-初始化（浏览器 `http://<公网IP>:3001`）：
-
-1. 安装向导：数据库 **SQLite3**，其余默认
-2. 底部「管理员账号设置」创建教师管理员账号（密码自设，用于推题与生成 token）
-3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化）
-4. 管理员 → 设置 → 应用 → 生成 token（含仓库/组织管理写权限），**记下来给服务端 .env 用**
-
-## 五、部署服务端
+## 四、获取代码与配置 .env
 
 ```bash
 sudo mkdir -p /opt/classroom && cd /opt/classroom
 sudo git clone https://github.com/wksansha/classroom-assistant.git
-cd classroom-assistant && pnpm install --frozen-lockfile
-cd packages/dashboard && pnpm build && cd ../..   # 构建仪表盘静态资源
+cd classroom-assistant
 ```
 
-> 若 `pnpm install` 报 better-sqlite3 编译错误：`sudo dnf groupinstall -y "Development Tools"` 后重装。
-
-`packages/server/.env`：
+创建 `packages/server/.env`（**GITEA_ADMIN_TOKEN 先留占位**，第五节 Gitea 初始化后再回来填）：
 
 ```ini
 # LLM：刻意留空 —— 评审走 mock 兜底（返回「评审服务不可用」，无误判风险），聊天代理无上游
@@ -111,27 +62,31 @@ LLM_API_KEY=
 LLM_BASE_URL=
 LLM_MODEL=
 
-# Gitea：服务端本地调用 + 学生可达的公网地址
+# Gitea：容器内由 compose 覆盖为 http://gitea:3000，这里无需关心
 GITEA_URL=http://127.0.0.1:3001
-GITEA_ADMIN_TOKEN=<第四节生成的 token>
+GITEA_ADMIN_TOKEN=<第五节生成的 token>
 GITEA_REPO=classroom/exercises
 GITEA_PUBLIC_BASE=http://<公网IP>:3001
 
 PORT=3000
 ```
 
-```bash
-# 手动验证：出现启动横幅即成功，Ctrl+C 退出
-cd /opt/classroom/classroom-assistant/packages/server
-node --import tsx src/main.ts
-```
-
-systemd unit `/etc/systemd/system/classroom-server.service`（沿用 `deploy/classroom-server.service`，路径按 /opt/classroom 修正；建议专用用户 `useradd -r -s /sbin/nologin classroom && chown -R classroom /opt/classroom/classroom-assistant`）：
+## 五、一键部署（Gitea + 服务端）
 
 ```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now classroom-server
-sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload
+docker compose -f deploy/docker-compose.yml up -d --build
+sudo firewall-cmd --permanent --add-port={3000,3001}/tcp && sudo firewall-cmd --reload
+docker compose -f deploy/docker-compose.yml ps    # 两个容器均 Up 即成功
 ```
+
+compose 做了什么：构建服务端镜像（容器内自动 pnpm install + 构建仪表盘，better-sqlite3 编译兜底已内置）→ 拉起 Gitea（官方镜像）与服务端，端口 3001/3000 映射宿主，数据落 `deploy/data/`（Gitea 仓库 + SQLite），`restart: unless-stopped` 开机自启。
+
+Gitea 初始化（浏览器 `http://<公网IP>:3001`）：
+
+1. 安装向导：数据库 **SQLite3**，其余默认
+2. 底部「管理员账号设置」创建教师管理员账号（密码自设，用于推题与生成 token）
+3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化）
+4. 管理员 → 设置 → 应用 → 生成 token（含仓库/组织管理写权限）→ **回填 `.env` 的 GITEA_ADMIN_TOKEN → `docker compose -f deploy/docker-compose.yml up -d` 重建服务端容器生效**
 
 ## 六、教师配置
 
@@ -192,13 +147,13 @@ curl http://127.0.0.1:3000/api/summary          # 服务存活
 - 「拉取作业」能拉到教师推的题目文件
 - 「提交作业」后云 Gitea `student-<学号>` 分支出现提交，且非本人账号不可写
 - F5 运行成功 → 评审提示「评审服务不可用」（无 pass/fail 误判）
-- 日志 `journalctl -u classroom-server -f` 出现 `db.insert_event`（L1 入库正常）
+- 日志 `docker logs -f classroom-server` 出现 `db.insert_event`（L1 入库正常）
 
 ## 十、日常运维
 
 | 事项 | 命令/位置 |
 |---|---|
-| 日志 | `journalctl -u classroom-server -f` / `journalctl -u gitea -f` |
-| 数据备份 | SQLite：`packages/server/data/assistant.db`；Gitea：`/opt/classroom/gitea/data` |
-| 升级版本 | `cd /opt/classroom/classroom-assistant && git pull && pnpm install --frozen-lockfile && cd packages/dashboard && pnpm build && sudo systemctl restart classroom-server` |
-| 改配置 | 编辑 .env → `systemctl restart classroom-server` |
+| 日志 | `docker logs -f classroom-server` / `docker logs -f classroom-gitea` |
+| 数据备份 | 整目录拷走 `deploy/data/`（含 SQLite 与 Gitea 仓库/账号，容器停机时拷最稳） |
+| 升级版本 | `cd /opt/classroom/classroom-assistant && git pull && docker compose -f deploy/docker-compose.yml up -d --build` |
+| 改配置 | 编辑 `packages/server/.env` → `docker compose -f deploy/docker-compose.yml up -d`（重建服务端容器生效） |

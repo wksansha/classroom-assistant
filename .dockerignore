@@ -1,0 +1,14 @@
+# Docker 构建上下文裁剪：只带源码进镜像，宿主机产物/密钥/数据一律不入
+node_modules
+**/node_modules
+**/dist
+data
+**/data
+.env
+**/.env
+.git
+.claude
+.superpowers
+docs
+coverage
+*.log
