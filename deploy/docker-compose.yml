@@ -14,9 +14,11 @@ services:
       - ./data/gitea:/data     # 仓库/账号数据（备份这个目录）
 
   server:
+    image: deploy-server:latest   # 显式命名：bake 构建后 compose 能找到镜像（缺失会导致悬空镜像/找不到镜像报错）
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      network: host
     container_name: classroom-server
     restart: unless-stopped
     ports:

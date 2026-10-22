@@ -155,15 +155,21 @@ sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload
 
 ### 2. 初始化（浏览器 http://<服务器IP>:3001）
 
+> ⚠️ **铁律：仓库路径必须在「导入花名册」之前定稿**——导入时会按 `.env` 的 `GITEA_REPO` 创建分支保护、添加学生协作者，路径不一致这些步骤会全部静默失败（公网部署实测踩坑：建在个人名下导致 404）。
+
 1. 安装向导：数据库选 **SQLite3**，其余默认
 2. 安装页底部「管理员账号设置」创建教师管理员账号
-3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化仓库）
+3. 管理员登录 → 右上角 **+** → **新建组织** → 名称 `classroom`
+4. 进入组织 → 新建仓库 → 名称 `exercises` → **勾选「初始化仓库」** → 创建
+5. 核对浏览器地址栏路径正好是 `<服务器IP>:3001/classroom/exercises`，且与 `.env` 的 `GITEA_REPO=classroom/exercises` 一致
+6. **以上完成之后**才进行第四节的「导入花名册」
 
 ### 3. Gitea 管理员 token（花名册联动建号用）
 
 服务端在花名册导入时联动 Gitea 管理员 API 批量建号（用户名 = 学号）+ 逐分支配保护规则 + 自动加仓库协作者，需要管理员 token：
 
-1. 管理员登录 → 设置 → 应用 → 生成 **token**（权限含仓库/组织管理写权限）
+1. 管理员登录 → 设置 → 应用 → 生成 **token**——**权限四项全部选「读写」：admin / organization / repository / user**（缺 user 会导致服务端身份核验类调用被拒；缺写权限会导致 purge 删分支/删账号 403）
+2. 复制 token 后**检查首尾**：粘贴过程中聊天窗口/网页可能带进反引号 `` ` `` 或引号——`.env` 里必须只有纯字母数字（可用 `grep -c '^GITEA_ADMIN_TOKEN=[A-Za-z0-9]*$' .env` 验证，输出 1 = 干净）
 
 `/opt/classroom/packages/server/.env` 增加：
 
@@ -192,7 +198,9 @@ cd exercises
 
 - 教师推新目录后，学生扩展「拉取作业」能拉到新文件
 - 学生提交后 Gitea 仓库出现 `student-<学号>` 分支，且该分支仅对同学号账户可写（分支保护）
-- 服务端日志出现 `db.insert_event`/评审链路；`GET /api/submissions/student/<学号>` 返回提交索引行
+- 服务端日志出现 `db.insert_event` 与评审链路日志；SQLite 中 `trace_events` 表出现该生记录（`docker exec classroom-server node -e "..."` 或 sqlite3 查询，只读）
+
+> 历史注意：`/api/submissions/*` 接口已随 notify 机制退役（设计上返回 404），验收以日志与 Gitea 分支为准。
 
 ## 六、验收清单
 
@@ -219,7 +227,7 @@ journalctl -u classroom-server -f
 1. **VS Code**：外网准备机下载 **linux-arm64** 版（rpm/deb 或 tar.gz，注意匹配麒麟的 glibc 版本），拷入内网安装
 2. **扩展**：准备机从 marketplace 下载 `vscode-pylearner` 的 `.vsix` 文件拷入，学生机执行：
    `code --install-extension vscode-pylearner-<版本>.vsix`
-3. 扩展设置里把上报地址改为 `http://<服务器IP>:3000/api/events`
+3. **扩展默认地址 = 打包时烤入的内网服务器地址，学生零配置**。打包内网版：开发机 `vscode-pylearner` 项目里把 `src/constants.ts` 第 41 行 `DEFAULT_TEACHER_URL` 改为 `http://<服务器IP>:3000`（`package.json` 默认值由打包脚本自动同步，勿手改），再 `npx @vscode/vsce package`。特殊环境仍可用设置 `pylearner.teacher.url` 覆盖
 4. 无需装 Node 或其他依赖（扩展本身是纯 JS）；学生跑 Python 代码所需的第三方包走 PyPI 镜像（手册 :8080）
 
 ## 八、日常运维
@@ -240,4 +248,6 @@ journalctl -u classroom-server -f
 - **浏览器打不开 3000** → 防火墙没放行，或服务器只监听了 localhost（默认全接口监听，一般不会）
 - **better-sqlite3 报 ABI/平台错误** → 部署包不是在 linux-x64 环境里制作的，回到第二节重新打包
 - **花名册导入后学生身份校验报错/无法拉取** → 看 `journalctl -u classroom-server` 是否有 `gitea.provision_failed`：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 配置错误或 token 权限不足
+- **管理页「彻底清除」报 403 / 分支删不掉** → Gitea 28 的保护规则对象无 `id` 字段，旧版服务端按 id 删会 404 被容错跳过（规则残留 → 删分支 403）——该 bug 已在仓库代码修复（改按 rule_name 删），重新打部署包即可；应急可手动 `DELETE /api/v1/repos/<owner>/<repo>/branch_protections/<rule_name>`
+- **token/URL 配置项里有反引号或引号** → 从聊天窗口/网页复制时被格式污染（高频坑）。`.env` 所有值必须纯文本：`grep -n '\`' .env` 有输出即中招，逐行清理后重启服务端
 - **Gitea 页面打不开 3001** → `systemctl status gitea` 看服务状态，防火墙没放行 3001 也会如此

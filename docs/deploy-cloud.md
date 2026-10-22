@@ -74,19 +74,26 @@ PORT=3000
 ## 五、一键部署（Gitea + 服务端）
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+# 构建（buildx bake：build 段声明了 network:host，需授权；compose 版本不支持 --allow 透传时走这条）
+cd deploy && docker buildx bake -f docker-compose.yml --allow network.host && cd ..
+# 启动
+docker compose -f deploy/docker-compose.yml up -d --no-build
 sudo firewall-cmd --permanent --add-port={3000,3001}/tcp && sudo firewall-cmd --reload
 docker compose -f deploy/docker-compose.yml ps    # 两个容器均 Up 即成功
 ```
 
-compose 做了什么：构建服务端镜像（容器内自动 pnpm install + 构建仪表盘，better-sqlite3 编译兜底已内置）→ 拉起 Gitea（官方镜像）与服务端，端口 3001/3000 映射宿主，数据落 `deploy/data/`（Gitea 仓库 + SQLite），`restart: unless-stopped` 开机自启。
+compose 做了什么：构建服务端镜像（build 走宿主网络绕开容器出网限制；apt 用阿里 http 源 + npmmirror，better-sqlite3 编译兜底内置；`image: deploy-server:latest` 显式命名防悬空镜像）→ 拉起 Gitea 与服务端，端口 3001/3000 映射宿主，数据落 `deploy/data/`，`restart: unless-stopped` 开机自启。
+
+> ⚠️ 若同机 3000 端口被其他服务占用（如已有 new-api）：把 compose 里 server 的端口映射改为 `"3002:3000"`，安全组同步放行 3002，`.env` 之外无需其他改动。
 
 Gitea 初始化（浏览器 `http://<公网IP>:3001`）：
 
+> ⚠️ **铁律：仓库路径必须在「导入花名册」之前定稿**——导入时按 `.env` 的 `GITEA_REPO` 创建分支保护、添加学生协作者，路径不一致这些步骤会全部失败（须重导花名册修复）。
+
 1. 安装向导：数据库 **SQLite3**，其余默认
 2. 底部「管理员账号设置」创建教师管理员账号（密码自设，用于推题与生成 token）
-3. 管理员登录 → 新建仓库 `classroom/exercises`（勾选初始化）
-4. 管理员 → 设置 → 应用 → 生成 token（含仓库/组织管理写权限）→ **回填 `.env` 的 GITEA_ADMIN_TOKEN → `docker compose -f deploy/docker-compose.yml up -d` 重建服务端容器生效**
+3. 管理员登录 → 右上角 **+** → **新建组织** `classroom` → 组织内**新建仓库** `exercises`（勾选初始化）→ 核对路径 = `<公网IP>:3001/classroom/exercises`，与 `GITEA_REPO=classroom/exercises` 一致
+4. 管理员 → 设置 → 应用 → 生成 token——**权限四项全部「读写」：admin / organization / repository / user**（缺 user 会 401；缺写权限 purge 会 403）→ 复制时**检查首尾无反引号/引号** → **回填 `.env` 的 GITEA_ADMIN_TOKEN → `docker compose -f deploy/docker-compose.yml up -d --no-build` 重建服务端容器生效**
 
 ## 六、教师配置
 
@@ -119,17 +126,16 @@ git clone http://<公网IP>:3001/classroom/exercises.git
 
 ## 七、学生使用（家庭机，一次性配置）
 
-1. 安装 VS Code + Git（[git-scm.com](https://git-scm.com)）+ 扩展 vsix
-2. 扩展设置里把 `pylearner.teacher.url` 改为 `http://<公网IP>:3000`
-3. 扩展身份页输入学号姓名 → 校验通过自动领取云上 Git 凭证 + 作业仓库地址
-4. 「拉取作业」拉题 → 练习 → 「提交作业」归档到云上 `student-<学号>` 分支
-5. F5 运行成功触发的评审会提示「评审服务不可用」——属预期，练习反馈以课堂内网评审为准；AI 聊天在云上不可用（如需可自行把聊天 provider 切换为本地/自有 API）
+1. 安装 VS Code + Git（[git-scm.com](https://git-scm.com)）+ 扩展 vsix（**云版 1.0.0**：`src/constants.ts` 默认地址已指向云服务器，学生零配置）
+2. 扩展身份页输入学号姓名 → 校验通过自动领取云上 Git 凭证 + 作业仓库地址
+3. 「拉取作业」拉题 → 练习 → 「提交作业」归档到云上 `student-<学号>` 分支
+4. F5 运行成功触发的评审在云上**完全静默**（未配置 LLM，不弹任何提示）；AI 聊天在云上不可用（如需可自行把聊天 provider 切换为本地/自有 API）
 
 ## 八、安全与已知限制
 
 | 项 | 说明 |
 |---|---|
-| 无管理端鉴权 | `#/admin` 与管理接口裸奔公网。被恶意 purge 的概率低；应急 = 重新导入花名册 + 学生重新校验（家庭练习分支会丢）。缓解：安全组已收口至 3000/3001；可选改高位端口进一步降低扫描命中 |
+| 无管理端鉴权 | `#/admin` 与管理接口裸奔公网。被恶意 purge 的概率低；应急 = 重新导入花名册 + 学生重新校验（家庭练习分支会丢）。缓解：安全组已收口至服务端/Gitea 端口；可选改高位端口进一步降低扫描命中 |
 | HTTP 明文 | 凭证/事件明文传输（纯 IP 无法签正规证书）。升级路径：域名备案后反代 HTTPS，学生仅需改 `teacher.url` 前缀 |
 | 数据分叉 | 家庭练习与课堂提交分别存两套 Gitea，不同步；教师查提交时注意区分看哪套 |
 | 身份可猜 | 身份校验无验证码，学号+姓名可被猜中领凭证——但分支保护限定只能写本人分支，危害限于污染本人练习数据 |
@@ -146,14 +152,27 @@ curl http://127.0.0.1:3000/api/summary          # 服务存活
 - 身份校验通过，状态栏显示姓名
 - 「拉取作业」能拉到教师推的题目文件
 - 「提交作业」后云 Gitea `student-<学号>` 分支出现提交，且非本人账号不可写
-- F5 运行成功 → 评审提示「评审服务不可用」（无 pass/fail 误判）
+- F5 运行成功 → **无任何评审弹窗**（云上未配置 LLM，静默属预期；无 pass/fail 误判）
 - 日志 `docker logs -f classroom-server` 出现 `db.insert_event`（L1 入库正常）
 
-## 十、日常运维
+## 十、部署踩坑实录（2026-10-21/22 实测，均已修复或内置）
+
+| 坑 | 现象 | 预防/修复 |
+|---|---|---|
+| **复制粘贴污染**（高频） | `.env` 的 URL/token 带反引号 `` ` `` 或引号 → 下发仓库地址损坏、token 认证失败 | 从聊天/网页复制任何配置后**检查首尾**；`grep -n '\`' packages/server/.env` 有输出即中招，`sed -i 's/\`//g'` 清理后重启 |
+| **token 权限不全** | 管理页「彻底清除」报 403（删分支被拒） | 生成 token 时 **admin / organization / repository / user 四项全部「读写」**（缺 user 401，缺写 403） |
+| **Gitea 28 保护规则无 id 字段** | purge 删保护 404 被容错跳过 → 规则残留 → 删分支 403 | 已在代码修复（按 rule_name 删，commit b3f1a3d）；应急手动 `DELETE /api/v1/repos/<owner>/<repo>/branch_protections/<rule_name>` |
+| **构建容器出不了网** | apt/npm 连任何镜像源都超时（宿主机 git clone 却正常） | compose build 已内置 `network: host`；需授权时 `docker buildx bake -f deploy/docker-compose.yml --allow network.host`（在 deploy 目录内执行） |
+| **国内镜像源不可达** | deb.debian.org/清华源超时；阿里 https 源证书失败（slim 镜像无系统 CA） | Dockerfile 已内置：apt 用 **http 阿里源** + 补装 ca-certificates，npm 用 npmmirror |
+| **镜像悬空** | bake 构建成功但 `up` 报 No such image | compose 已显式 `image: deploy-server:latest`；应急 `docker tag <镜像id> deploy-server:latest` |
+| **同机端口冲突** | 3000 被同机其他服务（如 new-api）占用 → 容器起不来 | compose 里 server 端口映射改 `"3002:3000"`，安全组同步放行 |
+| **Trae 系统代理劫持** | 家庭机浏览器通、插件报「服务器暂不可达」；服务器日志无请求 | Trae 设置：`"trae.network.proxy.effectiveMode": "off"` + `"http.proxySupport": "off"`（改文件需**先杀干净 Trae 进程**，运行中改会被覆写）；残留系统代理清理由：`Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyServer` |
+
+## 十一、日常运维
 
 | 事项 | 命令/位置 |
 |---|---|
 | 日志 | `docker logs -f classroom-server` / `docker logs -f classroom-gitea` |
 | 数据备份 | 整目录拷走 `deploy/data/`（含 SQLite 与 Gitea 仓库/账号，容器停机时拷最稳） |
-| 升级版本 | `cd /opt/classroom/classroom-assistant && git pull && docker compose -f deploy/docker-compose.yml up -d --build` |
+| 升级版本 | `cd /opt/classroom/classroom-assistant && git pull && cd deploy && docker buildx bake -f docker-compose.yml --allow network.host && cd .. && docker compose -f deploy/docker-compose.yml up -d --no-build` |
 | 改配置 | 编辑 `packages/server/.env` → `docker compose -f deploy/docker-compose.yml up -d`（重建服务端容器生效） |
