@@ -27,8 +27,8 @@ docker save -o /tmp/classroom-images.tar deploy-server:latest gitea/gitea:latest
 - [ ] **A5. Docker 离线安装包**（内网服务器未装时）：云服务器 `curl -LO https://download.docker.com/linux/static/stable/x86_64/docker-<版本>.tgz` + `docker-compose` v2 二进制 → scp 下载；或 Windows 浏览器下载（麒麟源 rpm 全家桶亦可）
 - [ ] **A6. 内网版插件 vsix**：`vscode-pylearner` 的 `src/constants.ts` 第 41 行 `DEFAULT_TEACHER_URL` 改为 `http://<内网IP>:3000` → `npx @vscode/vsce package`（sync 脚本自动同步 package.json，勿手改 package.json）
 - [ ] **A7. 花名册文本**（每行「学号 姓名」）
-- [ ] **A8. 学生机离线包**：VS Code **linux-arm64** 版 + Git arm64 离线包 + A6 的 vsix
-- [ ] **A9.（评审用）本地大模型**：Ollama/vLLM 离线安装包 + 模型文件（不要内网评审可跳过，F5 评审自动静默）
+- [ ] **A8. 学生机离线包**：~~VS Code arm64~~（✅ 学生机已装好）+ Git arm64 离线包 + A6 的 vsix
+- [x] **A9.（评审用）本地大模型**：✅ 已部署并验证（大模型服务器就绪）
 
 ## B. 内网服务器部署
 
@@ -62,7 +62,7 @@ PORT=3000
 
 ## D. 学生机（arm64 麒麟）
 
-- [ ] **D1. 装 VS Code + Git + 内网版 vsix**（A8 全部）
+- [ ] **D1. 学生机**：✅ VS Code 已装好 → 待装 Git + 内网版 vsix（A8）
 - [ ] **D2. 身份页保存学号姓名** → 校验通过领凭证（零配置，地址已烤入）
 - [ ] **D3. 拉取作业 → F5 运行（评审走内网大模型，✅/❌ 真实反馈）→ 提交作业** → Gitea 出现 `student-<学号>` 分支
 
