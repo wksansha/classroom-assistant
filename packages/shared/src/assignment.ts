@@ -8,7 +8,7 @@ export interface ReviewResult {
   reason: string;             // ≤100 字
   reviewedAt: number;
   model: string;              // 审计
-  source: "llm" | "mock" | "timeout";
+  source: "llm" | "mock" | "timeout" | "not_configured";
 }
 
 export interface RosterEntry { studentId: string; studentName: string; }

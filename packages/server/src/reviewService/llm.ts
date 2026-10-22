@@ -33,6 +33,11 @@ export function mockReview(model: string): ReviewResult {
   return { status: "unreviewed", reason: "评审服务不可用（mock 兜底）", reviewedAt: Date.now(), model, source: "mock" };
 }
 
+/** 未配置 LLM（如云上练习环境）：与「配置了但失败」区分——学生端对此静默，不提示重试 */
+export function notConfiguredReview(model: string): ReviewResult {
+  return { status: "unreviewed", reason: "评审服务未配置", reviewedAt: Date.now(), model, source: "not_configured" };
+}
+
 export async function callReviewLLM(
   input: { code: string },
   opts: ReviewLlmOptions = {},
@@ -42,7 +47,7 @@ export async function callReviewLLM(
   const model = opts.model ?? process.env.LLM_MODEL ?? "openrouter/free";
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const doFetch = opts.fetchImpl ?? fetch;
-  if (!apiKey) return mockReview(model);
+  if (!apiKey) return notConfiguredReview(model);
 
   const prompt = buildReviewPrompt({ studentCode: input.code });
   const controller = new AbortController();
