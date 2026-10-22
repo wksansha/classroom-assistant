@@ -56,13 +56,14 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
       if (r.status !== 204 && r.status !== 200 && r.status !== 409) throw new Error(`gitea collaborator add failed: ${r.status}`);
     },
     async purgeStudent(studentId: string): Promise<void> {
-      // 1. 找到该生分支保护规则并删除（Gitea 28 按规则 id 删；无规则则跳过）
+      // 1. 找到该生分支保护规则并删除（Gitea 28：规则对象无 id 字段，按 rule_name 删；无规则则跳过）
       const list = await api(`/api/v1/repos/${deps.repo}/branch_protections`, "GET");
       if (list.ok) {
-        const rules = (await list.json()) as Array<{ id: number; rule_name: string }>;
+        const rules = (await list.json()) as Array<{ id?: number; rule_name: string }>;
         const rule = rules.find((r) => r.rule_name === `student-${studentId}`);
         if (rule) {
-          const del = await api(`/api/v1/repos/${deps.repo}/branch_protections/${rule.id}`, "DELETE");
+          const key = rule.rule_name ?? rule.id;   // 新版 Gitea 按 rule_name 删，旧版按 id
+          const del = await api(`/api/v1/repos/${deps.repo}/branch_protections/${key}`, "DELETE");
           if (!del.ok && del.status !== 404) throw new Error(`gitea branch protection delete failed: ${del.status}`);
         }
       } else {
