@@ -3,20 +3,36 @@
 > 场景：内网完全隔离（不出外网），采用 Docker Compose 部署，全部物料在外网开发机制作后带内。
 > 详细背景与命令见《内网部署指南》（deploy-intranet.md）与《公网云部署指南》踩坑实录（deploy-cloud.md §十）。
 
-## A. 开发机（外网）制作物料
+## A. 物料制作（Windows 开发机 + 百度云服务器协同，Windows 无需安装 Docker）
 
-- [ ] **A1. 服务端镜像**：`cd d:\ruan\classroom-assistant` → `docker build -f deploy/Dockerfile -t deploy-server:latest .`（含代码+依赖+前端产物）
-- [ ] **A2. Gitea 镜像**：`docker pull gitea/gitea:latest`
-- [ ] **A3. 导出镜像包**：`docker save -o classroom-images.tar deploy-server:latest gitea/gitea:latest`
-- [ ] **A4. Docker 离线安装包**（内网服务器未装时）：`docker-*.tgz` 静态包 + `docker-compose` v2 二进制（download.docker.com；或麒麟源 rpm 全家桶）
-- [ ] **A5. 内网版插件 vsix**：`vscode-pylearner` 的 `src/constants.ts` 第 41 行 `DEFAULT_TEACHER_URL` 改为 `http://<内网IP>:3000` → `npx @vscode/vsce package`（sync 脚本自动同步 package.json，勿手改 package.json）
-- [ ] **A6. 花名册文本**（每行「学号 姓名」）
-- [ ] **A7. 学生机离线包**：VS Code **linux-arm64** 版 + Git arm64 离线包 + A5 的 vsix
-- [ ] **A8.（评审用）本地大模型**：Ollama/vLLM 离线安装包 + 模型文件（不要内网评审可跳过，F5 评审自动静默）
+> 分工：**构建与镜像导出全部在百度云服务器完成**（有 Docker、有代码、有网络）；Windows 只负责下载与轻量制作。前置：Windows 已配好 SSH 别名 `baidu-cloud`（scp/ssh 通道）。
+
+- [ ] **A1. 云服务器构建最新服务端镜像**（顺手把云上服务端也更新到最新）：
+
+```bash
+cd /opt/classroom/classroom-assistant
+git pull
+cd deploy && docker buildx bake -f docker-compose.yml --allow network.host && cd ..
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+- [ ] **A2. 云服务器确认 Gitea 镜像在**：`docker images | grep gitea`（没有则 `docker pull gitea/gitea:latest`）
+- [ ] **A3. 云服务器导出镜像包**：
+
+```bash
+docker save -o /tmp/classroom-images.tar deploy-server:latest gitea/gitea:latest
+```
+
+- [ ] **A4. Windows 下载镜像包**：`scp baidu-cloud:/tmp/classroom-images.tar D:\ruan\`（约 400~600MB）
+- [ ] **A5. Docker 离线安装包**（内网服务器未装时）：云服务器 `curl -LO https://download.docker.com/linux/static/stable/x86_64/docker-<版本>.tgz` + `docker-compose` v2 二进制 → scp 下载；或 Windows 浏览器下载（麒麟源 rpm 全家桶亦可）
+- [ ] **A6. 内网版插件 vsix**：`vscode-pylearner` 的 `src/constants.ts` 第 41 行 `DEFAULT_TEACHER_URL` 改为 `http://<内网IP>:3000` → `npx @vscode/vsce package`（sync 脚本自动同步 package.json，勿手改 package.json）
+- [ ] **A7. 花名册文本**（每行「学号 姓名」）
+- [ ] **A8. 学生机离线包**：VS Code **linux-arm64** 版 + Git arm64 离线包 + A6 的 vsix
+- [ ] **A9.（评审用）本地大模型**：Ollama/vLLM 离线安装包 + 模型文件（不要内网评审可跳过，F5 评审自动静默）
 
 ## B. 内网服务器部署
 
-- [ ] **B1. 装 Docker**（A4 包）+ systemd 自启 → `docker compose version` 验证
+- [ ] **B1. 装 Docker**（A5 包）+ systemd 自启 → `docker compose version` 验证
 - [ ] **B2. 导入镜像**：`docker load -i classroom-images.tar` → `docker images` 应见两个
 - [ ] **B3. 建目录**：`mkdir -p /opt/classroom && 放入 compose 文件与 .env`
 - [ ] **B4. 写 `.env`**（LLM 三行**要填**，指向内网大模型）：
@@ -46,7 +62,7 @@ PORT=3000
 
 ## D. 学生机（arm64 麒麟）
 
-- [ ] **D1. 装 VS Code + Git + 内网版 vsix**（A7 全部）
+- [ ] **D1. 装 VS Code + Git + 内网版 vsix**（A8 全部）
 - [ ] **D2. 身份页保存学号姓名** → 校验通过领凭证（零配置，地址已烤入）
 - [ ] **D3. 拉取作业 → F5 运行（评审走内网大模型，✅/❌ 真实反馈）→ 提交作业** → Gitea 出现 `student-<学号>` 分支
 
