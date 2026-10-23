@@ -31,5 +31,7 @@ services:
       # 容器网络内直达 Gitea（覆盖 .env 里的 127.0.0.1:3001，无需改 .env）
       GITEA_URL: http://gitea:3000
       PORT: "3000"
+      # dashboard-v2 按天窗口依赖本地时区（dayStart）：UTC 容器会把北京时间 0-8 点算到前一天
+      TZ: Asia/Shanghai
     depends_on:
       - gitea
