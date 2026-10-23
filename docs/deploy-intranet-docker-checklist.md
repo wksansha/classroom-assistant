@@ -45,6 +45,7 @@ GITEA_URL=http://gitea:3000
 GITEA_ADMIN_TOKEN=<占位，B7 回填>
 GITEA_REPO=classroom/exercises
 GITEA_PUBLIC_BASE=http://<内网IP>:3001
+ADMIN_PASSWORD=<管理密码，#/admin 登录门 + /api/roster 门禁；纯字母数字>   # 未配置则管理接口不设防
 PORT=3000
 ```
 
