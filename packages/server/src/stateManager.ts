@@ -33,6 +33,9 @@ export interface ApplyOptions {
 
 export interface StateManager {
   apply(ev: NormalizedEvent, explanation: Explanation | null, opts?: ApplyOptions): void;
+  /** edit 活动信号（spec dashboard-v2 §5.5）：仅推进 lastActivityAt（取更大值），
+   * 不入事件列表、不解释。返回更新前的 lastActivityAt；新建档返回 null（此前无记录） */
+  touchActivity(studentId: string, studentName: string, classId: string, ts: number): number | null;
   listRecords(): StudentRecord[];
   getStudentDetail(id: string): {
     studentId: string; studentName: string; events: StoredEvent[];
@@ -96,6 +99,21 @@ export function createStateManager(): StateManager {
           lastResolvedAt: r.lastResolvedAt,
         },
       } });
+    },
+
+    touchActivity(studentId, studentName, classId, ts) {
+      const r = records.get(studentId);
+      if (!r) {
+        records.set(studentId, {
+          studentId, studentName, classId, events: [],
+          lastActivityAt: ts, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+        });
+        logEvent({ event: "state.touch_new_record", level: "debug", data: { studentId, ts } });
+        return null;
+      }
+      const prev = r.lastActivityAt;
+      r.lastActivityAt = Math.max(r.lastActivityAt, ts);
+      return prev;
     },
 
     listRecords: () => [...records.values()],

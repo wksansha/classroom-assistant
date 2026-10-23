@@ -77,3 +77,26 @@ describe("stateManager（内存课堂状态）", () => {
     expect(d?.lastActivityAt).toBe(1000);
   });
 });
+
+describe("touchActivity（edit 活动信号，spec dashboard-v2 §5.5）", () => {
+  it("新学生建档（不产事件）返回 null；已有学生返回旧值且取更大值", () => {
+    const sm = createStateManager();
+    expect(sm.touchActivity("stu001", "张三", "3A", 1000)).toBeNull();
+    const r = sm.listRecords()[0];
+    expect(r.lastActivityAt).toBe(1000);
+    expect(r.events).toHaveLength(0);
+    expect(sm.touchActivity("stu001", "张三", "3A", 500)).toBe(1000); // 不回退
+    expect(sm.listRecords()[0].lastActivityAt).toBe(1000);
+    expect(sm.touchActivity("stu001", "张三", "3A", 2000)).toBe(1000);
+    expect(sm.listRecords()[0].lastActivityAt).toBe(2000);
+  });
+  it("不影响错误计数与事件列表", () => {
+    const sm = createStateManager();
+    sm.apply(errorEvent("stu001", 1000), exp);
+    sm.touchActivity("stu001", "张三", "3A", 1500);
+    const r = sm.listRecords()[0];
+    expect(r.consecutiveErrors).toBe(1);
+    expect(r.events).toHaveLength(1);
+    expect(r.lastErrorAt).toBe(1000);
+  });
+});
