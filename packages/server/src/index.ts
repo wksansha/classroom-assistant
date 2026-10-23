@@ -8,6 +8,7 @@ import { createCache } from "./explainService/cache";
 import { createExplainService } from "./explainService";
 import { createStateManager } from "./stateManager";
 import { createAggregator } from "./aggregator";
+import { dayStart } from "./classDay";
 import { createTeacherHub, type TeacherHub } from "./teacherHub";
 import { logEvent } from "./logger";
 import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./llmProxy";
@@ -44,8 +45,8 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   const buildSnapshot = (): TeacherSnapshot => {
     const now = Date.now();
     const records = stateManager.listRecords();
-    // V1 单班级：records[0]?.classId 作为 classId 来源（未来多班级需改为聚合所有班级）
-    return { ts: now, classId: records[0]?.classId ?? "default", ...aggregator.recompute(records, now) };
+    // dashboard-v2：大屏数据窗口 = 当天 00:00 起（spec §4）
+    return { ts: now, classId: records[0]?.classId ?? "default", ...aggregator.recompute(records, now, dayStart(now)) };
   };
 
   const hub = createTeacherHub(buildSnapshot);

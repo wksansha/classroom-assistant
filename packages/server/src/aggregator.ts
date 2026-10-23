@@ -8,12 +8,10 @@ import { logEvent } from "./logger";
 const FIVE_MIN = 5 * 60_000;
 const TWO_MIN = 2 * 60_000;
 const THREE_MIN = 3 * 60_000;
-/** 课堂窗口：只聚合/统计这个时间窗口内的事件（默认 120 分钟，可用 CLASS_WINDOW_MIN 环境变量覆盖） */
-const CLASS_WINDOW_MS = (Number(process.env.CLASS_WINDOW_MIN) || 120) * 60_000;
 
-/** 事件是否落在当前课堂窗口内（默认 90 分钟，可通过 CLASS_WINDOW_MIN 环境变量覆盖） */
-function isWithinClassWindow(ts: number, now: number): boolean {
-  return now - ts <= CLASS_WINDOW_MS;
+/** 事件是否落在当前数据窗口内（spec dashboard-v2 §4）：窗口起点（含）之后的事件计入 */
+function isWithinClassWindow(ts: number, windowStart: number): boolean {
+  return ts >= windowStart;
 }
 
 /** 窗口内错误事件按 subtype 计数，返回最高重复次数（沿用 spec 的 5 分钟口径） */
@@ -26,8 +24,8 @@ function maxSubtypeRepeat(events: StoredEvent[], now: number): number {
   return Math.max(0, ...counts.values());
 }
 
-export function computeStatus(r: StudentRecord, now: number): StatusColor {
-  const score = computeScore(r, now);
+export function computeStatus(r: StudentRecord, now: number, windowStart: number): StatusColor {
+  const score = computeScore(r, now, windowStart);
   if (score >= 40) return "red";
   if (score > 0) return "yellow";
   return "green";
@@ -38,13 +36,12 @@ function isUnresolved(r: StudentRecord): boolean {
   return r.lastErrorAt !== null && (r.lastResolvedAt ?? -1) < r.lastErrorAt;
 }
 
-export function computeScore(r: StudentRecord, now: number): number {
+export function computeScore(r: StudentRecord, now: number, windowStart: number): number {
   if (r.lastErrorAt === null) return 0;
   // 分数只反映「当前是否还有未解决的错」：评审通过 = 已解决 → 0 分。
   // run 成功不再是解决信号（spec：评审成功才变绿，评审失败等同报错）。
-  // 超过课堂窗口的「老旧报错」不再计入（不会被聚合看到）。
   if (!isUnresolved(r)) return 0;
-  if (!isWithinClassWindow(r.lastErrorAt, now)) return 0;
+  if (!isWithinClassWindow(r.lastErrorAt, windowStart)) return 0;
   const repeat = maxSubtypeRepeat(r.events, now);
   let score = 10 + repeat * 10;
   if (r.consecutiveErrors >= 5) score += 30;
@@ -52,7 +49,7 @@ export function computeScore(r: StudentRecord, now: number): number {
 }
 
 export interface Aggregator {
-  recompute(records: StudentRecord[], now: number): Omit<TeacherSnapshot, "ts" | "classId">;
+  recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId">;
   ack(id: string): void;
 }
 
@@ -68,18 +65,19 @@ export function createAggregator(): Aggregator {
   const acked = new Set<string>();
 
   return {
-    recompute(records, now) {
+    recompute(records, now, windowStart) {
       const startTime = Date.now();
       // ── 学生状态 ────────────────────────────────
       const students: StudentState[] = records.map((r) => {
-        const errors = r.events.filter((e) => !e.success && isWithinClassWindow(e.ts, now));
+        const errors = r.events.filter((e) => !e.success && isWithinClassWindow(e.ts, windowStart));
         const recentErrors: RecentError[] = [...errors]
           .slice(-3).reverse()
           .map((e) => ({ ts: e.ts, subtype: e.subtype ?? "未知错误", knowledge: e.knowledge ?? "", rawMessage: e.rawMessage }));
         return {
           studentId: r.studentId, studentName: r.studentName,
-          status: computeStatus(r, now),
-          priorityScore: computeScore(r, now),
+          status: computeStatus(r, now, windowStart),
+          online: r.lastActivityAt >= windowStart,   // 未在线标识：当天无活动 = false（变暗+灰点，不占状态）
+          priorityScore: computeScore(r, now, windowStart),
           lastActivityAt: r.lastActivityAt, lastErrorAt: r.lastErrorAt,
           errorCountTotal: errors.length, recentErrors,
         };
@@ -91,7 +89,7 @@ export function createAggregator(): Aggregator {
         .filter((x) => x.score > 0)
         .sort((a, b) => b.score - a.score);
       const alerts: AlertItem[] = scored.slice(0, 5).map(({ r, score }) => {
-        const lastErr = [...r.events].reverse().find((e) => !e.success && isWithinClassWindow(e.ts, now));
+        const lastErr = [...r.events].reverse().find((e) => !e.success && isWithinClassWindow(e.ts, windowStart));
         const repeat = maxSubtypeRepeat(r.events, now);
         const unresolved = isUnresolved(r); // 评审通过前错误未解决
         const reason =
@@ -115,7 +113,7 @@ export function createAggregator(): Aggregator {
       const groups = new Map<string, SubtypeGroup>();
       for (const r of records) {
         for (const e of r.events) {
-          if (e.success || !e.subtype || !isWithinClassWindow(e.ts, now)) continue;
+          if (e.success || !e.subtype || !isWithinClassWindow(e.ts, windowStart)) continue;
           let g = groups.get(e.subtype);
           if (!g) {
             g = { subtype: e.subtype, category: e.category ?? "其他", knowledge: "", latestTs: -1, students: [] };
@@ -136,7 +134,7 @@ export function createAggregator(): Aggregator {
         .sort((a, b) => b.count - a.count);
 
       // ── 建议（分母 = 课堂窗口内上报过错误的学生数）──────────
-      const errorStudents = records.filter((r) => r.events.some((e) => !e.success && isWithinClassWindow(e.ts, now))).length;
+      const errorStudents = records.filter((r) => r.events.some((e) => !e.success && isWithinClassWindow(e.ts, windowStart))).length;
       const suggestions: SuggestionItem[] = [];
       if (errorStudents > 0) {
         for (const g of groups.values()) {
@@ -157,7 +155,7 @@ export function createAggregator(): Aggregator {
         }
         // 连续报错只认课堂窗口内
         const stuck = records.filter((r) =>
-          r.events.some((e) => !e.success && isWithinClassWindow(e.ts, now)) &&
+          r.events.some((e) => !e.success && isWithinClassWindow(e.ts, windowStart)) &&
           r.consecutiveErrors >= 3
         );
         if (stuck.length > 0) {

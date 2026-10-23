@@ -4,6 +4,8 @@ import type { StudentRecord, StoredEvent } from "../stateManager";
 
 const NOW = Date.parse("2026-09-17T04:00:00.000Z");
 const MIN = 60_000;
+const WIN = new Date(NOW); WIN.setHours(0, 0, 0, 0); // 当天窗口起点
+const WIN_START = WIN.getTime();
 
 function record(overrides: Partial<StudentRecord> & { events: StoredEvent[] }): StudentRecord {
   return {
@@ -20,16 +22,16 @@ function err(ts: number, subtype: string): StoredEvent {
 describe("computeStatus（spec §5 状态色）", () => {
   it("无错误 → 绿（V1 无离线判定，从未上报也是绿）", () => {
     const r = record({ events: [] });
-    expect(computeStatus(r, NOW)).toBe("green");
+    expect(computeStatus(r, NOW, WIN_START)).toBe("green");
   });
   it("2 分钟内 1 次错误且未解决 → 黄", () => {
     const r = record({ events: [err(NOW - 1 * MIN, "缺少冒号")], lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 1 });
-    expect(computeStatus(r, NOW)).toBe("yellow");
+    expect(computeStatus(r, NOW, WIN_START)).toBe("yellow");
   });
   it("3 分钟前单次报错且未评审 → 黄（未达红：重复分仅 1×10）", () => {
     const r = record({ events: [err(NOW - 3 * MIN, "缺少冒号")], lastActivityAt: NOW - 3 * MIN, lastErrorAt: NOW - 3 * MIN, consecutiveErrors: 1 });
-    expect(computeScore(r, NOW)).toBe(20);
-    expect(computeStatus(r, NOW)).toBe("yellow");
+    expect(computeScore(r, NOW, WIN_START)).toBe(20);
+    expect(computeStatus(r, NOW, WIN_START)).toBe("yellow");
   });
   it("同一 subtype 5 分钟内 3 次且未解决 → 红", () => {
     const ts = [NOW - 4 * MIN, NOW - 3 * MIN, NOW - 2 * MIN];
@@ -37,7 +39,7 @@ describe("computeStatus（spec §5 状态色）", () => {
       events: ts.map(t => err(t, "缺少冒号")),
       lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
     });
-    expect(computeStatus(r, NOW)).toBe("red");
+    expect(computeStatus(r, NOW, WIN_START)).toBe("red");
   });
   it("5 分钟窗口外的重复不计入：3 次中有 1 次在 6 分钟前 → 黄", () => {
     const ts = [NOW - 6 * MIN, NOW - 3 * MIN, NOW - 2 * MIN];
@@ -45,7 +47,7 @@ describe("computeStatus（spec §5 状态色）", () => {
       events: ts.map(t => err(t, "缺少冒号")),
       lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN, consecutiveErrors: 3,
     });
-    expect(computeStatus(r, NOW)).toBe("yellow");
+    expect(computeStatus(r, NOW, WIN_START)).toBe("yellow");
   });
   it("不同 subtype 各 1 次（窗口内重复不足 3）但连续 ≥5 → 红（走连续错误路径）", () => {
     const ts = [1, 2, 3, 4, 5].map(i => NOW - i * MIN);
@@ -53,13 +55,13 @@ describe("computeStatus（spec §5 状态色）", () => {
       events: ts.map((t, i) => err(t, `子类${i}`)),
       lastActivityAt: NOW - 1 * MIN, lastErrorAt: NOW - 1 * MIN, consecutiveErrors: 5,
     });
-    expect(computeStatus(r, NOW)).toBe("red");
+    expect(computeStatus(r, NOW, WIN_START)).toBe("red");
   });
 });
 
 describe("computeScore（spec §5 优先级分）", () => {
   it("无错误 → 0", () => {
-    expect(computeScore(record({ events: [] }), NOW)).toBe(0);
+    expect(computeScore(record({ events: [] }), NOW, WIN_START)).toBe(0);
   });
   it("3 次重复 + 未解决（最后一次事件仍是错误）= 10 + 3×10 = 40", () => {
     // 3 次同类错误都落在 5 分钟窗口内（4.9/4.5/4 分钟前）
@@ -70,7 +72,7 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastErrorAt: NOW - 4 * MIN,
       consecutiveErrors: 3,
     });
-    expect(computeScore(r, NOW)).toBe(40);
+    expect(computeScore(r, NOW, WIN_START)).toBe(40);
   });
   it("连续错误 ≥5 额外 +30", () => {
     const ts = [1, 2, 3, 4, 5].map(i => NOW - i * MIN);
@@ -80,7 +82,7 @@ describe("computeScore（spec §5 优先级分）", () => {
       consecutiveErrors: 5,
     });
     // 10(基础未解决) + 1×10(重复) + 30(连续) = 50
-    expect(computeScore(r, NOW)).toBe(50);
+    expect(computeScore(r, NOW, WIN_START)).toBe(50);
   });
   it("run 成功后未评审：问题仍未解决 → 分数保持（spec：评审成功才变绿）", () => {
     const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
@@ -91,8 +93,8 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,
       lastResolvedAt: null, consecutiveErrors: 3,
     });
-    expect(computeScore(r, NOW)).toBeGreaterThan(0);
-    expect(computeStatus(r, NOW)).not.toBe("green");
+    expect(computeScore(r, NOW, WIN_START)).toBeGreaterThan(0);
+    expect(computeStatus(r, NOW, WIN_START)).not.toBe("green");
   });
   it("评审通过后（lastResolvedAt 晚于 lastErrorAt）：问题已解决 → 分数清 0", () => {
     const ts = [NOW - 9 * MIN, NOW - 8 * MIN, NOW - 7 * MIN];
@@ -103,8 +105,8 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastActivityAt: NOW - 5 * MIN, lastErrorAt: NOW - 7 * MIN,
       lastResolvedAt: NOW - 5 * MIN, consecutiveErrors: 0,
     });
-    expect(computeScore(r, NOW)).toBe(0);
-    expect(computeStatus(r, NOW)).toBe("green");
+    expect(computeScore(r, NOW, WIN_START)).toBe(0);
+    expect(computeStatus(r, NOW, WIN_START)).toBe("green");
   });
   it("评审通过后又报错：lastErrorAt 晚于 lastResolvedAt → 重新未解决", () => {
     const events = [
@@ -117,17 +119,17 @@ describe("computeScore（spec §5 优先级分）", () => {
       lastActivityAt: NOW - 2 * MIN, lastErrorAt: NOW - 2 * MIN,
       lastResolvedAt: NOW - 6 * MIN, consecutiveErrors: 1,
     });
-    expect(computeScore(r, NOW)).toBeGreaterThan(0);
-    expect(computeStatus(r, NOW)).toBe("yellow");
+    expect(computeScore(r, NOW, WIN_START)).toBeGreaterThan(0);
+    expect(computeStatus(r, NOW, WIN_START)).toBe("yellow");
   });
-  it("报错超过 120 分钟（不在本堂课）→ 分数清 0", () => {
+  it("报错在窗口外（昨天）→ 分数清 0，状态回 green（未在线不占状态，决策 #19）", () => {
     const r = record({
-      events: [err(NOW - 121 * MIN, "缺少冒号")],
-      lastActivityAt: NOW - 121 * MIN, lastErrorAt: NOW - 121 * MIN,
+      events: [err(WIN_START - 60_000, "缺少冒号")],
+      lastActivityAt: WIN_START - 60_000, lastErrorAt: WIN_START - 60_000,
       consecutiveErrors: 1,
     });
-    expect(computeScore(r, NOW)).toBe(0);
-    expect(computeStatus(r, NOW)).toBe("green");
+    expect(computeScore(r, NOW, WIN_START)).toBe(0);
+    expect(computeStatus(r, NOW, WIN_START)).toBe("green");
   });
   it("报错在 120 分钟内但未解决 → 计入且状态为黄", () => {
     const r = record({
@@ -136,7 +138,25 @@ describe("computeScore（spec §5 优先级分）", () => {
       consecutiveErrors: 1,
     });
     // 10(基础) + 0×10(119 分钟远超 5 分钟重复窗) = 10
-    expect(computeScore(r, NOW)).toBe(10);
-    expect(computeStatus(r, NOW)).toBe("yellow");
+    expect(computeScore(r, NOW, WIN_START)).toBe(10);
+    expect(computeStatus(r, NOW, WIN_START)).toBe("yellow");
+  });
+});
+
+describe("online 未在线标识（spec 决策 #19）", () => {
+  it("lastActivityAt 早于当天起点 → 状态仍按分数判（无错=green），未在线由 online 字段表达", () => {
+    const r = record({ events: [], lastActivityAt: WIN_START - 1 });
+    expect(computeStatus(r, NOW, WIN_START)).toBe("green");
+  });
+  it("恰好等于当天起点的活动计入 → green", () => {
+    const r = record({ events: [], lastActivityAt: WIN_START });
+    expect(computeStatus(r, NOW, WIN_START)).toBe("green");
+  });
+  it("有活动但有未解决错误 → 仍按分数判红黄", () => {
+    const r = record({
+      events: [err(NOW - 3 * MIN, "缺少冒号"), err(NOW - 2 * MIN, "缺少冒号"), err(NOW - MIN, "缺少冒号")],
+      lastActivityAt: NOW - MIN, lastErrorAt: NOW - MIN, consecutiveErrors: 3,
+    });
+    expect(computeStatus(r, NOW, WIN_START)).toBe("red");
   });
 });

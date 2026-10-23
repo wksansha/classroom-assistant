@@ -4,6 +4,8 @@ import type { StudentRecord, StoredEvent } from "../stateManager";
 
 const NOW = Date.parse("2026-09-17T04:00:00.000Z");
 const MIN = 60_000;
+const WIN = new Date(NOW); WIN.setHours(0, 0, 0, 0); // 当天窗口起点
+const WIN_START = WIN.getTime();
 
 function err(ts: number, subtype: string, category = "类型错误"): StoredEvent {
   return { ts, eventType: "run", success: false, subtype, category, knowledge: "知识点", rawMessage: "m" };
@@ -24,7 +26,7 @@ describe("recompute：完整快照", () => {
   it("students 字段：状态色、分数、最近 3 条错误（新的在前）", () => {
     const events = [1, 2, 3, 4].map(i => err(NOW - i * MIN, `子类${i}`));
     const rec = student("stu001", "张三", events);
-    const snap = createAggregator().recompute([rec], NOW);
+    const snap = createAggregator().recompute([rec], NOW, WIN_START);
     expect(snap.students[0]).toMatchObject({ studentId: "stu001", studentName: "张三", errorCountTotal: 4 });
     expect(snap.students[0].recentErrors).toHaveLength(3);
     expect(snap.students[0].recentErrors[0].subtype).toBe("子类4");
@@ -33,7 +35,7 @@ describe("recompute：完整快照", () => {
   it("告警取前 5 名 + alertSummary（未进榜的报警学生不计入「正常」）", () => {
     const recs = Array.from({ length: 7 }, (_, i) =>
       student(`stu00${i + 1}`, `学生${i}`, [err(NOW - MIN, "缺少冒号")]));
-    const snap = createAggregator().recompute(recs, NOW);
+    const snap = createAggregator().recompute(recs, NOW, WIN_START);
     expect(snap.alerts).toHaveLength(5);
     // 7 人全部报错（分数>0），top5 之外的 2 人不是「正常」→ 正常人数为 0
     expect(snap.alertSummary).toBe("其余 0 人正常");
@@ -46,7 +48,7 @@ describe("recompute：完整快照", () => {
       student("stu002", "李四", [err(NOW - MIN, "缺少冒号"), err(NOW - 2 * MIN, "缺少冒号")]), // 同人同 subtype 仍算 1 人
       student("stu003", "王五", [err(NOW - MIN, "意外缩进")]),
     ];
-    const agg = createAggregator().recompute(recs, NOW).aggregates;
+    const agg = createAggregator().recompute(recs, NOW, WIN_START).aggregates;
     expect(agg[0]).toMatchObject({ subtype: "缺少冒号", count: 2 });
     expect(agg[0].students.map(s => s.studentName)).toEqual(["张三", "李四"]);
     expect(agg[1]).toMatchObject({ subtype: "意外缩进", count: 1 });
@@ -63,7 +65,7 @@ describe("recompute：完整快照", () => {
       student("stu007", "学生7", [1, 2, 3].map(i => err(NOW - i * MIN, `甲${i}`))),
       student("stu008", "学生8", []), student("stu009", "学生9", []), student("stu010", "学生10", []),
     ];
-    const snap = createAggregator().recompute(recs, NOW);
+    const snap = createAggregator().recompute(recs, NOW, WIN_START);
     const ids = snap.suggestions.map(s => s.id);
     expect(ids).toContain("class-review:缺少冒号");
     expect(ids).toContain("group-discuss:意外缩进");
@@ -78,7 +80,7 @@ describe("recompute：完整快照", () => {
     const agg = createAggregator();
     const recs = [student("stu001", "张三", [err(NOW - MIN, "缺少冒号")])];
     agg.ack("class-review:缺少冒号");
-    const snap = agg.recompute(recs, NOW);
+    const snap = agg.recompute(recs, NOW, WIN_START);
     const s = snap.suggestions.find(x => x.id === "class-review:缺少冒号");
     expect(s?.acked).toBe(true);
   });
