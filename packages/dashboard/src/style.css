@@ -56,6 +56,13 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .admin-view .app-header { margin: -16px -16px 0; }   /* 深色顶栏与主界面统一，出血到容器边缘 */
 .admin-view h2 { margin: 0; font-size: 18px; }
 .admin-view h3 { margin: 0 0 8px; font-size: 15px; }
+.admin-view .login-card { display: flex; flex-direction: column; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 20px; max-width: 360px; margin: 48px auto 0; width: 100%; }
+.admin-view .login-card input { padding: 8px 12px; font-size: 14px; font-family: inherit; border: 1px solid var(--border); border-radius: 6px; outline: none; }
+.admin-view .login-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px #2563eb26; }
+.admin-view .login-card button { padding: 8px 12px; font-size: 14px; border-radius: 6px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.admin-view .login-card button:hover { filter: brightness(1.05); }
+.admin-view .login-hint { margin: 0; color: var(--muted); font-size: 13px; }
+.admin-view .login-error { margin: 0; color: var(--red); font-size: 13px; }
 .roster-panel { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; flex: 1; min-height: 0; }
 .roster-panel .roster-head { display: flex; align-items: center; justify-content: space-between; }
 .roster-panel .roster-head h3 { margin: 0; font-size: 15px; }

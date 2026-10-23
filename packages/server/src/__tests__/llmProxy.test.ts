@@ -83,3 +83,86 @@ describe("POST /api/llm/chat/completions（LLM 聊天代理）", () => {
     await request(app).post("/api/llm/chat/completions").send({ messages: [] }).expect(404);
   });
 });
+
+describe("LLM 代理门禁（X-Student-Id 名册校验 + 按学号限流，spec 2026-10-23）", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function appWithRoster() {
+    const { app } = createApp({
+      dbPath: ":memory:",
+      staticDir: null,
+      llmConfig: { baseUrl: `http://127.0.0.1:${upstreamPort}`, apiKey: "test-key", model: "test-model" },
+    });
+    // 名册导入本身走管理门禁，但测试未配置 ADMIN_PASSWORD → 直接可达
+    await request(app).post("/api/roster").send({ text: "0001 张三\n0002 李四" }).expect(200);
+    return app;
+  }
+
+  it("名册为空 → 不校验学号放行（教师未导入名册/本地开发兼容）", async () => {
+    await request(appWithProxy())
+      .post("/api/llm/chat/completions")
+      .send({ messages: [{ role: "user", content: "hi" }] })
+      .expect(200);
+  });
+
+  it("名册已导入：缺 X-Student-Id → 403 中文提示", async () => {
+    const app = await appWithRoster();
+    const res = await request(app)
+      .post("/api/llm/chat/completions")
+      .send({ messages: [{ role: "user", content: "hi" }] })
+      .expect(403);
+    expect(res.body.error).toContain("身份页");
+  });
+
+  it("名册已导入：学号不在名册 → 403", async () => {
+    const app = await appWithRoster();
+    await request(app)
+      .post("/api/llm/chat/completions")
+      .set("X-Student-Id", "9999")
+      .send({ messages: [{ role: "user", content: "hi" }] })
+      .expect(403);
+  });
+
+  it("名册学号 → 放行到代理", async () => {
+    const app = await appWithRoster();
+    await request(app)
+      .post("/api/llm/chat/completions")
+      .set("X-Student-Id", "0001")
+      .send({ messages: [{ role: "user", content: "hi" }] })
+      .expect(200);
+  });
+
+  it("同 学号超出 20 次/分钟 → 429", async () => {
+    const app = await appWithRoster();
+    const results = await Promise.all(
+      Array.from({ length: 25 }, () =>
+        request(app)
+          .post("/api/llm/chat/completions")
+          .set("X-Student-Id", "0002")
+          .send({ messages: [{ role: "user", content: "hi" }] }),
+      ),
+    );
+    const statuses = results.map((r) => r.status);
+    expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(20);
+    expect(statuses).toContain(429);
+    const limited = results.find((r) => r.status === 429)!;
+    expect(limited.body.error).toContain("频繁");
+  });
+
+  it("限流按学号隔离：0001 被限不影响 0002", async () => {
+    const app = await appWithRoster();
+    await Promise.all(
+      Array.from({ length: 25 }, () =>
+        request(app)
+          .post("/api/llm/chat/completions")
+          .set("X-Student-Id", "0001")
+          .send({ messages: [{ role: "user", content: "hi" }] }),
+      ),
+    );
+    await request(app)
+      .post("/api/llm/chat/completions")
+      .set("X-Student-Id", "0002")
+      .send({ messages: [{ role: "user", content: "hi" }] })
+      .expect(200);
+  });
+});

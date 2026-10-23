@@ -18,6 +18,8 @@ import { createGiteaAdmin } from "./gitea/adminApi";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
 import { registerTraceArchiveRoutes } from "./routes/traceArchive";
+import { createAdminGuard, readAdminPasswordFromEnv } from "./auth/adminAuth";
+import { createLlmGate } from "./auth/llmGate";
 
 export interface AppDeps {
   /** 测试传 ":memory:"；缺省 data/assistant.db（相对 server 包） */
@@ -28,6 +30,8 @@ export interface AppDeps {
   llmConfig?: LlmProxyConfig | null;
   /** 评审 LLM 注入（测试传 fetchImpl）；缺省读环境变量，无 key 时 mock 兜底 */
   reviewConfig?: ReviewLlmOptions | null;
+  /** 管理密码；缺省读环境变量 ADMIN_PASSWORD（空 = 管理接口不设防，本地开发兼容） */
+  adminPassword?: string;
 }
 
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
@@ -180,6 +184,12 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   if (!gitea) {
     logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
   }
+  // 管理面鉴权：/api/roster 全部路由要求 X-Admin-Token（ADMIN_PASSWORD 未配置则放行，见 auth/adminAuth）
+  const adminGuard = createAdminGuard(deps.adminPassword !== undefined ? deps.adminPassword : readAdminPasswordFromEnv());
+  app.use("/api/roster", adminGuard.requireAdmin);
+  // 管理页登录门探测：{ adminProtected } / 401
+  app.get("/api/admin/session", adminGuard.sessionHandler);
+
   registerRosterRoutes(app, { persistence, gitea });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
@@ -193,6 +203,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   registerTraceArchiveRoutes(app, { persistence });
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
+  // 门禁：名册已导入时校验 X-Student-Id + 按学号限流（防陌生人/冒用学号刷额度），名册为空放行
+  app.use(
+    "/api/llm/chat/completions",
+    createLlmGate({
+      hasRoster: () => persistence.getRoster().length > 0,
+      isRosterStudent: (studentId) => persistence.getRosterEntry(studentId) !== null,
+    }),
+  );
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
 
   // 生产：托管 dashboard 构建产物
