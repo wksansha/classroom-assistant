@@ -28,6 +28,17 @@ export function registerTraceArchiveRoutes(app: Express, deps: TraceArchiveDeps)
       logEvent({ event: "archive.batch_rejected", level: "warn", data: { reason: "student_id", studentId } });
       return res.status(400).json({ error: "student_id 非法" });
     }
+    // 花名册门禁（2026-10-23 修订，推翻「归档不做身份校验」旧决策）：学号不在名册 → 400 拒收，
+    // 防止数据挂到无效/他人学号下；客户端对 400 语义为「数据问题不重试、位点跳到文件尾」，拒收安全。
+    // 权衡：名册为空（部署早期教师尚未导入）时放行并打 info 日志——此时拒收会不可逆丢数据（客户端跳尾）。
+    if (!deps.persistence.getRosterEntry(studentId)) {
+      if (deps.persistence.getRoster().length === 0) {
+        logEvent({ event: "archive.roster_empty_allow", level: "info", data: { studentId } });
+      } else {
+        logEvent({ event: "archive.student_not_in_roster", level: "warn", data: { studentId } });
+        return res.status(400).json({ error: "student not in roster" });
+      }
+    }
     if (!NAME_PATTERN.test(classId)) {
       return res.status(400).json({ error: "class_id 非法" });
     }

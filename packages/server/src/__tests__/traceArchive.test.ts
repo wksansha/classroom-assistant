@@ -69,3 +69,28 @@ describe("POST /api/trace/archive 落库（spec §4.2）", () => {
     await post(a, { student_id: "../etc", class_id: "3A", surface: "run", date: "2026-10-16", events: [ev("e1")] }).expect(400);
   });
 });
+
+describe("POST /api/trace/archive 花名册门禁（2026-10-23 修订）", () => {
+  const batch = { student_id: "stu001", class_id: "3A", surface: "run", date: "2026-10-16", events: [ev("g1")] };
+
+  it("名册含该学号 → 200 放行", async () => {
+    const { a, p } = app();
+    p.replaceRoster([{ studentId: "stu001", studentName: "张三" }]);
+    const res = await post(a, batch).expect(200);
+    expect(res.body).toEqual({ ok: true, accepted: 1, duplicated: 0 });
+  });
+
+  it("名册非空但不含该学号 → 400 拒收", async () => {
+    const { a, p } = app();
+    p.replaceRoster([{ studentId: "stu002", studentName: "李四" }]);
+    const res = await post(a, batch).expect(400);
+    expect(res.body).toEqual({ error: "student not in roster" });
+    expect(p.getRecentEvents(10)).toHaveLength(0); // 拒收不入库
+  });
+
+  it("名册为空 → 放行 200（部署早期妥协）", async () => {
+    const { a, p } = app(); // :memory: 未导名册，roster 为空
+    await post(a, batch).expect(200);
+    expect(p.getRecentEvents(10)).toHaveLength(1);
+  });
+});

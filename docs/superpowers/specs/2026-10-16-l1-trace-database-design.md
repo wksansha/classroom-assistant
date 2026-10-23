@@ -84,6 +84,7 @@ CREATE INDEX idx_trace_date               ON trace_events(date);
 
 - 不拆 payload 为列。看板需要的 raw_message/file_path/exit_code 等在解释链路中直接用内存对象，调试接口按需从 payload JSON 提取（`json_extract`）；避免 6 种 surface 的异构字段把表搞成稀疏大宽表。
 - `student_name` 冗余存储为身份快照：归档/上报宽松不校验名册，事件发生时的姓名应随事件固化。
+  - 2026-10-23 修订：归档接口 `/api/trace/archive` 增加花名册门禁——名册非空时学号不在名册 → 400 拒收（`student not in roster`），防止数据挂到无效/他人学号下（客户端对 400 不重试、位点跳尾，拒收安全）；名册为空仍放行（部署早期教师尚未导入名册，拒收会不可逆丢数据），实时通道 `/api/events` 不在本次范围。
 - `ingested_at` 与 `ts` 分离：补传事件的 `ts` 是过去时间，`ingested_at` 是入库时间，第二阶段增量拉取互不干扰。
 
 ### 3.2 event_explanations（LLM 富化侧表）
