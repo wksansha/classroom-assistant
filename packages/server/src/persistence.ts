@@ -64,6 +64,10 @@ export interface Persistence {
   // —— 评审缓存（内容寻址：key = sha256(filePath + 评审输入)）——
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
+  // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2；三态事实表，缓存表约束不变）——
+  saveReviewResult(row: { studentId: string; classId: string | null; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }): void;
+  getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; ts: number }[];
+  getRunEventsSince(windowStartMs: number): { ts: number; success: boolean }[];
   // —— student_tokens（学生分支直连模型）——
   saveStudentToken(studentId: string, token: string): void;
   getStudentToken(studentId: string): string | null;
@@ -146,6 +150,16 @@ export function createPersistence(dbPath?: string): Persistence {
       student_id TEXT PRIMARY KEY,
       token TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS review_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL,
+      class_id TEXT,
+      file_path TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pass','fail','unreviewed')),
+      reason TEXT,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_results_path_ts ON review_results(file_path, ts);
   `);
 
   return {
@@ -281,6 +295,26 @@ export function createPersistence(dbPath?: string): Persistence {
         ON CONFLICT(cache_key) DO UPDATE SET status = excluded.status, reason = excluded.reason,
           source = excluded.source, model = excluded.model`)
         .run(row.cacheKey, row.review.status, row.review.reason, row.review.source, row.review.model, Date.now());
+    },
+    // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2）——
+    saveReviewResult(row) {
+      db.prepare(`INSERT INTO review_results (student_id, class_id, file_path, status, reason, ts)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(row.studentId, row.classId, row.filePath, row.status, row.reason, row.ts);
+    },
+    getReviewResultsSince(windowStartMs) {
+      return db.prepare(`SELECT r.student_id AS studentId, COALESCE(ro.student_name, r.student_id) AS studentName,
+          r.file_path AS filePath, r.status, r.ts
+        FROM review_results r LEFT JOIN roster ro ON ro.student_id = r.student_id
+        WHERE r.ts >= ? ORDER BY r.ts`).all(windowStartMs) as
+        { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; ts: number }[];
+    },
+    getRunEventsSince(windowStartMs) {
+      // trace_events.ts 为 ISO-8601 文本（字典序即时间序），窗口起点转 ISO 比较
+      const iso = new Date(windowStartMs).toISOString();
+      const rows = db.prepare("SELECT ts, kind FROM trace_events WHERE surface = 'run' AND ts >= ? ORDER BY ts")
+        .all(iso) as { ts: string; kind: string }[];
+      return rows.map((r) => ({ ts: Date.parse(r.ts), success: r.kind === "execution_success" }));
     },
     // —— student_tokens（学生分支直连模型）——
     saveStudentToken(studentId, token) {
