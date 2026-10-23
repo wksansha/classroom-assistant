@@ -22,7 +22,7 @@ services:
     container_name: classroom-server
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3002:3000"            # 云上对外端口 3002（学生插件默认地址），容器内仍是 3000
     volumes:
       - ./data/server:/app/packages/server/data   # SQLite（备份这个目录）
     env_file:
