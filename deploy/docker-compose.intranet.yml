@@ -1,0 +1,34 @@
+# 课堂助手内网部署（x86_64，离线镜像 load，不在内网构建）
+# 与云上 deploy/docker-compose.yml 的差异：
+#   1. server 无 build 段——镜像经百度云 buildx bake 构建后 docker save 带入，docker load 导入
+#   2. 对外端口 3000:3000（云上为 3002:3000）
+# 用法（/opt/classroom 下，目录结构 packages/server/.env 与 deploy/ 同仓库布局）：
+#   docker compose -f deploy/docker-compose.intranet.yml up -d
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: classroom-gitea
+    restart: unless-stopped
+    ports:
+      - "3001:3000"            # 宿主 3001 → Gitea 容器 3000
+    volumes:
+      - ./data/gitea:/data     # 仓库/账号数据（备份这个目录）
+
+  server:
+    image: deploy-server:latest   # 百度云构建带入的离线镜像
+    container_name: classroom-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/server:/app/packages/server/data   # SQLite（备份这个目录）
+    env_file:
+      - ../packages/server/.env
+    environment:
+      # 容器网络内直达 Gitea（覆盖 .env 里的 127.0.0.1:3001，无需改 .env）
+      GITEA_URL: http://gitea:3000
+      PORT: "3000"
+      # dashboard-v2 按天窗口依赖本地时区（dayStart）：UTC 容器会把北京时间 0-8 点算到前一天
+      TZ: Asia/Shanghai
+    depends_on:
+      - gitea
