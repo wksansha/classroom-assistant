@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch } from "vue";
 import { useClassroom } from "../stores/classroom";
 import { fmtTime, fmtAgo } from "../composables/time";
 
@@ -9,21 +9,6 @@ const detail = ref<{
   events: { ts: number; eventType: string; success: boolean; subtype: string | null; knowledge: string | null; rawMessage: string; codeSnippet?: string; category?: string }[];
   lastActivityAt: number; lastErrorAt: number | null;
 } | null>(null);
-
-const groupedEvents = computed(() => {
-  if (!detail.value?.events) return [];
-  const groups: { date: string; events: typeof detail.value.events }[] = [];
-  detail.value.events.forEach(event => {
-    const date = new Date(event.ts).toLocaleDateString("zh-CN", { year: 'numeric', month: '2-digit', day: '2-digit' });
-    const group = groups.find(g => g.date === date);
-    if (group) {
-      group.events.push(event);
-    } else {
-      groups.push({ date, events: [event] });
-    }
-  });
-  return groups;
-});
 
 watch(
   () => store.activeStudentId,
@@ -50,21 +35,18 @@ watch(
         <button class="close" @click="store.closeDrawer()">×</button>
       </header>
       <p v-if="store.activeStudent" class="meta">
-        停留：{{ fmtAgo(store.activeStudent.lastActivityAt) }}
+        本节课动态 · 停留：{{ fmtAgo(store.activeStudent.lastActivityAt) }}
       </p>
       <div v-if="detail" class="history-wrapper">
-        <div v-for="(group, idx) in groupedEvents" :key="idx" class="day-group">
-          <div class="day-header">{{ group.date }}</div>
-          <ul class="history">
-            <li v-for="(e, i) in group.events" :key="i" :class="{ success: e.success }">
-              <span class="t">{{ fmtTime(e.ts) }}</span>
-              <strong>{{ e.success ? "运行成功" : (e.subtype ?? "") }}</strong>
-              <span class="k">{{ e.knowledge ?? "" }}</span>
-              <code>{{ e.rawMessage }}</code>
-              <pre v-if="e.codeSnippet" class="snippet">{{ e.codeSnippet }}</pre>
-            </li>
-          </ul>
-        </div>
+        <ul class="history">
+          <li v-for="(e, i) in detail.events" :key="i" :class="{ success: e.success }">
+            <span class="t">{{ fmtTime(e.ts) }}</span>
+            <strong>{{ e.success ? "运行成功" : (e.subtype ?? "") }}</strong>
+            <span class="k">{{ e.knowledge ?? "" }}</span>
+            <code>{{ e.rawMessage }}</code>
+            <pre v-if="e.codeSnippet" class="snippet">{{ e.codeSnippet }}</pre>
+          </li>
+        </ul>
       </div>
       <button disabled title="V2 开放">发提示</button>
     </aside>
@@ -80,11 +62,10 @@ header h3 { margin: 0; flex: 1; }
 .status.red { background: #fef2f2; color: var(--red); }
 .status.yellow { background: #fffbeb; color: var(--yellow); }
 .status.green { background: #f0fdf4; color: var(--green); }
+.status.idle { background: #f3f4f6; color: #6b7280; }
 .close { border: none; background: none; font-size: 20px; cursor: pointer; }
 .meta { color: var(--muted); font-size: 13px; }
 .history-wrapper { margin: 12px 0; }
-.day-group { margin-bottom: 16px; }
-.day-header { font-size: 13px; font-weight: bold; color: var(--muted); margin-bottom: 6px; padding-left: 2px; }
 .history { list-style: none; padding: 0; margin: 0; }
 .history li { padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .history li.success { color: var(--green); }

@@ -35,6 +35,17 @@ describe("StudentDrawer", () => {
     expect(store.activeStudentId).toBeNull();
   });
 
+  it("本节课事件流：不按天分组，标题含「本节课」", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => detail }));
+    const { wrapper, store } = mountWithStore(StudentDrawer);
+    store.applySnapshot(makeSnapshot({ students }));
+    store.openDrawer("stu001");
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".day-group").exists()).toBe(false);
+    expect(wrapper.text()).toContain("本节课");
+  });
+
   it("未打开时不渲染", () => {
     const { wrapper } = mountWithStore(StudentDrawer);
     expect(wrapper.find(".drawer").exists()).toBe(false);
