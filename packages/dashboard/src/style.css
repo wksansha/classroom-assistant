@@ -17,7 +17,9 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
 .conn { font-size: 12px; }
 .conn.on { color: #4ade80; }
 .conn.off { color: #f87171; }
-main { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+/* —— 大屏 V2 布局（spec §3 方案 D：左右两栏 60/40；图表行二期实现）—— */
+.main-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; align-items: start; }
+.right-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 /* —— 作业评审：提交矩阵（A9/A30）—— */
 .submission-matrix { width: 100%; border-collapse: collapse; background: var(--card); font-size: 13px; }

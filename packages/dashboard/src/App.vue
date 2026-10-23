@@ -2,10 +2,9 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { useClassroom } from "./stores/classroom";
 import { connectClassroom } from "./api/sse";
-import AlertPanel from "./components/AlertPanel.vue";
+import StatusBar from "./components/StatusBar.vue";
 import StudentMatrix from "./components/StudentMatrix.vue";
-import ErrorAggPanel from "./components/ErrorAggPanel.vue";
-import SuggestionBar from "./components/SuggestionBar.vue";
+import AIPanel from "./components/AIPanel.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
 import AdminView from "./views/AdminView.vue";
 import Toast from "./components/Toast.vue";
@@ -29,17 +28,12 @@ onUnmounted(() => {
 <template>
   <AdminView v-if="isAdmin" />
   <div class="app" v-else>
-    <header class="app-header">
-      <h1>课堂教学实时助教</h1>
-      <span class="conn" :class="store.sseConnected ? 'on' : 'off'">
-        {{ store.sseConnected ? "已连接" : "连接中断，重试中…" }}
-      </span>
-    </header>
-    <SuggestionBar />
-    <AlertPanel />
-    <main>
+    <StatusBar />
+    <main class="main-grid">
       <StudentMatrix />
-      <ErrorAggPanel />
+      <div class="right-col">
+        <AIPanel />
+      </div>
     </main>
     <StudentDrawer />
   </div>
