@@ -49,7 +49,8 @@ export function computeScore(r: StudentRecord, now: number, windowStart: number)
 }
 
 export interface Aggregator {
-  recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId">;
+  /** V2（dashboard-v2 Task 9）：exerciseProgress/trend/stats 由装配层（index.ts buildSnapshot）注入 */
+  recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId" | "exerciseProgress" | "trend" | "stats">;
   ack(id: string): void;
 }
 

@@ -31,13 +31,14 @@ function provisionEntries(persistence: Persistence, gitea: GiteaAdmin, entries: 
   })();
 }
 
-export function registerRosterRoutes(app: Express, deps: { persistence: Persistence; gitea?: GiteaAdmin | null }) {
+export function registerRosterRoutes(app: Express, deps: { persistence: Persistence; gitea?: GiteaAdmin | null; onRosterChanged?: () => void }) {
   app.post("/api/roster", (req, res) => {
     const text = typeof req.body?.text === "string" ? req.body.text : "";
     const entries = parseRosterText(text);
     if (entries.length === 0) return res.status(400).json({ error: "名册为空或格式无法解析" });
     deps.persistence.replaceRoster(entries);
     logEvent({ event: "api.roster_imported", level: "info", data: { count: entries.length } });
+    deps.onRosterChanged?.();   // 矩阵全班来源刷新（dashboard-v2 spec 决策 #15）
     // 学生分支直连模型：导入成功后逐生建号+分支保护+gitSecret 入库（异步不阻塞响应；单生失败仅警告，幂等重试）
     if (deps.gitea) provisionEntries(deps.persistence, deps.gitea, entries);
     res.json({ ok: true, count: entries.length });
@@ -52,6 +53,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     if (deps.persistence.getRosterEntry(studentId)) return res.status(409).json({ error: "该学号已在名册中" });
     deps.persistence.upsertRosterEntry(studentId, studentName);
     logEvent({ event: "api.roster_entry_added", level: "info", data: { studentId } });
+    deps.onRosterChanged?.();
     if (deps.gitea) provisionEntries(deps.persistence, deps.gitea, [{ studentId, studentName }]);
     res.json({ ok: true });
   });
@@ -71,6 +73,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     if (!isValidStudentId(studentId)) return res.status(400).json({ error: "invalid studentId" });
     if (!deps.persistence.deleteRosterEntry(studentId)) return res.status(404).json({ error: "该学号不在名册中" });
     logEvent({ event: "api.roster_entry_removed", level: "info", data: { studentId } });
+    deps.onRosterChanged?.();
     res.json({ ok: true });
   });
   // —— 硬删除：Gitea 联动彻底清除（删保护→删分支→删账户）+ 名册/token 清除；Gitea 失败则名册不动可重试 ——
@@ -95,6 +98,7 @@ export function registerRosterRoutes(app: Express, deps: { persistence: Persiste
     }
     deps.persistence.purgeRosterEntry(studentId);
     logEvent({ event: "api.roster_purged", level: "info", data: { studentId } });
+    deps.onRosterChanged?.();
     res.json({ ok: true });
   });
   app.post("/api/identity/validate", (req, res) => {

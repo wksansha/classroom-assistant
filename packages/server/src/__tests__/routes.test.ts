@@ -185,12 +185,12 @@ describe("validate 名册裁决扩展（spec roster §2）", () => {
 
 describe("teacherHub.publishMessage（A9/A21）", () => {
   it("向已连接客户端写类型化消息；snapshot 流不受影响", () => {
-    const hub = createTeacherHub(() => ({ ts: 0, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [] }));
+    const hub = createTeacherHub(() => ({ ts: 0, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [], exerciseProgress: [], trend: [], stats: { online: 0, total: 0, needHelp: 0, runs: 0 } }));
     const writes: string[] = [];
     const res = { writeHead: () => {}, write: (s: string) => writes.push(s), on: () => {} } as never;
     const req = { on: () => {} } as never;
     hub.handleStream(req, res);
-    hub.publishMessage({ type: "update", data: { ts: 1, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [] } });
+    hub.publishMessage({ type: "update", data: { ts: 1, classId: "c", students: [], alerts: [], alertSummary: "", aggregates: [], suggestions: [], exerciseProgress: [], trend: [], stats: { online: 0, total: 0, needHelp: 0, runs: 0 } } });
     const sseMsg = writes.find((w) => w.includes('"update"'));
     expect(sseMsg).toContain("data: ");
   });

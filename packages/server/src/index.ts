@@ -9,6 +9,8 @@ import { createExplainService } from "./explainService";
 import { createStateManager } from "./stateManager";
 import { createAggregator } from "./aggregator";
 import { dayStart } from "./classDay";
+import { createExerciseProgressTracker } from "./exerciseProgress";
+import { createTrendTracker } from "./trend";
 import { createTeacherHub, type TeacherHub } from "./teacherHub";
 import { logEvent } from "./logger";
 import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./llmProxy";
@@ -40,16 +42,67 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   const stateManager = createStateManager();
   const cache = createCache(persistence);
   const explainService = createExplainService(cache);
+  // —— Gitea 联动（学生分支直连模型）：三环境变量齐备才启用；缺任一则跳过（info 一条）——
+  const gitea = process.env.GITEA_URL && process.env.GITEA_ADMIN_TOKEN && process.env.GITEA_REPO
+    ? createGiteaAdmin({ baseUrl: process.env.GITEA_URL, adminToken: process.env.GITEA_ADMIN_TOKEN, repo: process.env.GITEA_REPO })
+    : null;
+  if (!gitea) {
+    logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
+  }
+
+  // —— 题目涌现 + 课堂节奏（spec dashboard-v2 §5.1/§5.3/§5.4；决策 #18 无目录服务）——
+  const exerciseProgress = createExerciseProgressTracker();
+  const trend = createTrendTracker();
+
   const aggregator = createAggregator();
 
   const buildSnapshot = (): TeacherSnapshot => {
     const now = Date.now();
     const records = stateManager.listRecords();
-    // dashboard-v2：大屏数据窗口 = 当天 00:00 起（spec §4）
-    return { ts: now, classId: records[0]?.classId ?? "default", ...aggregator.recompute(records, now, dayStart(now)) };
+    // 矩阵显示全班（spec 决策 #15）：花名册中无事件记录的学生补空记录（lastActivityAt=0 → idle 灰显）
+    const seenIds = new Set(records.map((r) => r.studentId));
+    const rosterGhosts = persistence.getRoster()
+      .filter((e) => !seenIds.has(e.studentId))
+      .map((e) => ({
+        studentId: e.studentId, studentName: e.studentName,
+        classId: records[0]?.classId ?? "default",
+        events: [], lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+      }));
+    const allRecords = [...records, ...rosterGhosts];
+    const windowStart = dayStart(now);   // 大屏全部数据只看当天（spec §4）
+    const agg = aggregator.recompute(allRecords, now, windowStart);
+    const trendBuckets = trend.list(windowStart);
+    const rosterTotal = persistence.getRoster().length;   // 班级总人数（通过率分母，决策 #20）
+    // V1 单班级：records[0]?.classId 作为 classId 来源（未来多班级需改为聚合所有班级）
+    return {
+      ts: now,
+      classId: records[0]?.classId ?? "default",
+      ...agg,
+      exerciseProgress: exerciseProgress.list(windowStart).map((e) => ({
+        ...e,
+        total: rosterTotal,
+        passRate: rosterTotal === 0 ? 0 : e.passed / rosterTotal,   // 每题通过率（决策 #20）
+      })),
+      trend: trendBuckets,
+      stats: {
+        online: agg.students.filter((s) => s.online).length,   // 当天有活动的学生数（决策 #19：online 独立于状态色）
+        total: agg.students.length,
+        needHelp: agg.students.filter((s) => s.status === "red").length,
+        runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
+      },
+    };
   };
 
   const hub = createTeacherHub(buildSnapshot);
+
+  // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放**当天** review_results 与 run 事件；失败降级不阻塞服务
+  try {
+    const todayStart = dayStart(Date.now());
+    exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(todayStart));
+    for (const r of persistence.getRunEventsSince(todayStart)) trend.record(r.ts, r.success);
+  } catch (err) {
+    logEvent({ event: "warmup.failed", level: "warn", data: { error: err instanceof Error ? err.message : String(err) } });
+  }
 
   const toRow = (ev: IngressEvent): TraceEventRow => {
     const tsIso = new Date(ev.ts).toISOString();
@@ -94,9 +147,16 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
       // 非 diag/run：仅入库（spec §2：原始行必写，不解释、不进内存看板）
       if (!isDiagRunEvent(ev)) {
-        persistence.insertTraceEvent(toRow(ev));
+        const inserted = persistence.insertTraceEvent(toRow(ev));
+        // edit 活动信号（spec §5.5）：仅推进 lastActivityAt；跨越「无活动 ↔ 有活动」边界才推快照（边沿触发）
+        if (ev.surface === "edit" && inserted) {
+          const prevActivity = stateManager.touchActivity(ev.studentId, ev.studentName, ev.classId, ev.ts);
+          const windowStart = dayStart(Date.now());
+          const flipped = (prevActivity === null || prevActivity < windowStart) && ev.ts >= windowStart;
+          if (flipped) hub.publish(buildSnapshot());
+        }
         logEvent({ event: "route.event_stored", data: { eventId: ev.id, surface: ev.surface, kind: ev.kind }, durationMs: Date.now() - startTime });
-        return res.json({ ok: true, duplicated: false });
+        return res.json({ ok: true, duplicated: !inserted });
       }
 
       // diag/run：成功事件只记活动信号不解释（现状语义保持）
@@ -113,6 +173,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       }
 
       stateManager.apply(ev, explanation);
+      // 题目涌现（当天）+ 课堂节奏：run 失败置 fail；run 成败驱动 5 分钟分桶
+      if (ev.eventType === "run") {
+        if (!ev.success && ev.filePath) exerciseProgress.applyRunFailure(ev.studentId, ev.studentName, ev.filePath, ev.ts);
+        trend.record(ev.ts, ev.success);
+      }
       hub.publish(buildSnapshot());
       logEvent({ event: "route.event_processed", data: {
         eventId: ev.id, studentId: ev.studentId, surface: ev.surface, success: ev.success,
@@ -136,15 +201,17 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     res.json(snapshot);
   });
 
-  // 单生错误历史（抽屉）
+  // 单生错误历史（抽屉）：仅返回当天窗口内的事件（spec dashboard-v2 §4.2）
   app.get("/api/student/:id", (req, res) => {
     const detail = stateManager.getStudentDetail(req.params.id);
     if (!detail) {
       logEvent({ event: "api.student_not_found", level: "warn", data: { studentId: req.params.id } });
       return res.status(404).json({ error: "未找到该学生" });
     }
-    logEvent({ event: "api.student_detail", level: "debug", data: { studentId: req.params.id, eventCount: detail.events.length } });
-    res.json(detail);
+    const windowStart = dayStart(Date.now());
+    const events = detail.events.filter((e) => e.ts >= windowStart);
+    logEvent({ event: "api.student_detail", level: "debug", data: { studentId: req.params.id, eventCount: events.length } });
+    res.json({ ...detail, events });
   });
 
   // 标记建议已处理（V1 仅内存）
@@ -178,20 +245,16 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   // 作业评审路由（roster，T7）；作业域退役 + notify 退役（spec §0）：服务端无提交通道，
   // 学生提交事实以学生分支 git 历史为准，评审结果经 HTTP 响应回执 + 注入监控
-  // Gitea 管理联动（学生分支直连模型）：GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 三环境变量齐备才启用；缺任一则跳过（info 一条）
-  const gitea = process.env.GITEA_URL && process.env.GITEA_ADMIN_TOKEN && process.env.GITEA_REPO
-    ? createGiteaAdmin({ baseUrl: process.env.GITEA_URL, adminToken: process.env.GITEA_ADMIN_TOKEN, repo: process.env.GITEA_REPO })
-    : null;
-  if (!gitea) {
-    logEvent({ event: "gitea.provision_skipped", level: "info", data: { reason: "GITEA_URL/GITEA_ADMIN_TOKEN/GITEA_REPO 未全部配置" } });
-  }
   // 管理面鉴权：/api/roster 全部路由要求 X-Admin-Token（ADMIN_PASSWORD 未配置则放行，见 auth/adminAuth）
   const adminGuard = createAdminGuard(deps.adminPassword !== undefined ? deps.adminPassword : readAdminPasswordFromEnv());
   app.use("/api/roster", adminGuard.requireAdmin);
   // 管理页登录门探测：{ adminProtected } / 401
   app.get("/api/admin/session", adminGuard.sessionHandler);
 
-  registerRosterRoutes(app, { persistence, gitea });
+  registerRosterRoutes(app, {
+    persistence, gitea,
+    onRosterChanged: () => hub.publish(buildSnapshot()),   // 矩阵全班来源刷新（spec 决策 #15）
+  });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {
