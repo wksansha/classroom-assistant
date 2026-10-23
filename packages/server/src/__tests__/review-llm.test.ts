@@ -20,11 +20,11 @@ describe("parseReviewResponse", () => {
 
 describe("callReviewLLM（A4/A11）", () => {
   const input = { code: "print(1)" };
-  it("无 apiKey → mock unreviewed", async () => {
+  it("无 apiKey → not_configured（区分「未配置」与「失败」，学生端静默不提示重试）", async () => {
     const r = await callReviewLLM(input, { apiKey: "" });
     expect(r.status).toBe("unreviewed");
-    expect(r.source).toBe("mock");
-    expect(r.reason).toContain("评审服务不可用");
+    expect(r.source).toBe("not_configured");
+    expect(r.reason).toBe("评审服务未配置");
   });
   it("正常返回 → 三态透传，source=llm", async () => {
     const r = await callReviewLLM(input, { apiKey: "k", fetchImpl: okFetch('{"status":"pass","reason":"代码通过所有测试用例"}') });

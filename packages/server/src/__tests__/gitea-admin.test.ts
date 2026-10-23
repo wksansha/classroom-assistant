@@ -252,13 +252,13 @@ describe("花名册 CRUD 路由（Gitea 联动，spec roster §1.1）", () => {
 });
 
 describe("purgeStudent（spec roster §1.1 硬删除联动）", () => {
-  it("调用顺序：删分支保护(带 rule id) → 删 student-<id> 分支 → 删 Gitea 账户", async () => {
+  it("调用顺序：删分支保护(按 rule_name，Gitea 28 规则对象无 id 字段) → 删 student-<id> 分支 → 删 Gitea 账户", async () => {
     const { calls, f } = fakeGitea({ protections: [{ id: 7, rule_name: "student-0001" }] });
     const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
     await admin.purgeStudent("0001");
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "GET http://gitea.test/api/v1/repos/classroom/exercises/branch_protections",
-      "DELETE http://gitea.test/api/v1/repos/classroom/exercises/branch_protections/7",
+      "DELETE http://gitea.test/api/v1/repos/classroom/exercises/branch_protections/student-0001",
       "DELETE http://gitea.test/api/v1/repos/classroom/exercises/branches/student-0001",
       "DELETE http://gitea.test/api/v1/admin/users/0001",
     ]);
