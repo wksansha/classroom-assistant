@@ -4,12 +4,14 @@ import type {
 import type { Persistence } from "../persistence";
 import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
+import type { ExerciseProgressTracker } from "../exerciseProgress";
 import { logEvent } from "../logger";
 
 export interface ReviewRequestDeps {
   persistence: Persistence;
   reviewService: ReviewService;
   stateManager: StateManager;
+  exerciseProgress: ExerciseProgressTracker;   // 题目进度矩阵（spec dashboard-v2 §5.3）
   publishSnapshot: () => void;   // fail 注入后推全量快照（告警/聚合面板刷新）
 }
 
@@ -49,6 +51,30 @@ export function buildProjectReviewInput(files: SubmissionFile[]): string {
     .sort((a, b) => (a.path < b.path ? -1 : 1))
     .map((f) => `# ===== 文件: ${f.path} =====\n${f.content}`)
     .join("\n\n");
+}
+
+/** 评审结果落库 + 喂养题目进度（spec dashboard-v2 §5.2/§5.3）：pass/fail/unreviewed 三态均落行
+ * （本表是题目进度事实源，unreviewed 落行支撑重启回放；缓存表「unreviewed 不缓存」约束不变）；
+ * 写失败不阻塞评审响应（log warn 后继续） */
+function persistReviewResult(
+  deps: ReviewRequestDeps,
+  args: { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null },
+): void {
+  try {
+    deps.persistence.saveReviewResult({
+      studentId: args.studentId, classId: null, filePath: args.filePath,
+      status: args.status, reason: args.reason, ts: Date.now(),
+    });
+    if (args.status === "unreviewed") {
+      deps.exerciseProgress.applyUnreviewed(args.studentId, args.studentName, args.filePath, Date.now());
+    } else {
+      deps.exerciseProgress.applyReview(args.studentId, args.studentName, args.filePath, args.status, Date.now());
+    }
+  } catch (err) {
+    logEvent({ event: "review.result_persist_failed", level: "warn", data: {
+      studentId: args.studentId, error: err instanceof Error ? err.message : String(err),
+    } });
+  }
 }
 
 /** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合（评审失败等同报错） */
@@ -106,9 +132,15 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   // 评审结果驱动教师端状态（notify 已退役）：fail 等同报错进告警/聚合；pass 置绿（清零连续错误）；
   // unreviewed 为瞬态，不改变学生状态
   if (review.status === "fail") {
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "fail", reason: review.reason });
     injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   } else if (review.status === "pass") {
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "pass", reason: review.reason });
     injectReviewPass(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
+  } else {
+    // unreviewed（LLM 未配置/挂/不确定，spec 决策 #14）：不注入告警/置绿（瞬态不变学生状态），
+    // 但落进度事实表 + 待评审计数
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "unreviewed", reason: review.reason });
   }
   return { ok: true, review };
 }

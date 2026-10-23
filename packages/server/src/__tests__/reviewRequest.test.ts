@@ -1,8 +1,9 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createPersistence } from "../persistence";
 import { createStateManager } from "../stateManager";
 import { requestReview, buildProjectReviewInput, validateFiles, type ReviewRequestDeps } from "../controllers/reviewController";
 import { createReviewService } from "../reviewService";
+import { createExerciseProgressTracker } from "../exerciseProgress";
 
 function seedPersistence() {
   const p = createPersistence(":memory:");
@@ -25,12 +26,14 @@ function makeDeps(llmStatus: "pass" | "fail" | "unreviewed" = "pass") {
   }) as unknown as typeof fetch;
   const reviewService = createReviewService(p, { apiKey: "k", fetchImpl });
   const stateManager = createStateManager();
+  const exerciseProgress = createExerciseProgressTracker();   // 涌现口径（决策 #18）：filePath 直接作题 id
   const counters = { snapshotPushes: 0 };
   const deps: ReviewRequestDeps = {
     persistence: p, reviewService, stateManager,
+    exerciseProgress,
     publishSnapshot: () => { counters.snapshotPushes++; },
   };
-  return { p, deps, counters, llm, stateManager };
+  return { p, deps, counters, llm, stateManager, exerciseProgress };
 }
 
 const fileInput = { studentId: "2025001", studentName: "张三", filePath: "lesson5/a.py", code: "print(1)", commitHash: "c1" };
@@ -145,5 +148,46 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     if (r.ok) return;
     expect(r.status).toBe(400);
     expect(r.error).toBe("缺少必要字段");
+  });
+});
+
+describe("评审结果持久化与题目进度（spec dashboard-v2 §5.2/§5.3）", () => {
+  it("pass：review_results 落行（classId=null）+ 进度 passed=1", async () => {
+    const { deps, p, exerciseProgress } = makeDeps("pass");
+    await requestReview(deps, { ...fileInput, code: "print(1)" });
+    const rows = p.getReviewResultsSince(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ studentId: "2025001", filePath: "lesson5/a.py", status: "pass" });
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", passed: 1, stuck: 0, unreviewed: 0 });
+  });
+
+  it("fail：落行 + stuck=1；run 失败同为 fail；随后 pass 翻转 latest", async () => {
+    const { deps, exerciseProgress, llm } = makeDeps("fail");
+    await requestReview(deps, { ...fileInput, code: "print(1)" });
+    exerciseProgress.applyRunFailure("2025001", "张三", "lesson5/a.py", Date.now());   // run 失败同为 fail
+    expect(deps.persistence.getReviewResultsSince(0)[0].status).toBe("fail");
+    llm.status = "pass";                                                   // 换内容绕开评审缓存
+    await requestReview(deps, { ...fileInput, code: "print(2)" });
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", passed: 1, stuck: 0 });
+  });
+
+  it("unreviewed：落行 + 待评审计数（不注入告警/置绿；缓存表不缓存约束不变）", async () => {
+    const { deps, p, exerciseProgress, counters, stateManager } = makeDeps("unreviewed");
+    const r = await requestReview(deps, { ...fileInput, code: "print(1)" });
+    expect(r.ok).toBe(true);
+    expect(p.getReviewResultsSince(0)).toHaveLength(1);
+    expect(p.getReviewResultsSince(0)[0].status).toBe("unreviewed");
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", unreviewed: 1, passed: 0, stuck: 0 });
+    expect(counters.snapshotPushes).toBe(0);      // 不注入合成事件、不推快照（瞬态不变学生状态）
+    expect(stateManager.listRecords()).toHaveLength(0);
+  });
+
+  it("saveReviewResult 抛错不阻塞评审响应", async () => {
+    const { deps } = makeDeps("pass");
+    (deps.persistence as unknown as { saveReviewResult: () => void }).saveReviewResult = () => { throw new Error("db locked"); };
+    const r = await requestReview(deps, { ...fileInput, code: "print(1)" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("pass");
   });
 });

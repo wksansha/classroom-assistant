@@ -258,7 +258,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {
-    persistence, reviewService, stateManager,
+    persistence, reviewService, stateManager, exerciseProgress,
     publishSnapshot: () => hub.publish(buildSnapshot()),
   };
   registerReviewRoutes(app, reviewRequestDeps);
