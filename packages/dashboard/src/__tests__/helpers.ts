@@ -6,7 +6,10 @@ import type { TeacherSnapshot } from "@classroom/shared";
 export function makeSnapshot(overrides: Partial<TeacherSnapshot> = {}): TeacherSnapshot {
   return {
     ts: 1, classId: "3A", students: [], alerts: [],
-    alertSummary: "其余 0 人正常", aggregates: [], suggestions: [], ...overrides,
+    alertSummary: "其余 0 人正常", aggregates: [], suggestions: [],
+    exerciseProgress: [], trend: [],
+    stats: { online: 0, total: 0, needHelp: 0, runs: 0 },
+    ...overrides,
   };
 }
 
