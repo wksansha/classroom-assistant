@@ -4,7 +4,7 @@ import { makeSnapshot, mountWithStore } from "./helpers";
 import type { StudentState, StatusColor } from "@classroom/shared";
 
 const students: StudentState[] = [
-  { studentId: "stu001", studentName: "张三", status: "red" as StatusColor, priorityScore: 70, lastActivityAt: 5 * 60_000, lastErrorAt: 5 * 60_000, errorCountTotal: 3, recentErrors: [] },
+  { studentId: "stu001", studentName: "张三", status: "red" as StatusColor, online: true, priorityScore: 70, lastActivityAt: 5 * 60_000, lastErrorAt: 5 * 60_000, errorCountTotal: 3, recentErrors: [] },
 ];
 
 const detail = {
