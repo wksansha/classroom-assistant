@@ -11,8 +11,11 @@ export interface StudentState {
   studentId: string;
   studentName: string;
   status: StatusColor;
-  /** 未在线标识（决策 #19）：当天无任何活动 = false，矩阵瓦片变暗+灰点（不占状态） */
+  /** 未在线标识（决策 #19）：当天无任何活动 = false，矩阵瓦片变暗+灰点（不占状态）。
+   * 会话模型：存在「未关闭且当天有活动」的窗口会话才算在线（切换学号关闭本机会话后立即下线） */
   online: boolean;
+  /** 并发在线机器数：未关闭且 10 分钟内有活动的窗口会话数（≥2 时矩阵瓦片右上角显示 ×N） */
+  machineCount: number;
   priorityScore: number;
   lastActivityAt: number | null;
   lastErrorAt: number | null;

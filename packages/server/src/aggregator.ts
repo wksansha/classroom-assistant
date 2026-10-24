@@ -3,6 +3,7 @@ import type {
 } from "@classroom/shared";
 import type { StatusColor } from "@classroom/shared";
 import type { StudentRecord, StoredEvent } from "./stateManager";
+import { isStudentOnline, countAliveMachines } from "./stateManager";
 import { logEvent } from "./logger";
 
 const FIVE_MIN = 5 * 60_000;
@@ -77,17 +78,19 @@ export function createAggregator(): Aggregator {
         return {
           studentId: r.studentId, studentName: r.studentName,
           status: computeStatus(r, now, windowStart),
-          online: r.lastActivityAt >= windowStart,   // 未在线标识：当天无活动 = false（变暗+灰点，不占状态）
+          // 登录态在线模型：确认身份且机器存活（心跳未超时）才算在线；活动事件与在线解耦
+          online: isStudentOnline(r),
+          machineCount: countAliveMachines(r),
           priorityScore: computeScore(r, now, windowStart),
           lastActivityAt: r.lastActivityAt, lastErrorAt: r.lastErrorAt,
           errorCountTotal: errors.length, recentErrors,
         };
       });
 
-      // ── 告警（score>0 前 5）────────────────────
+      // ── 告警（score>0 前 5）：未在线（未确认/已下线）学生排除，不占急需帮助位 ──
       const scored = records
         .map((r, i) => ({ r, score: students[i].priorityScore }))
-        .filter((x) => x.score > 0)
+        .filter((x, i) => x.score > 0 && students[i].online)
         .sort((a, b) => b.score - a.score);
       const alerts: AlertItem[] = scored.slice(0, 5).map(({ r, score }) => {
         const lastErr = [...r.events].reverse().find((e) => !e.success && isWithinClassWindow(e.ts, windowStart));

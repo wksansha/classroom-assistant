@@ -4,10 +4,10 @@ import { makeSnapshot, mountWithStore } from "./helpers";
 import type { StudentState, StatusColor } from "@classroom/shared";
 
 const students: StudentState[] = [
-  { studentId: "stu001", studentName: "张三", status: "red" as StatusColor, online: true, priorityScore: 70, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 3, recentErrors: [{ ts: 1, subtype: "缺少冒号", knowledge: "k", rawMessage: "m" }] },
-  { studentId: "stu002", studentName: "李四", status: "yellow" as StatusColor, online: true, priorityScore: 15, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 1, recentErrors: [] },
-  { studentId: "stu003", studentName: "王五", status: "green" as StatusColor, online: true, priorityScore: 0, lastActivityAt: 1, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
-  { studentId: "stu004", studentName: "赵六", status: "green" as StatusColor, online: false, priorityScore: 0, lastActivityAt: null, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
+  { studentId: "stu001", studentName: "张三", status: "red" as StatusColor, online: true, machineCount: 2, priorityScore: 70, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 3, recentErrors: [{ ts: 1, subtype: "缺少冒号", knowledge: "k", rawMessage: "m" }] },
+  { studentId: "stu002", studentName: "李四", status: "yellow" as StatusColor, online: true, machineCount: 1, priorityScore: 15, lastActivityAt: 1, lastErrorAt: 1, errorCountTotal: 1, recentErrors: [] },
+  { studentId: "stu003", studentName: "王五", status: "green" as StatusColor, online: true, machineCount: 1, priorityScore: 0, lastActivityAt: 1, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
+  { studentId: "stu004", studentName: "赵六", status: "green" as StatusColor, online: false, machineCount: 0, priorityScore: 0, lastActivityAt: null, lastErrorAt: null, errorCountTotal: 0, recentErrors: [] },
 ];
 
 describe("StudentMatrix", () => {
@@ -32,6 +32,17 @@ describe("StudentMatrix", () => {
     expect(tiles[3].classes()).toContain("offline");
     expect(tiles[3].classes()).toContain("green");   // 状态不占，仍 green
     expect(wrapper.text()).toContain("未在线 1 人");
+  });
+
+  it("多机徽标：machineCount ≥ 2 显示 ×N，单机/未在线不显示（登录态在线模型）", async () => {
+    const { wrapper, store } = mountWithStore(StudentMatrix);
+    store.applySnapshot(makeSnapshot({ students }));
+    await wrapper.vm.$nextTick();
+    const tiles = wrapper.findAll(".tile");
+    expect(tiles[0].find(".machine-badge").text()).toBe("×2");
+    expect(tiles[1].find(".machine-badge").exists()).toBe(false);
+    expect(tiles[2].find(".machine-badge").exists()).toBe(false);
+    expect(tiles[3].find(".machine-badge").exists()).toBe(false);
   });
 
   it("点击格子打开抽屉", async () => {

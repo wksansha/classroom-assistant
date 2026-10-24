@@ -41,6 +41,7 @@ function tooltip(recent: RecentError[]): string {
         @click="store.openDrawer(s.studentId)"
       >
         <span class="dot" />{{ s.studentName }}
+        <span v-if="s.machineCount >= 2" class="machine-badge" :title="`${s.machineCount} 台电脑在线`">×{{ s.machineCount }}</span>
       </div>
     </div>
     <p v-else class="empty">等待学生上报…</p>
@@ -57,7 +58,8 @@ function tooltip(recent: RecentError[]): string {
 .counts .green { background: #f0fdf4; color: var(--green); padding: 2px 8px; border-radius: 4px; }
 .counts .off-legend { color: var(--muted); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
-.tile { display: flex; align-items: center; gap: 6px; padding: 12px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 16px; }
+.tile { display: flex; align-items: center; gap: 6px; padding: 12px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 16px; position: relative; }
+.machine-badge { position: absolute; top: -6px; right: -6px; background: var(--accent); color: #fff; font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 8px; }
 .tile:hover { border-color: var(--accent); }
 .tile.red { background: #fef2f2; }
 .tile.yellow { background: #fffbeb; }

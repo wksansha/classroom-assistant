@@ -67,6 +67,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         studentId: e.studentId, studentName: e.studentName,
         classId: records[0]?.classId ?? "default",
         events: [], lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+        machines: new Map(),
       }));
     const allRecords = [...records, ...rosterGhosts];
     const windowStart = dayStart(now);   // 大屏全部数据只看当天（spec §4）
@@ -85,7 +86,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       })),
       trend: trendBuckets,
       stats: {
-        online: agg.students.filter((s) => s.online).length,   // 当天有活动的学生数（决策 #19：online 独立于状态色）
+        online: agg.students.filter((s) => s.online).length,   // 登录态在线：已确认身份且机器存活（心跳未超时）
         total: agg.students.length,
         needHelp: agg.students.filter((s) => s.status === "red").length,
         runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
@@ -148,12 +149,26 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       // 非 diag/run：仅入库（spec §2：原始行必写，不解释、不进内存看板）
       if (!isDiagRunEvent(ev)) {
         const inserted = persistence.insertTraceEvent(toRow(ev));
-        // edit 活动信号（spec §5.5）：仅推进 lastActivityAt；跨越「无活动 ↔ 有活动」边界才推快照（边沿触发）
+        // edit 活动信号（spec §5.5）：仅推进 lastActivityAt（展示用途，与在线判定解耦）；
+        // 跨越「无活动 ↔ 有活动」边界才推快照（边沿触发）
         if (ev.surface === "edit" && inserted) {
           const prevActivity = stateManager.touchActivity(ev.studentId, ev.studentName, ev.classId, ev.ts);
           const windowStart = dayStart(Date.now());
           const flipped = (prevActivity === null || prevActivity < windowStart) && ev.ts >= windowStart;
           if (flipped) hub.publish(buildSnapshot());
+        }
+        // 登录/登出信号（登录态在线模型）：机器会话翻转才推快照（边沿触发）
+        if (inserted && ev.surface === "behavior") {
+          const machineId = typeof ev.payload.machine_id === "string" ? ev.payload.machine_id : "";
+          if (ev.kind === "identity_confirmed" && machineId) {
+            if (stateManager.confirmLogin(ev.studentId, ev.studentName, ev.classId, machineId, Date.now())) {
+              hub.publish(buildSnapshot());
+            }
+          } else if (ev.kind === "session_end" && machineId) {
+            if (stateManager.logout(ev.studentId, machineId)) {
+              hub.publish(buildSnapshot());
+            }
+          }
         }
         logEvent({ event: "route.event_stored", data: { eventId: ev.id, surface: ev.surface, kind: ev.kind }, durationMs: Date.now() - startTime });
         return res.json({ ok: true, duplicated: !inserted });
@@ -193,6 +208,27 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       return res.status(500).json({ error: "服务器内部错误" });
     }
   });
+
+  // 心跳（登录态在线模型）：只更新内存机器会话，不落任何库（避免污染 trace_events/画像数据）
+  app.post("/api/heartbeat", (req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const studentId = typeof b.student_id === "string" ? b.student_id : "";
+    const machineId = typeof b.machine_id === "string" ? b.machine_id : "";
+    if (!studentId || !/^[A-Za-z0-9_-]+$/.test(studentId) || studentId === "unknown" || !machineId || machineId.length > 128) {
+      return res.status(400).json({ error: "参数非法" });
+    }
+    const studentName = typeof b.student_name === "string" && b.student_name ? b.student_name : studentId;
+    const flipped = stateManager.heartbeat(studentId, studentName, "default", machineId, Date.now());
+    if (flipped) hub.publish(buildSnapshot());
+    return res.json({ ok: true });
+  });
+
+  // 心跳超时扫描（登录态在线模型）：机器断电/闪退无信号，超时置离线；仅翻转时推快照。
+  // unref：不阻塞进程退出（测试环境不挂起 jest）
+  const sweepTimer = setInterval(() => {
+    if (stateManager.sweep(Date.now())) hub.publish(buildSnapshot());
+  }, 30_000);
+  sweepTimer.unref();
 
   // 全量快照（首载/断线重连补齐）
   app.get("/api/summary", (_req, res) => {

@@ -18,7 +18,7 @@ describe("classroom store（服务端快照的镜像）", () => {
     const s = useClassroom();
     s.applySnapshot(makeSnapshot({
       students: [{
-        studentId: "stu001", studentName: "张三", status: "green", online: true, priorityScore: 0,
+        studentId: "stu001", studentName: "张三", status: "green", online: true, machineCount: 1, priorityScore: 0,
         lastActivityAt: 1, lastErrorAt: null, errorCountTotal: 0, recentErrors: [],
       }],
     }));

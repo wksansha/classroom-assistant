@@ -52,6 +52,8 @@ export interface NormalizedEvent {
   lineNo?: number;
   /** epoch ms */
   ts: number;
+  /** 窗口实例级会话标识（vscode.env.sessionId）；旧客户端/聊天对话 id 除外。会话级在线判定与多机计数依赖此字段 */
+  sessionId?: string;
 }
 
 /**

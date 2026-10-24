@@ -19,6 +19,8 @@ function student(id: string, name: string, events: StoredEvent[], consecutiveErr
     lastErrorAt: errors.at(-1)?.ts ?? null,
     lastResolvedAt: null,
     consecutiveErrors,
+    // 默认在线（本文件聚焦告警/聚合/建议逻辑；在线排除语义在 loginState.test.ts 覆盖）
+    machines: new Map([["m1", { lastAliveAt: NOW, closed: false, closedBy: null }]]),
   };
 }
 

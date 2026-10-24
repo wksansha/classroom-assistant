@@ -29,7 +29,7 @@ describe("按天窗口与 V2 快照（spec dashboard-v2）", () => {
     expect(res.body.classSession).toBeUndefined();
   });
 
-  it("edit 事件：首次跨边界推快照 + 学生转活跃；同窗口连续 edit 不再推；幂等命中不推", async () => {
+  it("edit 事件：首次跨边界推快照 + lastActivityAt 推进；同窗口连续 edit 不再推；幂等命中不推；活动不点亮在线（登录态模型）", async () => {
     const { app, pushes } = makeApp();
     await request(app).post("/api/events").send(editBody(1)).expect(200);
     expect(pushes).toHaveBeenCalledTimes(1);
@@ -39,7 +39,7 @@ describe("按天窗口与 V2 快照（spec dashboard-v2）", () => {
     expect(pushes).toHaveBeenCalledTimes(1);          // 幂等命中跳过
     const summary = await request(app).get("/api/summary").expect(200);
     expect(summary.body.students[0]).toMatchObject({ studentId: "2025001", status: "green" });
-    expect(summary.body.stats).toMatchObject({ online: 1, total: 1 });
+    expect(summary.body.stats).toMatchObject({ online: 0, total: 1 });   // 活动事件不等于在线，需身份确认（登录态模型）
   });
 
   it("run 失败事件：当天涌现题 stuck=1 + 通过率（花名册分母）+ 趋势 errors 桶", async () => {
