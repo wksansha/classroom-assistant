@@ -9,7 +9,7 @@ git pull origin main
 
 echo "==> buildx bake（compose up --build 不支持透传 network.host 授权，必须走 bake）"
 cd deploy
-docker buildx bake -f docker-compose.yml --allow=network.host
+docker buildx bake -f docker-compose.yml --allow=network.host --allow=fs.read=..
 
 echo "==> compose up"
 cd ..
