@@ -38,6 +38,11 @@ export interface AppDeps {
 }
 
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
+  // —— public-lite 精简部署开关（LITE_MODE=1）——
+  // 1) /api/events 仅收 run 与 behavior（登录态信号），edit/diag/debug 静默 204 丢弃
+  // 2) 不做 LLM 解释；3) 不注册评审路由与聊天代理（显式 404 JSON）。
+  // 决策背景：docs/superpowers/reports/2026-10-27-public-server-overload-incident-postmortem.md
+  const lite = process.env.LITE_MODE === "1";
   const persistence = createPersistence(deps.dbPath);
   const stateManager = createStateManager();
   const cache = createCache(persistence);
@@ -141,6 +146,12 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         return res.status(400).json({ error: "student_id 非法" });
       }
 
+      // public-lite：实时通道仅保留 run（运行信号）与 behavior（登录态信号）；
+      // 其余（edit/diag/debug）静默 204 丢弃——不入库、不解释、不推送、不留日志（防日志洪峰）
+      if (lite && ev.surface !== "run" && ev.surface !== "behavior") {
+        return res.status(204).end();
+      }
+
       logEvent({ event: "route.event_received", data: {
         eventId: ev.id, studentId: ev.studentId, studentName: ev.studentName, classId: ev.classId,
         surface: ev.surface, kind: ev.kind, success: ev.success, ts: ev.ts,
@@ -174,8 +185,8 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         return res.json({ ok: true, duplicated: !inserted });
       }
 
-      // diag/run：成功事件只记活动信号不解释（现状语义保持）
-      const explanation = ev.success ? null : await explainService.explain(ev);
+      // diag/run：成功事件只记活动信号不解释（现状语义保持）；lite 不做 LLM 解释
+      const explanation = ev.success || lite ? null : await explainService.explain(ev);
       const inserted = persistence.insertTraceEvent(toRow(ev), explanation ? {
         category: explanation.category, subtype: explanation.subtype,
         knowledge: explanation.knowledge, source: explanation.source,
@@ -293,25 +304,39 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   });
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
-  const reviewRequestDeps: ReviewRequestDeps = {
-    persistence, reviewService, stateManager, exerciseProgress,
-    publishSnapshot: () => hub.publish(buildSnapshot()),
-  };
-  registerReviewRoutes(app, reviewRequestDeps);
+  // lite 不注册（评审外呼清零），显式 404 JSON 提示
+  if (lite) {
+    app.use("/api/reviews", (_req, res) => {
+      res.status(404).json({ error: "lite 部署未启用评审" });
+    });
+  } else {
+    const reviewRequestDeps: ReviewRequestDeps = {
+      persistence, reviewService, stateManager, exerciseProgress,
+      publishSnapshot: () => hub.publish(buildSnapshot()),
+    };
+    registerReviewRoutes(app, reviewRequestDeps);
+  }
 
   // L1 全量归档（独立于分析链路，只写 trace_events 原始表；按 event_id 幂等）
   registerTraceArchiveRoutes(app, { persistence });
 
   // LLM 聊天代理（学生端 teacher provider → 服务器 .env 配置的大模型）
   // 门禁：名册已导入时校验 X-Student-Id + 按学号限流（防陌生人/冒用学号刷额度），名册为空放行
-  app.use(
-    "/api/llm/chat/completions",
-    createLlmGate({
-      hasRoster: () => persistence.getRoster().length > 0,
-      isRosterStudent: (studentId) => persistence.getRosterEntry(studentId) !== null,
-    }),
-  );
-  registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
+  // lite 不注册代理，显式 404 JSON 提示
+  if (lite) {
+    app.use("/api/llm/chat/completions", (_req, res) => {
+      res.status(404).json({ error: "lite 部署未启用聊天" });
+    });
+  } else {
+    app.use(
+      "/api/llm/chat/completions",
+      createLlmGate({
+        hasRoster: () => persistence.getRoster().length > 0,
+        isRosterStudent: (studentId) => persistence.getRosterEntry(studentId) !== null,
+      }),
+    );
+    registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
+  }
 
   // 生产：托管 dashboard 构建产物
   if (deps.staticDir) {
