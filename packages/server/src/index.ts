@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import fs from "node:fs";
 import path from "node:path";
 import type { TeacherSnapshot, IngressEvent } from "@classroom/shared";
 import { createPersistence, type TraceEventRow } from "./persistence";
@@ -35,6 +36,8 @@ export interface AppDeps {
   reviewConfig?: ReviewLlmOptions | null;
   /** 管理密码；缺省读环境变量 ADMIN_PASSWORD（空 = 管理接口不设防，本地开发兼容） */
   adminPassword?: string;
+  /** 插件分发目录（含 manifest.json 与 .vsix）；缺省 packages/server/public/downloads/pylearner，传 null 禁用 */
+  downloadsDir?: string | null;
 }
 
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
@@ -312,6 +315,24 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     }),
   );
   registerLlmProxy(app, deps.llmConfig !== undefined ? deps.llmConfig : readLlmConfigFromEnv());
+
+  // —— 插件云分发（学生端一键更新）：清单 + 安装包只读托管 ——
+  // 目录缺省 packages/server/public/downloads/pylearner（Docker 卷挂载点，教师更新插件不重建镜像）；
+  // manifest.json 缺失/非法 → 404，插件端静默忽略（服务器未放包时与今天行为一致）
+  const downloadsDir = deps.downloadsDir !== undefined
+    ? deps.downloadsDir
+    : path.resolve(__dirname, "..", "public", "downloads", "pylearner");
+  if (downloadsDir) {
+    app.get("/api/pylearner/latest", (_req, res) => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(downloadsDir, "manifest.json"), "utf-8"));
+        res.json(manifest);
+      } catch {
+        res.status(404).json({ error: "manifest not found" });
+      }
+    });
+    app.use("/downloads/pylearner", express.static(downloadsDir));
+  }
 
   // 生产：托管 dashboard 构建产物
   if (deps.staticDir) {

@@ -25,6 +25,7 @@ services:
       - "3002:3000"            # 云上对外端口 3002（学生插件默认地址），容器内仍是 3000
     volumes:
       - ./data/server:/app/packages/server/data   # SQLite（备份这个目录）
+      - ./data/server/downloads:/app/packages/server/public/downloads   # 插件分发目录（vsix + manifest.json，更新插件不重建镜像）
     env_file:
       - ../packages/server/.env
     environment:
