@@ -141,3 +141,49 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .dialog .dialog-cancel, .dialog .dialog-confirm { padding: 6px 16px; font-size: 13px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); }
 .dialog .dialog-confirm { border-color: var(--accent); color: var(--accent); }
 .dialog .dialog-confirm.danger { border-color: var(--red); background: var(--red); color: #fff; }
+
+/* —— 科技荧光风主题（spec 2026-11-04 §3；作用域限定主视图 .app，admin 域不受影响）—— */
+.app {
+  --tech-card-grad: linear-gradient(180deg, rgba(16, 42, 80, 0.55), rgba(8, 20, 42, 0.75));
+  --tech-card-border: rgba(63, 140, 255, 0.45);
+  --tech-card-glow: 0 0 14px rgba(30, 100, 220, 0.25), inset 0 0 24px rgba(30, 90, 200, 0.12);
+  --tech-corner: #7ce7ff;
+  --tech-cyan: #7ce7ff;
+  --tech-blue: #3fa9ff;
+  --tech-red: #ff5f6d;
+  --tech-yellow: #ffc53d;
+  --tech-green: #22c55e;
+  --tech-offline: rgba(90, 120, 160, 0.25);
+  --text-primary: #d8ecff;
+  --text-secondary: #9fd4ff;
+  --text-dim: #5d7fa6;
+  min-height: 100vh;
+  color: var(--text-primary);
+  /* 星空渐变底 + 两层 36px 网格纹理（spec §4.6；多背景分层避免伪元素遮挡内容） */
+  background:
+    linear-gradient(rgba(56, 132, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 132, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(1200px 500px at 50% -100px, #0b1e3a 0%, #060d1a 55%, #04070d 100%);
+  background-size: 36px 36px, 36px 36px, auto;
+}
+.app .tech-card {
+  position: relative;
+  background: var(--tech-card-grad);
+  border: 1px solid var(--tech-card-border);
+  border-radius: 2px;
+  box-shadow: var(--tech-card-glow);
+}
+.app .tech-card::before,
+.app .tech-card::after {
+  content: ""; position: absolute; width: 10px; height: 10px;
+  border: 2px solid var(--tech-corner);
+}
+.app .tech-card::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.app .tech-card::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+.app .tech-title {
+  margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
+  text-align: center; color: var(--text-secondary); font-size: 14px; font-weight: 700;
+  letter-spacing: 3px; text-shadow: 0 0 8px rgba(80, 160, 255, 0.7);
+}
+.app .tech-title::before { content: "›››"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
+.app .tech-title::after { content: "‹‹‹"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
