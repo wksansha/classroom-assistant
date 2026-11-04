@@ -26,7 +26,7 @@ async function ack(id: string) {
 </script>
 
 <template>
-  <section class="ai-panel" v-if="store.snapshot">
+  <section class="ai-panel tech-card" v-if="store.snapshot">
     <div class="panel-head">
       <span class="ai-badge">AI</span>
       <h2>教学建议</h2>
@@ -41,17 +41,31 @@ async function ack(id: string) {
 </template>
 
 <style scoped>
-.ai-panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
-.panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.ai-badge { background: #7c3aed; color: #fff; font-size: 12px; font-weight: 700; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
-.ai-panel h2 { margin: 0; font-size: 18px; }
-.card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; padding: 12px; margin-bottom: 10px; }
-.card.class-review { border-left-color: var(--red); }
-.card.group-discuss { border-left-color: var(--yellow); }
-.card.individual { border-left-color: var(--green); }
-.kind-tag { font-size: 12px; color: var(--muted); }
-.text { margin: 0; font-size: 15px; line-height: 1.5; }
-.card button { align-self: flex-end; padding: 4px 12px; font-size: 13px; border: 1px solid var(--border); background: var(--card); border-radius: 6px; cursor: pointer; }
-.card button:hover { border-color: var(--accent); color: var(--accent); }
-.empty { color: var(--muted); font-size: 14px; }
+.ai-panel { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.ai-badge {
+  background: rgba(63, 169, 255, 0.2); color: var(--tech-cyan);
+  border: 1px solid var(--tech-blue);
+  font-size: 12px; font-weight: 700; border-radius: 2px; padding: 2px 8px;
+  letter-spacing: 2px; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
+}
+.ai-panel h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
+.card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  background: rgba(20, 50, 100, 0.4); border: 1px solid rgba(63, 140, 255, 0.25);
+  border-left: 4px solid var(--tech-blue);
+  border-radius: 2px; padding: 12px; margin-bottom: 2px;
+}
+.card.class-review { border-left-color: var(--tech-red); }
+.card.group-discuss { border-left-color: var(--tech-yellow); }
+.card.individual { border-left-color: var(--tech-green); }
+.kind-tag { font-size: 12px; color: var(--text-dim); }
+.text { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-primary); }
+.card button {
+  align-self: flex-end; padding: 4px 12px; font-size: 13px; cursor: pointer;
+  border: 1px solid rgba(63, 140, 255, 0.4); background: transparent; color: var(--text-secondary);
+  border-radius: 2px;
+}
+.card button:hover { border-color: var(--tech-cyan); color: var(--tech-cyan); }
+.empty { color: var(--text-dim); font-size: 14px; text-align: center; }
 </style>
