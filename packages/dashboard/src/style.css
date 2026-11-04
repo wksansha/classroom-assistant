@@ -158,6 +158,8 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
   --text-secondary: #9fd4ff;
   --text-dim: #5d7fa6;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;   /* 投屏 1080p 一屏铺满：内容不足时图表行弹性拉伸补位，超出时内部滚动 */
   color: var(--text-primary);
   /* 星空渐变底 + 两层 36px 网格纹理（spec §4.6；多背景分层避免伪元素遮挡内容） */
   background:
@@ -188,7 +190,7 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .app .tech-title::before { content: "›››"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
 .app .tech-title::after { content: "‹‹‹"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
 
-/* —— 四图表行（spec 2026-11-04 §4.5）—— */
-.app .charts-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; align-items: stretch; }
+/* —— 四图表行（spec 2026-11-04 §4.5；flex:1 接管主区以下全部剩余高度，投屏无底部空白）—— */
+.app .charts-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; align-items: stretch; flex: 1; min-height: 0; }
 .app .charts-row > .chart-card { min-width: 0; }
 .app .chart-wrap canvas { max-width: 100%; }

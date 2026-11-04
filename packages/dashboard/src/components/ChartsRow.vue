@@ -208,12 +208,12 @@ watch(
 
 <style scoped>
 /* .charts-row 网格定义在全局 style.css（Step 5），此处只写卡内样式 */
-.chart-card { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.chart-card { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .chart-card h2 { font-size: 13px; }
 .comp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .comp-head .overall { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-size: 22px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
-.chart-wrap { height: 240px; position: relative; }
+.chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
 .done-note { margin: 0; font-size: 12px; color: var(--text-dim); text-align: center; }
 .empty { margin: auto 0; color: var(--text-dim); font-size: 13px; text-align: center; }
 </style>
