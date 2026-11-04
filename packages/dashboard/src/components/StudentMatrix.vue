@@ -21,15 +21,13 @@ function tooltip(recent: RecentError[]): string {
 </script>
 
 <template>
-  <section class="matrix" v-if="store.snapshot">
-    <div class="header">
-      <h2>全班状态</h2>
-      <div class="counts">
-        <span class="red">🔴 卡住 {{ statusCounts.red }} 人</span>
-        <span class="yellow">🟡 有错误 {{ statusCounts.yellow }} 人</span>
-        <span class="green">🟢 正常 {{ statusCounts.green }} 人</span>
-        <span class="off-legend">⚪ 未在线 {{ statusCounts.offline }} 人</span>
-      </div>
+  <section class="matrix tech-card" v-if="store.snapshot">
+    <h2 class="tech-title">全班状态</h2>
+    <div class="counts">
+      <span class="red">🔴 卡住 {{ statusCounts.red }} 人</span>
+      <span class="yellow">🟡 有错误 {{ statusCounts.yellow }} 人</span>
+      <span class="green">🟢 正常 {{ statusCounts.green }} 人</span>
+      <span class="off-legend">⚪ 未在线 {{ statusCounts.offline }} 人</span>
     </div>
     <div class="grid" v-if="store.snapshot.students.length">
       <div
@@ -49,26 +47,33 @@ function tooltip(recent: RecentError[]): string {
 </template>
 
 <style scoped>
-.matrix { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
-.matrix .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.matrix h2 { margin: 0; font-size: 18px; }
-.counts { display: flex; gap: 8px; font-size: 14px; }
-.counts .red { background: #fef2f2; color: var(--red); padding: 2px 8px; border-radius: 4px; }
-.counts .yellow { background: #fffbeb; color: var(--yellow); padding: 2px 8px; border-radius: 4px; }
-.counts .green { background: #f0fdf4; color: var(--green); padding: 2px 8px; border-radius: 4px; }
-.counts .off-legend { color: var(--muted); }
+.matrix { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.counts { display: flex; gap: 14px; font-size: 13px; justify-content: center; }
+.counts .red { color: var(--tech-red); text-shadow: 0 0 6px rgba(255, 95, 109, 0.6); }
+.counts .yellow { color: var(--tech-yellow); text-shadow: 0 0 6px rgba(255, 197, 61, 0.5); }
+.counts .green { color: var(--tech-green); text-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+.counts .off-legend { color: var(--text-dim); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
-.tile { display: flex; align-items: center; gap: 6px; padding: 12px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 16px; position: relative; }
-.machine-badge { position: absolute; top: -6px; right: -6px; background: var(--accent); color: #fff; font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 8px; }
-.tile:hover { border-color: var(--accent); }
-.tile.red { background: #fef2f2; }
-.tile.yellow { background: #fffbeb; }
-.tile.green { background: #f0fdf4; }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.tile.red .dot { background: var(--red); }
-.tile.yellow .dot { background: var(--yellow); }
-.tile.green .dot { background: var(--green); }
-.tile.offline { opacity: 0.45; }
-.tile.offline .dot { background: #9ca3af; }
-.empty { color: var(--muted); font-size: 13px; }
+.tile {
+  display: flex; align-items: center; gap: 6px; padding: 12px 10px;
+  border: 1px solid var(--tech-card-border); border-radius: 2px; cursor: pointer;
+  font-size: 16px; position: relative;
+  background: rgba(20, 50, 100, 0.4); color: var(--text-primary);
+}
+.tile:hover { border-color: var(--tech-cyan); }
+.tile.red { border-color: rgba(255, 95, 109, 0.6); }
+.tile.yellow { border-color: rgba(255, 197, 61, 0.5); }
+.tile.green { border-color: rgba(34, 197, 94, 0.5); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tile.red .dot { background: var(--tech-red); box-shadow: 0 0 8px rgba(255, 95, 109, 0.9); }
+.tile.yellow .dot { background: var(--tech-yellow); box-shadow: 0 0 8px rgba(255, 197, 61, 0.7); }
+.tile.green .dot { background: var(--tech-green); box-shadow: 0 0 8px rgba(34, 197, 94, 0.7); }
+.tile.offline { opacity: 0.45; background: var(--tech-offline); }
+.tile.offline .dot { background: #5d7fa6; box-shadow: none; }
+.machine-badge {
+  position: absolute; top: -6px; right: -6px;
+  background: var(--tech-blue); color: #04070d; font-size: 11px; line-height: 1;
+  padding: 3px 5px; border-radius: 8px; font-weight: 700;
+}
+.empty { color: var(--text-dim); font-size: 13px; text-align: center; }
 </style>
