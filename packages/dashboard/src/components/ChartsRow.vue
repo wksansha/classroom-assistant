@@ -2,11 +2,11 @@
 import { computed, onMounted, onBeforeUnmount, watch, nextTick, ref } from "vue";
 import {
   Chart, DoughnutController, ArcElement, BarController, BarElement,
-  LineController, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
+  LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
 } from "chart.js";
 import { useClassroom } from "../stores/classroom";
 
-Chart.register(DoughnutController, ArcElement, BarController, BarElement, LineController, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
+Chart.register(DoughnutController, ArcElement, BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 

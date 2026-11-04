@@ -22,7 +22,7 @@ vi.mock("chart.js", () => {
     Chart: MockChart,
     DoughnutController: stub, ArcElement: stub,
     BarController: stub, BarElement: stub,
-    LineController: stub, PointElement: stub, Filler: stub,
+    LineController: stub, LineElement: stub, PointElement: stub, Filler: stub,
     CategoryScale: stub, LinearScale: stub,
     Tooltip: stub, Legend: stub,
   };
