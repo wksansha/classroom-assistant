@@ -8,12 +8,15 @@ vi.mock("chart.js", () => {
   class MockChart {
     static register = vi.fn();
     static defaults: Record<string, unknown> = {};
+    /** 对齐真实 chart.js：实例持有构造时传入的 canvas（供组件失绑校验 chart.canvas === ref.value） */
+    canvas = {} as HTMLCanvasElement;
     data = { labels: [] as string[], datasets: [{ data: [] as number[] }] };
     options: Record<string, unknown> = {};
     update = vi.fn();
     destroy = vi.fn();
     /** 对齐真实 chart.js：实例 data 取自构造参数（否则组件写 datasets[1]/[2] 会踩空） */
     constructor(_el: unknown, config?: { data?: { labels: string[]; datasets: { data: number[] }[] } }) {
+      if (_el) this.canvas = _el as HTMLCanvasElement;
       if (config?.data) this.data = config.data;
     }
   }
@@ -84,5 +87,24 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(empty.wrapper.text()).toContain("暂无错误数据");
     expect(empty.wrapper.text()).toContain("暂无学生数据");
     expect(empty.wrapper.text()).toContain("暂无运行数据");
+  });
+
+  it("空态→有数据→空态→再有数据往返：图表实例随 canvas 重建不失绑", async () => {
+    const { wrapper, store } = mountWithStore(ChartsRow);
+    const snapWithData = () => makeSnapshot({
+      students,
+      aggregates,
+      exerciseProgress,
+      trend: [{ tStart: 1, runs: 2, errors: 1 }],
+    });
+    store.applySnapshot(snapWithData());
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll("canvas")).toHaveLength(4);
+    store.applySnapshot(makeSnapshot());               // → 空态（canvas 卸载）
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll("canvas")).toHaveLength(0);
+    store.applySnapshot(snapWithData());               // → 再有数据（canvas 重建）
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll("canvas")).toHaveLength(4); // 修复前：此断言失败（旧实例跳过 init）
   });
 });

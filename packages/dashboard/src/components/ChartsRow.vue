@@ -46,7 +46,12 @@ const statusCounts = computed(() => {
 
 // 四卡各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
 function initCompletion() {
-  if (completionChart || !completionRef.value) return;
+  if (!completionRef.value) return;
+  if (completionChart) {
+    if (completionChart.canvas === completionRef.value) return;
+    completionChart.destroy();
+    completionChart = null;
+  }
   completionChart = new Chart(completionRef.value, {
     type: "bar",
     data: {
@@ -54,7 +59,7 @@ function initCompletion() {
       datasets: [
         { label: "已通过", data: [], backgroundColor: "#22c55e", stack: "s", borderRadius: 2 },
         { label: "卡住", data: [], backgroundColor: "#ff5f6d", stack: "s", borderRadius: 2 },
-        { label: "待评审", data: [], backgroundColor: "#38bdf8", stack: "s", borderRadius: 2 },
+        { label: "待评审", data: [], backgroundColor: "#3fa9ff", stack: "s", borderRadius: 2 },
       ],
     },
     options: {
@@ -68,10 +73,15 @@ function initCompletion() {
   });
 }
 function initBar() {
-  if (barChart || !barRef.value) return;
+  if (!barRef.value) return;
+  if (barChart) {
+    if (barChart.canvas === barRef.value) return;
+    barChart.destroy();
+    barChart = null;
+  }
   barChart = new Chart(barRef.value, {
     type: "bar",
-    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#38bdf8", borderRadius: 2, barPercentage: 0.6 }] },
+    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#3fa9ff", borderRadius: 2, barPercentage: 0.6 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
@@ -80,7 +90,12 @@ function initBar() {
   });
 }
 function initPie() {
-  if (pieChart || !pieRef.value) return;
+  if (!pieRef.value) return;
+  if (pieChart) {
+    if (pieChart.canvas === pieRef.value) return;
+    pieChart.destroy();
+    pieChart = null;
+  }
   pieChart = new Chart(pieRef.value, {
     type: "doughnut",
     data: {
@@ -94,7 +109,12 @@ function initPie() {
   });
 }
 function initLine() {
-  if (lineChart || !lineRef.value) return;
+  if (!lineRef.value) return;
+  if (lineChart) {
+    if (lineChart.canvas === lineRef.value) return;
+    lineChart.destroy();
+    lineChart = null;
+  }
   lineChart = new Chart(lineRef.value, {
     type: "line",
     data: {
@@ -161,7 +181,7 @@ watch(
     <div class="chart-card tech-card completion">
       <div class="comp-head">
         <h2 class="tech-title">作业完成度</h2>
-        <span class="overall">全班通过率 <strong>{{ overall }}%</strong></span>
+        <span v-if="activeItems.length" class="overall">全班通过率 <strong>{{ overall }}%</strong></span>
       </div>
       <p v-if="!activeItems.length" class="empty">{{ completionEmpty }}</p>
       <div v-else class="chart-wrap"><canvas ref="completionRef">{{ activeItems.map((e) => e.displayName).join(" ") }}</canvas></div>
