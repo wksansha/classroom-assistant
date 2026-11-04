@@ -5,6 +5,7 @@ import { connectClassroom } from "./api/sse";
 import StatusBar from "./components/StatusBar.vue";
 import StudentMatrix from "./components/StudentMatrix.vue";
 import AIPanel from "./components/AIPanel.vue";
+import ChartsRow from "./components/ChartsRow.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
 import AdminView from "./views/AdminView.vue";
 import Toast from "./components/Toast.vue";
@@ -35,6 +36,7 @@ onUnmounted(() => {
         <AIPanel />
       </div>
     </main>
+    <ChartsRow />
     <StudentDrawer />
   </div>
   <Toast />

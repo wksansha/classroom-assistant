@@ -187,3 +187,6 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 }
 .app .tech-title::before { content: "›››"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
 .app .tech-title::after { content: "‹‹‹"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
+
+/* —— 四图表行（spec 2026-11-04 §4.5）—— */
+.app .charts-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; align-items: stretch; }
