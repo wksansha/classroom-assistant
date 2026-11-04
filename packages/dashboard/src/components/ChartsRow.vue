@@ -143,8 +143,9 @@ function updateCharts() {
     completionChart.update();
   }
   if (barChart) {
-    barChart.data.labels = snap.aggregates.map((g) => `${g.category} · ${g.subtype}`);
-    barChart.data.datasets[0].data = snap.aggregates.map((g) => g.count);
+    const top3 = snap.aggregates.slice(0, 3);   // 服务端已按涉及人数降序，只取 Top3（大屏可读性）
+    barChart.data.labels = top3.map((g) => `${g.category} · ${g.subtype}`);
+    barChart.data.datasets[0].data = top3.map((g) => g.count);
     barChart.update();
   }
   if (pieChart) {
