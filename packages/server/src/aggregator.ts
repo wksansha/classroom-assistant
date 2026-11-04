@@ -4,6 +4,7 @@ import type {
 import type { StatusColor } from "@classroom/shared";
 import type { StudentRecord, StoredEvent } from "./stateManager";
 import { isStudentOnline, countAliveMachines } from "./stateManager";
+import { fallbackSubtype } from "./explainService/llm";
 import { logEvent } from "./logger";
 
 const FIVE_MIN = 5 * 60_000;
@@ -53,6 +54,8 @@ export interface Aggregator {
   /** V2（dashboard-v2 Task 9）：exerciseProgress/trend/stats 由装配层（index.ts buildSnapshot）注入 */
   recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId" | "exerciseProgress" | "trend" | "stats">;
   ack(id: string): void;
+  /** 课间重置（大屏重置）：清空告警确认集合，新课告警从零开始 */
+  resetAcked(): void;
 }
 
 interface SubtypeGroup {
@@ -74,7 +77,7 @@ export function createAggregator(): Aggregator {
         const errors = r.events.filter((e) => !e.success && isWithinClassWindow(e.ts, windowStart));
         const recentErrors: RecentError[] = [...errors]
           .slice(-3).reverse()
-          .map((e) => ({ ts: e.ts, subtype: e.subtype ?? "未知错误", knowledge: e.knowledge ?? "", rawMessage: e.rawMessage }));
+          .map((e) => ({ ts: e.ts, subtype: e.subtype ?? fallbackSubtype(null, e.rawMessage), knowledge: e.knowledge ?? "", rawMessage: e.rawMessage }));
         return {
           studentId: r.studentId, studentName: r.studentName,
           status: computeStatus(r, now, windowStart),
@@ -104,7 +107,7 @@ export function createAggregator(): Aggregator {
         return {
           studentId: r.studentId, studentName: r.studentName, score,
           reason,
-          subtype: lastErr?.subtype ?? "未知错误",
+          subtype: lastErr?.subtype ?? fallbackSubtype(null, lastErr?.rawMessage),
           knowledge: lastErr?.knowledge ?? "",
           lastErrorAt: r.lastErrorAt ?? now,
         };
@@ -187,5 +190,6 @@ export function createAggregator(): Aggregator {
     },
 
     ack(id) { acked.add(id); },
+    resetAcked() { acked.clear(); },
   };
 }

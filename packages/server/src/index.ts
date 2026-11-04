@@ -59,6 +59,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   const aggregator = createAggregator();
 
+  // —— 课间重置锚点（大屏重置）：窗口 = max(当天 0 点, 锚点)。锚点持久化，重启后回放同样从锚点起算，
+  // 归档数据不删，新课数据从零统计（spec 大屏重置）
+  const RESET_ANCHOR_KEY = "dashboard.reset_anchor";
+  const classWindowStart = (now: number): number => {
+    const anchor = Number(persistence.getMeta(RESET_ANCHOR_KEY) ?? 0) || 0;
+    return Math.max(dayStart(now), anchor);
+  };
+
   const buildSnapshot = (): TeacherSnapshot => {
     const now = Date.now();
     const records = stateManager.listRecords();
@@ -73,7 +81,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         machines: new Map(),
       }));
     const allRecords = [...records, ...rosterGhosts];
-    const windowStart = dayStart(now);   // 大屏全部数据只看当天（spec §4）
+    const windowStart = classWindowStart(now);   // 大屏数据窗口：当天 0 点与重置锚点取较晚者
     const agg = aggregator.recompute(allRecords, now, windowStart);
     const trendBuckets = trend.list(windowStart);
     const rosterTotal = persistence.getRoster().length;   // 班级总人数（通过率分母，决策 #20）
@@ -99,11 +107,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   const hub = createTeacherHub(buildSnapshot);
 
-  // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放**当天** review_results 与 run 事件；失败降级不阻塞服务
+  // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放窗口内（当天 0 点与重置锚点取较晚者）review_results 与 run 事件；失败降级不阻塞服务
   try {
-    const todayStart = dayStart(Date.now());
-    exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(todayStart));
-    for (const r of persistence.getRunEventsSince(todayStart)) trend.record(r.ts, r.success);
+    const windowStart = classWindowStart(Date.now());
+    exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(windowStart));
+    for (const r of persistence.getRunEventsSince(windowStart)) trend.record(r.ts, r.success);
   } catch (err) {
     logEvent({ event: "warmup.failed", level: "warn", data: { error: err instanceof Error ? err.message : String(err) } });
   }
@@ -156,7 +164,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         // 跨越「无活动 ↔ 有活动」边界才推快照（边沿触发）
         if (ev.surface === "edit" && inserted) {
           const prevActivity = stateManager.touchActivity(ev.studentId, ev.studentName, ev.classId, ev.ts);
-          const windowStart = dayStart(Date.now());
+          const windowStart = classWindowStart(Date.now());
           const flipped = (prevActivity === null || prevActivity < windowStart) && ev.ts >= windowStart;
           if (flipped) hub.publish(buildSnapshot());
         }
@@ -247,7 +255,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       logEvent({ event: "api.student_not_found", level: "warn", data: { studentId: req.params.id } });
       return res.status(404).json({ error: "未找到该学生" });
     }
-    const windowStart = dayStart(Date.now());
+    const windowStart = classWindowStart(Date.now());
     const events = detail.events.filter((e) => e.ts >= windowStart);
     logEvent({ event: "api.student_detail", level: "debug", data: { studentId: req.params.id, eventCount: events.length } });
     res.json({ ...detail, events });
@@ -289,6 +297,20 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   app.use("/api/roster", adminGuard.requireAdmin);
   // 管理页登录门探测：{ adminProtected } / 401
   app.get("/api/admin/session", adminGuard.sessionHandler);
+
+  // 大屏重置（课间换场）：写重置锚点 + 清内存态。归档数据不删，窗口 = max(当天 0 点, 锚点)，
+  // 重启回放同口径 → 旧课数据既不展示也不会复活；登录会话保留，学生无需重新确认身份
+  app.post("/api/admin/reset", adminGuard.requireAdmin, (_req, res) => {
+    const anchor = Date.now();
+    persistence.setMeta(RESET_ANCHOR_KEY, String(anchor));
+    stateManager.resetForNewClass();
+    exerciseProgress.reset();
+    trend.reset();
+    aggregator.resetAcked();
+    hub.publish(buildSnapshot());
+    logEvent({ event: "admin.dashboard_reset", level: "info", data: { anchor } });
+    res.json({ ok: true, anchor });
+  });
 
   registerRosterRoutes(app, {
     persistence, gitea,

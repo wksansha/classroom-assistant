@@ -14,7 +14,9 @@ export interface TrendTracker {
   /** 服务端重启预热（spec §5.4）：回放 getRunEventsSince(dayStart) 的当天 run 行重建分桶；
    * 预热失败降级空桶 + warmup.failed 日志由装配处 try/catch 负责 */
   warmUpFromRuns(rows: RunEventRow[]): void;
-  /** 当天桶（双窗口口径 spec §4.1）：tStart >= dayStartMs（边界计入），tStart 升序 */
+  /** 课间重置（大屏重置）：清空内存分桶，从零统计新课 */
+  reset(): void;
+  /** 窗口桶（双窗口口径 spec §4.1）：桶与窗口重叠（tStart + 5min > dayStartMs）即输出，tStart 升序 */
   list(dayStartMs: number): TrendBucket[];
 }
 
@@ -38,9 +40,13 @@ export function createTrendTracker(): TrendTracker {
       const sorted = [...rows].sort((a, b) => a.ts - b.ts);
       for (const r of sorted) recordAt(r.ts, r.success);
     },
+    reset() {
+      buckets.clear();
+    },
     list(dayStartMs) {
+      // 重叠口径：桶末端越过窗口起点即输出（锚点/午夜落在桶中间时，桶内窗口后的事件不丢）
       return [...buckets.values()]
-        .filter((b) => b.tStart >= dayStartMs)
+        .filter((b) => b.tStart + BUCKET_MS > dayStartMs)
         .sort((a, b) => a.tStart - b.tStart);
     },
   };

@@ -61,4 +61,7 @@ export const adminApi = {
   /** 硬删除：删 Gitea 账户与学生分支（前端已二次确认） */
   purgeRosterEntry: (studentId: string) =>
     send<{ ok: true }>(`/api/roster/entry/${encodeURIComponent(studentId)}/purge`, "POST"),
+  /** 大屏重置（课间换场）：清空大屏统计从零开始；归档保留，服务器重启不复活（前端已二次确认） */
+  resetDashboard: () =>
+    send<{ ok: true; anchor: number }>("/api/admin/reset", "POST"),
 };

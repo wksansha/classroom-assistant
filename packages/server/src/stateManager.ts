@@ -70,6 +70,8 @@ export interface StateManager {
   logout(studentId: string, machineId: string): boolean;
   /** 心跳超时扫描：过期机器置 closedBy=timeout。返回是否有任何翻转 */
   sweep(now: number): boolean;
+  /** 课间重置（大屏重置）：清空事件/错误/活动状态重新统计；保留机器登录会话（学生无需重新确认身份） */
+  resetForNewClass(): void;
   listRecords(): StudentRecord[];
   getStudentDetail(id: string): {
     studentId: string; studentName: string; events: StoredEvent[];
@@ -218,6 +220,18 @@ export function createStateManager(): StateManager {
         }
       }
       return flipped;
+    },
+
+    resetForNewClass() {
+      for (const r of records.values()) {
+        r.events = [];
+        r.lastActivityAt = 0;
+        r.lastErrorAt = null;
+        r.lastResolvedAt = null;
+        r.consecutiveErrors = 0;
+        // machines 保留：登录会话不丢，学生无需重新确认身份，在线状态平滑过渡到新课
+      }
+      logEvent({ event: "state.reset_for_new_class", level: "info", data: { recordCount: records.size } });
     },
 
     listRecords: () => [...records.values()],

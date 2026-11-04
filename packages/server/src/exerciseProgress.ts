@@ -24,6 +24,8 @@ export interface ExerciseProgressTracker {
   applyRunFailure(studentId: string, studentName: string, filePath: string, ts: number): void;
   /** 服务端重启回放（spec §5.3）：仅传当天行；按 ts 升序回放 latest（unreviewed 不覆盖 pass/fail） */
   warmUpFromReviews(rows: ReviewResultRow[]): void;
+  /** 课间重置（大屏重置）：清空内存格子，从零统计新课 */
+  reset(): void;
   /** 当天涌现题（spec 决策 #18）：任一格 lastTs >= dayStartMs 的题才输出；每题只统计当天格子；三态总和降序；不含学生名单 */
   list(dayStartMs: number): Omit<ExerciseProgressItem, "total" | "passRate">[];
 }
@@ -65,6 +67,9 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           e.latest = r.status;
         }
       }
+    },
+    reset() {
+      files.clear();
     },
     list(dayStartMs) {
       const items: Omit<ExerciseProgressItem, "total" | "passRate">[] = [];

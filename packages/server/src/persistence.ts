@@ -71,6 +71,9 @@ export interface Persistence {
   // —— student_tokens（学生分支直连模型）——
   saveStudentToken(studentId: string, token: string): void;
   getStudentToken(studentId: string): string | null;
+  // —— 应用级 KV（重置锚点等；spec 大屏重置：窗口 = max(当天0点, 锚点)）——
+  getMeta(key: string): string | null;
+  setMeta(key: string, value: string): void;
   close(): void;
 }
 
@@ -160,6 +163,10 @@ export function createPersistence(dbPath?: string): Persistence {
       ts INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_review_results_path_ts ON review_results(file_path, ts);
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   return {
@@ -324,6 +331,14 @@ export function createPersistence(dbPath?: string): Persistence {
     getStudentToken(studentId) {
       const r = db.prepare("SELECT token FROM student_tokens WHERE student_id = ?").get(studentId) as { token: string } | undefined;
       return r?.token ?? null;
+    },
+    getMeta(key) {
+      const r = db.prepare("SELECT value FROM app_meta WHERE key = ?").get(key) as { value: string } | undefined;
+      return r?.value ?? null;
+    },
+    setMeta(key, value) {
+      db.prepare(`INSERT INTO app_meta (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value);
     },
     close() {
       db.close();

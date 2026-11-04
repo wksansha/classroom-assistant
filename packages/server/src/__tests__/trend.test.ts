@@ -37,6 +37,15 @@ describe("TrendTracker（课堂节奏，spec dashboard-v2 §5.4）", () => {
     ]);
   });
 
+  it("重叠口径：锚点落在桶中间时该桶仍输出（重置后首桶数据不丢）", () => {
+    const t = createTrendTracker();
+    const anchor = T0 + BUCKET_MS / 2;   // 锚点在桶中间
+    t.record(anchor + 1, false);         // 锚点后 1ms 的 run → 落在锚点所在桶
+    expect(t.list(anchor)).toEqual([
+      { tStart: T0, runs: 0, errors: 1 },
+    ]);
+  });
+
   it("record 修剪超 24h 旧桶（防内存膨胀）", () => {
     const t = createTrendTracker();
     t.record(Date.now() - 25 * 60 * 60_000, true);
