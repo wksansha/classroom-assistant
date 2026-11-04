@@ -4,10 +4,12 @@ import { buildExplainPrompt } from "../prompts";
 const base = { errorType: "ZeroDivisionError", errorMessage: "division by zero" };
 
 describe("buildExplainPrompt（spec §5 模板，learner 不上报代码时自动降级）", () => {
-  it("基础字段：8 分类约束 + 输出 JSON 格式 + 错误信息", () => {
+  it("基础字段：LLM 自由分类约束（禁「未知错误」）+ 输出 JSON 格式 + 错误信息", () => {
     const p = buildExplainPrompt(base);
     expect(p).toContain('{"category":"<分类>","subtype":"<细分类型，6字以内>","knowledge":"<知识点句>"}');
-    expect(p).toContain("语法错误 / 名称错误 / 类型错误 / 运算错误 / 容器访问错误 / 属性导入错误 / 文件权限错误 / 其他");
+    expect(p).toContain("由你判断");
+    expect(p).toContain("禁止输出「未知错误」");
+    expect(p).not.toContain("文件权限错误 / 其他");
     expect(p).toContain("错误类型：ZeroDivisionError");
     expect(p).toContain("错误信息：division by zero");
   });

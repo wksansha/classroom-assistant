@@ -29,14 +29,13 @@ function runErrorEvent(cacheKey: string): NormalizedEvent {
 }
 
 describe("explain 分类取用规则（spec §5）", () => {
-  it("run 事件：category 以静态映射为准（即使 LLM 给错），subtype/knowledge 采纳 LLM", async () => {
-    // LLM 故意返回错误 category，静态映射应覆盖为「运算错误」
+  it("run 事件：分类完全采纳 LLM（category 不再被静态映射覆盖，run/diag 同构）", async () => {
     const svc = createExplainService(stubCache({
       "ZeroDivisionError: division by zero":
-        { category: "类型错误", subtype: "除数为0", knowledge: "除法运算：除数不能为 0", source: "llm" },
+        { category: "逻辑错误", subtype: "除数为0", knowledge: "除法运算：除数不能为 0", source: "llm" },
     }));
     const r = await svc.explain(runErrorEvent("ZeroDivisionError: division by zero"));
-    expect(r).toEqual({ category: "运算错误", subtype: "除数为0", knowledge: "除法运算：除数不能为 0", source: "llm" });
+    expect(r).toEqual({ category: "逻辑错误", subtype: "除数为0", knowledge: "除法运算：除数不能为 0", source: "llm" });
   });
 
   it("diag 事件：三字段全部采纳 LLM（error_type 是写死的占位）", async () => {
@@ -64,6 +63,16 @@ describe("explain 分类取用规则（spec §5）", () => {
     const r = await svc.explain(ev);
     expect(called).toBe(false);
     expect(r.category).toBe("其他");
+    expect(r.subtype).toBe("ZeroDivisionError");
     expect(r.source).toBe("mock");
+  });
+
+  it("消毒：缓存/兜底漏出的「未知错误」一律改用 L1 事件自身报错（约束：绝不允许未知错误）", async () => {
+    const svc = createExplainService(stubCache({
+      "ZeroDivisionError: division by zero":
+        { category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确", source: "mock" },
+    }));
+    const r = await svc.explain(runErrorEvent("ZeroDivisionError: division by zero"));
+    expect(r.subtype).toBe("ZeroDivisionError");   // 事件异常名替换「未知错误」
   });
 });

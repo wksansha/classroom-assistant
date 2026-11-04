@@ -28,9 +28,17 @@ describe("mockExplain：关键词兜底（spec §8）", () => {
   it.each(cases)("%s → %s", (errorType, errorMessage, category, subtype, knowledge) => {
     expect(mockExplain({ errorType, errorMessage })).toEqual({ category, subtype, knowledge });
   });
-  it("无法匹配 → 其他/未知错误", () => {
+  it("无法匹配 → 用事件自身报错兜底（异常名优先，绝无「未知错误」）", () => {
     expect(mockExplain({ errorType: "WeirdError", errorMessage: "???" })).toEqual({
-      category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确",
+      category: "其他", subtype: "WeirdError", knowledge: "请检查代码与输入是否正确",
     });
+  });
+  it("diag 占位 errorType + 规则不中 → 报错首行兜底", () => {
+    expect(mockExplain({ errorType: "DiagnosticError", errorMessage: "some weird diag text" })).toEqual({
+      category: "其他", subtype: "some weird diag text", knowledge: "请检查代码与输入是否正确",
+    });
+  });
+  it("全空输入 → 「其他错误」保底（仍非未知错误）", () => {
+    expect(mockExplain({ errorType: "DiagnosticError", errorMessage: "" }).subtype).toBe("其他错误");
   });
 });

@@ -16,11 +16,19 @@ const MOCK_RULES: { keywords: string[]; exp: Explanation }[] = [
   { keywords: ["attribute", "import", "module"], exp: { category: "属性导入错误", subtype: "属性或模块不存在", knowledge: "检查拼写，确认模块已安装" } },
   { keywords: ["file", "permission"], exp: { category: "文件权限错误", subtype: "文件不可用", knowledge: "检查文件路径与权限" } },
 ];
-const MOCK_FALLBACK: Explanation = { category: "其他", subtype: "未知错误", knowledge: "请检查代码与输入是否正确" };
+/** L1 事件自身报错兜底（约束：绝不输出「未知错误」）：优先异常名（排除 diag 占位），
+ * 其次报错首行截断 40 字，最后「其他错误」；category 维持「其他」由调用方按需覆盖 */
+export function fallbackSubtype(errorType?: string | null, rawMessage?: string | null): string {
+  const name = (errorType ?? "").trim();
+  if (name && name !== "DiagnosticError") return name;
+  const firstLine = (rawMessage ?? "").split("\n").map((s) => s.trim()).find(Boolean) ?? "";
+  return firstLine ? firstLine.slice(0, 40) : "其他错误";
+}
 
 export function mockExplain(input: ExplainInput): Explanation {
   const s = `${input.errorType} ${input.errorMessage}`.toLowerCase();
-  return MOCK_RULES.find((r) => r.keywords.some((k) => s.includes(k.toLowerCase())))?.exp ?? MOCK_FALLBACK;
+  return MOCK_RULES.find((r) => r.keywords.some((k) => s.includes(k.toLowerCase())))?.exp
+    ?? { category: "其他", subtype: fallbackSubtype(input.errorType, input.errorMessage), knowledge: "请检查代码与输入是否正确" };
 }
 
 export function parseLLMResponse(text: string): Explanation | null {
