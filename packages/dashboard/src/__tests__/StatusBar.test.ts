@@ -10,11 +10,12 @@ describe("StatusBar（顶栏，spec dashboard-v2 §3①）", () => {
   it("统计大数字渲染（在线/急需帮助/运行次数，决策 #18 无已通过评审）", async () => {
     const { wrapper, store } = mountWithStore(StatusBar);
     store.applySnapshot(makeSnapshot({
-      stats: { online: 8, total: 10, needHelp: 2, runs: 42 },
+      stats: { online: 8, total: 10, needHelp: 2, runs: 42, errors: 5 },
     }));
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain("课堂教学实时助教");
     expect(wrapper.text()).toContain("42");
+    expect(wrapper.text()).toContain("报错总数");
     expect(wrapper.text()).toContain("2");
     expect(wrapper.text()).not.toContain("已通过评审");
     wrapper.unmount();   // 清理时钟 interval，避免泄漏到环境拆除

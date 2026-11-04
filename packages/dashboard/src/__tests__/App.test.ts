@@ -18,7 +18,7 @@ describe("App", () => {
       ts: 1, classId: "3A", students: [], alerts: [],
       alertSummary: "其余 0 人正常", aggregates: [], suggestions: [],
       exerciseProgress: [], trend: [],
-      stats: { online: 0, total: 0, needHelp: 0, runs: 0 },
+      stats: { online: 0, total: 0, needHelp: 0, runs: 0, errors: 0 },
     };
     vi.stubGlobal("EventSource", vi.fn().mockImplementation(() => new FakeES()));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => emptySnapshot }));

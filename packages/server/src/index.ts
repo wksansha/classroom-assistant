@@ -101,6 +101,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         total: agg.students.length,
         needHelp: agg.students.filter((s) => s.status === "red").length,
         runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
+        errors: agg.students.reduce((sum, s) => sum + s.errorCountTotal, 0),   // 当天报错总次数（errorCountTotal 已按窗口过滤）
       },
     };
   };

@@ -47,17 +47,26 @@ function tooltip(recent: RecentError[]): string {
 </template>
 
 <style scoped>
-.matrix { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.matrix {
+  padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
+  height: 280px;   /* 按全班 22 名学生（1920 宽屏约 11 列 × 2 行）写死；学生更多时网格内部滚动 */
+}
 .counts { display: flex; gap: 14px; font-size: 13px; justify-content: center; }
 .counts .red { color: var(--tech-red); text-shadow: 0 0 6px rgba(255, 95, 109, 0.6); }
 .counts .yellow { color: var(--tech-yellow); text-shadow: 0 0 6px rgba(255, 197, 61, 0.5); }
 .counts .green { color: var(--tech-green); text-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 .counts .off-legend { color: var(--text-dim); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.grid {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-auto-rows: 1fr; gap: 8px;
+  overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;   /* 学生超出可视行数时内部滚动，滚动条隐藏 */
+}
+.grid::-webkit-scrollbar { display: none; }
 .tile {
   display: flex; align-items: center; gap: 6px; padding: 12px 10px;
   border: 1px solid var(--tech-card-border); border-radius: 2px; cursor: pointer;
-  font-size: 16px; position: relative;
+  font-size: 18px; position: relative;
   background: rgba(20, 50, 100, 0.4); color: var(--text-primary);
 }
 .tile:hover { border-color: var(--tech-cyan); }

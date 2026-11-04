@@ -41,7 +41,12 @@ async function ack(id: string) {
 </template>
 
 <style scoped>
-.ai-panel { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ai-panel {
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  height: 280px;   /* 与矩阵卡等高，消除主区空白；建议超出一屏时内部滚动 */
+  overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;
+}
+.ai-panel::-webkit-scrollbar { display: none; }
 .panel-head { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .ai-badge {
   background: rgba(63, 169, 255, 0.2); color: var(--tech-cyan);

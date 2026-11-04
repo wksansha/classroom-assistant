@@ -90,6 +90,8 @@ export interface ClassStats {
   needHelp: number;
   /** 当天 run 成功总次数 */
   runs: number;
+  /** 当天报错总次数（窗口内全部学生错误事件数之和，含 run 失败与 diag 错误） */
+  errors: number;
 }
 
 export interface TeacherSnapshot {

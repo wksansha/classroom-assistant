@@ -8,7 +8,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => { timer = setInterval(() => { now.value = Date.now(); }, 1000); });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
-const stats = computed(() => store.snapshot?.stats ?? { online: 0, total: 0, needHelp: 0, runs: 0 });
+const stats = computed(() => store.snapshot?.stats ?? { online: 0, total: 0, needHelp: 0, runs: 0, errors: 0 });
 const dateText = computed(() => new Date(now.value).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
 const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { hour12: false }));
 </script>
@@ -19,6 +19,7 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
       <div class="stat"><span class="num">{{ stats.online }}</span><span class="label">在线 / {{ stats.total }} 人</span></div>
       <div class="stat warn"><span class="num">{{ stats.needHelp }}</span><span class="label">急需帮助</span></div>
       <div class="stat"><span class="num">{{ stats.runs }}</span><span class="label">运行次数</span></div>
+      <div class="stat err"><span class="num">{{ stats.errors }}</span><span class="label">报错总数</span></div>
     </div>
     <h1>课堂教学实时助教</h1>
     <div class="meta">
@@ -55,6 +56,7 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
 .stat .num { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tech-cyan); text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .stat .label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .stat.warn .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
+.stat.err .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
 .meta { display: flex; align-items: center; gap: 10px; }
 .date { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .clock { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
