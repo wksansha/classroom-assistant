@@ -103,12 +103,55 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(counters.snapshotPushes).toBe(1);
   });
 
-  it("评审 unreviewed：瞬态，不改变学生状态、不推快照", async () => {
+  it("评审 unreviewed（LLM 可用但拿不准，source=llm）：瞬态，不改变学生状态、不推快照", async () => {
     const { deps, counters, stateManager } = makeDeps("unreviewed");
     const r = await requestReview(deps, fileInput);
     expect(r.ok).toBe(true);
     expect(stateManager.listRecords()).toHaveLength(0);   // 无注入
     expect(counters.snapshotPushes).toBe(0);
+  });
+
+  it("LLM 挂（fetch 抛错 → mock 兜底 source=mock）的 unreviewed：降级置绿（清零连续错误 + lastResolvedAt）+ 推快照，进度表仍落 unreviewed", async () => {
+    const p = seedPersistence();
+    const reviewService = createReviewService(p, { apiKey: "k", fetchImpl: (async () => { throw new Error("llm down"); }) as unknown as typeof fetch });
+    const stateManager = createStateManager();
+    const exerciseProgress = createExerciseProgressTracker();
+    const counters = { snapshotPushes: 0 };
+    const deps: ReviewRequestDeps = { persistence: p, reviewService, stateManager, exerciseProgress, publishSnapshot: () => { counters.snapshotPushes++; } };
+    // 先制造报错状态
+    deps.stateManager.apply({
+      studentId: "2025001", studentName: "张三", classId: "default", eventType: "run", success: false,
+      errorType: "ZeroDivisionError", errorMessage: "division by zero", samples: [],
+      rawMessage: "division by zero", cacheKey: "k", ts: Date.now() - 1000,
+    }, { category: "运算错误", subtype: "除数为0", knowledge: "k" });
+    expect(stateManager.listRecords()[0].consecutiveErrors).toBe(1);
+
+    const r = await requestReview(deps, fileInput);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("unreviewed");
+    const rec = stateManager.listRecords()[0];
+    expect(rec.consecutiveErrors).toBe(0);      // 降级置绿：清零连续错误
+    expect(rec.lastResolvedAt).not.toBeNull();
+    expect(rec.events.at(-1)).toMatchObject({ success: true, rawMessage: "run 成功，评审服务不可用（评审服务不可用（mock 兜底）），视为已解决（未经质量评审）" });
+    expect(counters.snapshotPushes).toBe(1);
+    expect(p.getReviewResultsSince(0)[0]).toMatchObject({ status: "unreviewed" });   // 进度事实仍落 unreviewed
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", unreviewed: 1, passed: 0, stuck: 0 });
+  });
+
+  it("未配置 LLM（source=not_configured）的 unreviewed：同样降级置绿", async () => {
+    const p = seedPersistence();
+    const reviewService = createReviewService(p, { fetchImpl: (async () => { throw new Error("should not be called"); }) as unknown as typeof fetch });
+    const stateManager = createStateManager();
+    const deps: ReviewRequestDeps = { persistence: p, reviewService, stateManager, exerciseProgress: createExerciseProgressTracker(), publishSnapshot: () => {} };
+    const r = await requestReview(deps, fileInput);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("unreviewed");
+    expect(r.review.source).toBe("not_configured");
+    const rec = stateManager.listRecords()[0];
+    expect(rec.consecutiveErrors).toBe(0);
+    expect(rec.lastResolvedAt).not.toBeNull();
   });
 
   it("无 404 not-exercise：任意路径（根目录散文件/自建笔记）皆可评审", async () => {

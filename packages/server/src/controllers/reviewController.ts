@@ -109,6 +109,23 @@ function injectReviewPass(
   logEvent({ event: "review.pass_applied", level: "info", data: { studentId: args.studentId, reason: args.review.reason } });
 }
 
+/** LLM 不可用类 unreviewed 的降级置绿：run 成功即视为运行时问题已解决，不因评审服务故障卡黄。
+ * 与 injectReviewPass 区分：rawMessage/日志明确标注「未经质量评审」，进度表仍落 unreviewed（质量维度待补评） */
+function injectLlmUnavailableResolve(
+  deps: ReviewRequestDeps,
+  args: { studentId: string; studentName: string; reason: string },
+): void {
+  const ev: NormalizedEvent = {
+    studentId: args.studentId, studentName: args.studentName, classId: "default",
+    eventType: "run", success: true,
+    errorType: null, errorMessage: null, samples: [],
+    rawMessage: `run 成功，评审服务不可用（${args.reason}），视为已解决（未经质量评审）`, cacheKey: null, ts: Date.now(),
+  };
+  deps.stateManager.apply(ev, null, { resolves: true });
+  deps.publishSnapshot();
+  logEvent({ event: "review.unreviewed_resolved", level: "info", data: { studentId: args.studentId, reason: args.reason } });
+}
+
 /** 运行触发评审（spec §0：作业域退役——无练习解析，所有文件皆可评审，题面锚点 = 文件内注释） */
 export async function requestReview(deps: ReviewRequestDeps, input: ReviewRequestInput): Promise<ReviewRequestResult> {
   if (!input || typeof input.studentId !== "string" || !input.studentName
@@ -138,9 +155,13 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
     persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "pass", reason: review.reason });
     injectReviewPass(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   } else {
-    // unreviewed（LLM 未配置/挂/不确定，spec 决策 #14）：不注入告警/置绿（瞬态不变学生状态），
-    // 但落进度事实表 + 待评审计数
+    // unreviewed（spec 决策 #14）：落进度事实表 + 待评审计数。
+    // LLM 可用但拿不准（source === "llm"）→ 瞬态不变学生状态；
+    // LLM 不可用类（not_configured/timeout/mock 兜底）→ run 成功降级置绿（清零连续错误），不卡黄
     persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "unreviewed", reason: review.reason });
+    if (review.source !== "llm") {
+      injectLlmUnavailableResolve(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, reason: review.reason });
+    }
   }
   return { ok: true, review };
 }
