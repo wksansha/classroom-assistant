@@ -58,7 +58,7 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(wrapper.text()).toContain("全班通过率");
     expect(wrapper.text()).toContain("50%");                    // 关注集仅 hello.py：2/4
     expect(wrapper.text()).toContain("另有 1 题已全部通过");      // done.py 折叠
-    expect(wrapper.text()).toContain("hello.py");               // 柱标签
+    expect(wrapper.text()).toContain("hello.py");               // DOM 暴露关注集题名（canvas fallback，现代浏览器不渲染、jsdom textContent 可见）
   });
 
   it("全部作业已全员通过：显示完成文案", async () => {
