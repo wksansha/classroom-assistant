@@ -18,36 +18,16 @@ let barChart: Chart | null = null;
 let pieChart: Chart | null = null;
 let lineChart: Chart | null = null;
 
-// —— 完成度卡：焦点题模式（全班齐步走课堂——自动锁定活跃人数最多的进行中题）——
+// —— 完成度卡：单题水桶模式（全班齐步走课堂——只关注当前题，桶满 = 全员通过）——
 const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
-const doneCount = computed(() => allItems.value.length - activeItems.value.length);
-const overall = computed(() => {
-  const passedSum = activeItems.value.reduce((s, i) => s + i.passed, 0);
-  const totalSum = activeItems.value.reduce((s, i) => s + i.total, 0);
-  return totalSum === 0 ? 0 : Math.round((passedSum / totalSum) * 100);
-});
 const completionEmpty = computed(() =>
-  allItems.value.length === 0 ? "暂无题目数据" : "全部作业已完成");
-/** 焦点题 = 进行中题里三态人数最多者（exerciseProgress 服务端已按总和降序，取首个未通关题） */
-const focusItem = computed(() => activeItems.value[0] ?? null);
+  allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
+/** 当前题 = 进行中题里最新开始的（firstTs 最大；齐步走课堂即全班正在做的那道） */
+const focusItem = computed(() =>
+  [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
-/** 其余进行中题（焦点之外），最多展示 4 行 */
-const otherActive = computed(() => activeItems.value.slice(1, 5));
-const otherActiveRest = computed(() => Math.max(0, activeItems.value.length - 1 - otherActive.value.length));
-// —— 按时间顺序编号（题目一、题目二…，firstTs 升序；悬停显示原始文件名）——
-const CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
-function cnNum(n: number): string {
-  if (n < 10) return CN[n];
-  if (n === 10) return "十";
-  if (n < 20) return "十" + CN[n - 10];
-  return CN[Math.floor(n / 10)] + "十" + (n % 10 ? CN[n % 10] : "");
-}
-const labelById = computed(() => {
-  const sorted = [...allItems.value].sort((a, b) => a.firstTs - b.firstTs);
-  return new Map(sorted.map((e, i) => [e.id, `题目${cnNum(i + 1)}`]));
-});
 
 // —— 状态占比（spec 决策 #4：仅统计在线学生三值）——
 const statusCounts = computed(() => {
@@ -187,28 +167,17 @@ watch(
 <template>
   <section class="charts-row" v-if="store.snapshot">
     <div class="chart-card tech-card completion">
-      <div class="comp-head">
-        <h2 class="tech-title">作业完成度</h2>
-        <span v-if="activeItems.length" class="overall">全班通过率 <strong>{{ overall }}%</strong></span>
-      </div>
-      <p v-if="!activeItems.length" class="empty">{{ completionEmpty }}</p>
+      <h2 class="tech-title">作业完成度</h2>
+      <p v-if="!focusItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
-        <div class="focus-name" :title="focusItem!.displayName">{{ labelById.get(focusItem!.id) }}</div>
+        <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
         <div class="focus-bar"><div class="focus-bar-fill" :style="{ width: focusPct + '%' }" /></div>
         <div class="focus-nums">
-          <span class="ok">已完成 {{ focusItem!.passed }} 人</span>
-          <span class="no">待完成 {{ focusItem!.total - focusItem!.passed }} 人</span>
+          <span class="ok">已完成 {{ focusItem.passed }} 人</span>
+          <span class="no">待完成 {{ focusItem.total - focusItem.passed }} 人</span>
           <span class="pct">{{ focusPct }}%</span>
         </div>
       </div>
-      <div v-if="otherActive.length" class="minor-list">
-        <div v-for="e in otherActive" :key="e.id" class="minor-row">
-          <span class="n" :title="e.displayName">{{ labelById.get(e.id) }}</span>
-          <span class="v">{{ e.passed }}/{{ e.total }}</span>
-        </div>
-        <div v-if="otherActiveRest > 0" class="minor-row rest">…另有 {{ otherActiveRest }} 题进行中</div>
-      </div>
-      <p v-if="doneCount > 0" class="done-note">另有 {{ doneCount }} 题已全部通过</p>
     </div>
     <div class="chart-card tech-card">
       <h2 class="tech-title">错误类型TOP3</h2>
@@ -236,19 +205,14 @@ watch(
 .comp-head .overall { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
-/* —— 焦点题模式（完成度卡）—— */
-.completion .focus { display: flex; flex-direction: column; gap: 10px; margin: auto 0; }
+/* —— 单题水桶模式（完成度卡）—— */
+.completion .focus { display: flex; flex-direction: column; gap: 12px; margin: auto 0; }
 .completion .focus-name { color: var(--text-primary); font-size: 22px; font-weight: 700; text-align: center; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
-.completion .focus-bar { height: 24px; background: rgba(255, 95, 109, 0.25); border: 1px solid var(--tech-card-border); border-radius: 3px; overflow: hidden; }
+.completion .focus-bar { height: 28px; background: rgba(255, 95, 109, 0.25); border: 1px solid var(--tech-card-border); border-radius: 3px; overflow: hidden; }
 .completion .focus-bar-fill { height: 100%; background: linear-gradient(90deg, #16a34a, #22c55e); box-shadow: 0 0 12px rgba(34, 197, 94, 0.7); transition: width 0.6s ease; }
-.completion .focus-nums { display: flex; justify-content: center; gap: 18px; font-size: 16px; }
+.completion .focus-nums { display: flex; justify-content: center; gap: 20px; font-size: 16px; }
 .completion .focus-nums .ok { color: var(--tech-green); }
 .completion .focus-nums .no { color: var(--tech-red); }
 .completion .focus-nums .pct { font-family: var(--font-num); color: var(--tech-cyan); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
-.completion .minor-list { display: flex; flex-direction: column; gap: 5px; }
-.completion .minor-row { display: flex; justify-content: space-between; font-size: 15px; color: var(--text-secondary); }
-.completion .minor-row .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.completion .minor-row.rest { justify-content: center; color: var(--text-dim); font-size: 14px; }
-.done-note { margin: 0; font-size: 14px; color: var(--text-secondary); text-align: center; }
 .empty { margin: auto 0; color: var(--text-dim); font-size: 15px; text-align: center; }
 </style>

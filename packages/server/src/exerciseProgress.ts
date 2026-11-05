@@ -35,6 +35,12 @@ export interface ExerciseProgressTracker {
 export function createExerciseProgressTracker(): ExerciseProgressTracker {
   // 题 id（filePath）→ 学生 id → 格子（仅服务端内存计数用，决策 #18 涌现口径）
   const files = new Map<string, Map<string, Entry>>();
+  // 题 id → 题面名（评审输入分隔线前首行注释；首个非空题面生效）
+  const fileTitles = new Map<string, string>();
+
+  const setTitle = (id: string, title?: string) => {
+    if (title && !fileTitles.has(id)) fileTitles.set(id, title);
+  };
 
   const entryOf = (id: string, studentId: string, studentName: string, ts: number): Entry => {
     let m = files.get(id);
@@ -48,12 +54,14 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
   };
 
   return {
-    applyReview(studentId, studentName, filePath, status, ts) {
+    applyReview(studentId, studentName, filePath, status, ts, title) {
       const e = entryOf(filePath, studentId, studentName, ts);
+      setTitle(filePath, title);
       e.latest = status;   // pass / fail
     },
-    applyUnreviewed(studentId, studentName, filePath, ts) {
+    applyUnreviewed(studentId, studentName, filePath, ts, title) {
       const e = entryOf(filePath, studentId, studentName, ts);
+      setTitle(filePath, title);
       if (e.latest !== "pass" && e.latest !== "fail") e.latest = "unreviewed";   // 强信号不覆盖
     },
     applyRunFailure(studentId, studentName, filePath, ts) {
@@ -95,6 +103,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           isProject: !id.endsWith(".py"),
           passed, stuck, unreviewed,
           firstTs,
+          title: fileTitles.get(id) ?? (id.split(/[\\/]/).pop() ?? id),
         });
       }
       return items.sort((a, b) => {

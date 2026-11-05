@@ -41,8 +41,8 @@ const aggregates: AggItem[] = [
   { subtype: "缺少冒号", category: "语法错误", knowledge: "k", count: 8, students: [] },
 ];
 const exerciseProgress: ExerciseProgressItem[] = [
-  { id: "week1/hello.py", displayName: "hello.py", isProject: false, passed: 2, stuck: 1, unreviewed: 1, total: 4, passRate: 0.5, firstTs: 100 },
-  { id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200 },
+  { id: "week1/hello.py", displayName: "hello.py", isProject: false, passed: 2, stuck: 1, unreviewed: 1, total: 4, passRate: 0.5, firstTs: 100, title: "输出问候语" },
+  { id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200, title: "成绩判断" },
 ];
 
 describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
@@ -54,28 +54,27 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(titles).toEqual(["作业完成度", "错误类型TOP3", "全班状态占比", "课堂节奏"]);
   });
 
-  it("完成度卡焦点题模式：锁定活跃人数最多的进行中题，显示已完成/待完成人数与进度；已全员通过折叠摘要", async () => {
+  it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("全班通过率");
-    expect(wrapper.text()).toContain("50%");                    // 关注集仅 hello.py：2/4
-    expect(wrapper.text()).toContain("另有 1 题已全部通过");      // done.py 折叠
-    expect(wrapper.text()).not.toContain("hello.py");           // 展示用编号名，不暴露文件名
-    expect(wrapper.text()).toContain("题目一");                  // 焦点题按时间顺序编号（firstTs 升序）
+    expect(wrapper.text()).toContain("输出问候语");              // 焦点题题面名（最新进行中题）
     expect(wrapper.text()).toContain("已完成 2 人");             // 焦点题已完成
     expect(wrapper.text()).toContain("待完成 2 人");             // 焦点题待完成
+    expect(wrapper.text()).toContain("50%");                    // 焦点题完成率 2/4
+    expect(wrapper.text()).not.toContain("全班通过率");          // 单题口径，不再展示跨题汇总
+    expect(wrapper.text()).not.toContain("done.py");            // 已通关题折叠不显示
   });
 
   it("全部作业已全员通过：显示完成文案", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({
       students, aggregates,
-      exerciseProgress: [{ id: "a.py", displayName: "a.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 100 }],
+      exerciseProgress: [{ id: "a.py", displayName: "a.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 100, title: "a.py" }],
       trend: [{ tStart: 1, runs: 2, errors: 1 }],
     }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("全部作业已完成");
+    expect(wrapper.text()).toContain("全员通过，干得漂亮");
   });
 
   it("有数据时渲染三块 canvas（完成度卡为 DOM 进度条；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
