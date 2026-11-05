@@ -21,9 +21,10 @@ const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
-/** 当前题 = 进行中题里最近有成功/报错事件的（latestTs 最大；新题第一人跑完即切换） */
+/** 当前题 = 进行中题里最新涌现的（firstTs 最大）：齐步走课堂逐题推进，新题有第一人成功/报错即切换；
+ * 之后旧题即使再报错也不会把桶抢回去 */
 const focusItem = computed(() =>
-  [...activeItems.value].sort((a, b) => b.latestTs - a.latestTs)[0] ?? null);
+  [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
 /** 桶内液体总高 = 已通过 + 报错中（未提交的人不占液面）；绿层/红层按人数占比分层 */

@@ -66,6 +66,21 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(wrapper.text()).not.toContain("done.py");            // 已通关题折叠不显示
   });
 
+  it("切题规则：锁定最新涌现（firstTs 最大）的进行中题——旧题再报错也不抢桶", async () => {
+    const { wrapper, store } = mountWithStore(ChartsRow);
+    store.applySnapshot(makeSnapshot({
+      students, aggregates,
+      exerciseProgress: [
+        { id: "old.py", displayName: "old.py", isProject: false, passed: 1, stuck: 1, unreviewed: 0, total: 4, passRate: 0.25, firstTs: 100, latestTs: 999, title: "旧题" },
+        { id: "new.py", displayName: "new.py", isProject: false, passed: 0, stuck: 2, unreviewed: 0, total: 4, passRate: 0, firstTs: 200, latestTs: 300, title: "新题" },
+      ],
+      trend: [{ tStart: 1, runs: 2, errors: 1 }],
+    }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("新题");     // firstTs 200 > 100 → 新题为焦点
+    expect(wrapper.text()).not.toContain("旧题"); // 旧题 latestTs 更高也不切换
+  });
+
   it("全部作业已全员通过：显示完成文案", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({
