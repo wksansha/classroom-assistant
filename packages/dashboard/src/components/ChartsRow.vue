@@ -137,12 +137,24 @@ watch(
       <h2 class="tech-title">作业完成度</h2>
       <p v-if="!focusItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
-        <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
-        <div class="focus-bar"><div class="focus-bar-fill" :style="{ width: focusPct + '%' }" /></div>
-        <div class="focus-nums">
-          <span class="ok">已完成 {{ focusItem.passed }} 人</span>
-          <span class="no">待完成 {{ focusItem.total - focusItem.passed }} 人</span>
-          <span class="pct">{{ focusPct }}%</span>
+        <div class="tank-wrap">
+          <div class="tank">
+            <div class="ticks" />
+            <div class="liquid" :style="{ height: focusPct + '%' }">
+              <i class="wave w1" /><i class="wave w2" />
+              <i class="bubble b1" /><i class="bubble b2" /><i class="bubble b3" />
+            </div>
+            <div class="tank-pct">{{ focusPct }}<small>%</small></div>
+          </div>
+          <div class="tank-base" />
+        </div>
+        <div class="focus-info">
+          <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
+          <div class="focus-nums">
+            <span class="ok">已完成 {{ focusItem.passed }} 人</span>
+            <span class="no">待完成 {{ focusItem.total - focusItem.passed }} 人</span>
+          </div>
+          <p class="focus-hint">桶满 = 全员通过</p>
         </div>
       </div>
     </div>
@@ -167,14 +179,64 @@ watch(
 .comp-head .overall { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
-/* —— 单题水桶模式（完成度卡）—— */
-.completion .focus { display: flex; flex-direction: column; gap: 12px; margin: auto 0; }
-.completion .focus-name { color: var(--text-primary); font-size: 22px; font-weight: 700; text-align: center; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
-.completion .focus-bar { height: 28px; background: rgba(255, 95, 109, 0.25); border: 1px solid var(--tech-card-border); border-radius: 3px; overflow: hidden; }
-.completion .focus-bar-fill { height: 100%; background: linear-gradient(90deg, #16a34a, #22c55e); box-shadow: 0 0 12px rgba(34, 197, 94, 0.7); transition: width 0.6s ease; }
-.completion .focus-nums { display: flex; justify-content: center; gap: 20px; font-size: 16px; }
+/* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨 —— */
+.completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 36px; min-height: 0; }
+.tank-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: stretch; justify-content: center; }
+.tank {
+  position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;
+  border: 1px solid var(--tech-card-border); border-top: none;
+  border-radius: 4px 4px 16px 16px;
+  background: rgba(8, 20, 42, 0.6);
+  box-shadow: inset 0 0 24px rgba(30, 90, 200, 0.18);
+  overflow: hidden;
+}
+.tank-base { width: 200px; height: 6px; border-radius: 3px; background: rgba(63, 140, 255, 0.35); box-shadow: 0 0 12px rgba(63, 140, 255, 0.5); }
+.ticks {
+  position: absolute; inset: 0; pointer-events: none; z-index: 3;
+  background: repeating-linear-gradient(to top, transparent 0 calc(10% - 1px), rgba(255, 255, 255, 0.14) calc(10% - 1px) 10%);
+}
+.liquid {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 1;
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.85), rgba(21, 128, 61, 0.95));
+  box-shadow: inset 0 0 30px rgba(34, 197, 94, 0.45), 0 0 18px rgba(34, 197, 94, 0.35);
+  transition: height 0.8s ease;
+}
+.liquid .wave {
+  position: absolute; top: -9px; left: -25%; width: 200%; height: 18px;
+  border-radius: 42%; background: rgba(34, 197, 94, 0.85);
+}
+.liquid .wave.w1 { animation: tank-wave 7s linear infinite; }
+.liquid .wave.w2 { animation: tank-wave 11s linear infinite reverse; opacity: 0.6; }
+@keyframes tank-wave {
+  from { transform: translateX(-25%) rotate(0deg); }
+  to { transform: translateX(-25%) rotate(360deg); }
+}
+.liquid .bubble {
+  position: absolute; bottom: 0; width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35); animation: tank-bubble 4s ease-in infinite;
+}
+.liquid .bubble.b1 { left: 22%; animation-delay: 0s; }
+.liquid .bubble.b2 { left: 55%; width: 5px; height: 5px; animation-delay: 1.4s; }
+.liquid .bubble.b3 { left: 78%; width: 6px; height: 6px; animation-delay: 2.3s; }
+@keyframes tank-bubble {
+  0% { transform: translateY(0); opacity: 0; }
+  15% { opacity: 0.7; }
+  100% { transform: translateY(-160px); opacity: 0; }
+}
+.tank-pct {
+  position: absolute; top: 34%; left: 0; right: 0; z-index: 2; text-align: center;
+  font-family: var(--font-num); font-size: 44px; font-weight: 800; color: #fff;
+  text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
+}
+.tank-pct small { font-size: 20px; font-weight: 600; }
+.completion .focus-info { display: flex; flex-direction: column; gap: 14px; max-width: 260px; }
+.completion .focus-name { color: var(--text-primary); font-size: 24px; font-weight: 700; line-height: 1.4; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-nums { display: flex; flex-direction: column; gap: 8px; font-size: 17px; }
 .completion .focus-nums .ok { color: var(--tech-green); }
 .completion .focus-nums .no { color: var(--tech-red); }
-.completion .focus-nums .pct { font-family: var(--font-num); color: var(--tech-cyan); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.completion .focus-hint { margin: 0; font-size: 13px; color: var(--text-dim); }
+@media (prefers-reduced-motion: reduce) {
+  .liquid .wave, .liquid .bubble { animation: none; }
+}
 .empty { margin: auto 0; color: var(--text-dim); font-size: 15px; text-align: center; }
 </style>
