@@ -56,8 +56,8 @@ function initBar() {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0 } },   // 标签横排不倾斜
-        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+        x: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0, color: "#5d7fa6" } },
+        y: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, color: "#5d7fa6" } },
       },
     },
   });
@@ -74,14 +74,18 @@ function initLine() {
     data: {
       labels: [],
       datasets: [
-        { label: "成功", data: [], borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
-        { label: "报错", data: [], borderColor: "#ff5f6d", backgroundColor: "rgba(255,95,109,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
+        { label: "成功", data: [], borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.18)", tension: 0.4, fill: true, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
+        { label: "报错", data: [], borderColor: "#ff5f6d", backgroundColor: "rgba(255,95,109,0.15)", tension: 0.4, fill: true, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10 } } },
-      scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } },
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, color: "#9fd4ff" } } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { color: "#5d7fa6", maxRotation: 0, minRotation: 0 } },
+        y: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, color: "#5d7fa6" } },
+      },
     },
   });
 }
