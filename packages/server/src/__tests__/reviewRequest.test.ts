@@ -24,7 +24,7 @@ function makeDeps(llmStatus: "pass" | "fail" | "unreviewed" = "pass") {
       json: async () => ({ choices: [{ message: { content: JSON.stringify({ status: llm.status, reason: llm.reason }) } }] }),
     };
   }) as unknown as typeof fetch;
-  const reviewService = createReviewService(p, { apiKey: "k", fetchImpl });
+  const reviewService = createReviewService(p, { apiKey: "k", fetchImpl, retryDelayMs: 0 });   // 测试不等待真实重试间隔
   const stateManager = createStateManager();
   const exerciseProgress = createExerciseProgressTracker();   // 涌现口径（决策 #18）：filePath 直接作题 id
   const counters = { snapshotPushes: 0 };
@@ -124,9 +124,13 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(counters.snapshotPushes).toBe(0);
   });
 
-  it("LLM 挂（fetch 抛错 → mock 兜底 source=mock）的 unreviewed：降级置绿（清零连续错误 + lastResolvedAt）+ 推快照，进度表仍落 unreviewed", async () => {
+  it("LLM 挂（fetch 抛错 → 重试仍挂 → mock 兜底 source=mock）的 unreviewed：降级置绿 + 推快照，进度表落 unreviewed", async () => {
     const p = seedPersistence();
-    const reviewService = createReviewService(p, { apiKey: "k", fetchImpl: (async () => { throw new Error("llm down"); }) as unknown as typeof fetch });
+    let llmCalls = 0;
+    const reviewService = createReviewService(p, {
+      apiKey: "k", retryDelayMs: 0,
+      fetchImpl: (async () => { llmCalls++; throw new Error("llm down"); }) as unknown as typeof fetch,
+    });
     const stateManager = createStateManager();
     const exerciseProgress = createExerciseProgressTracker();
     const counters = { snapshotPushes: 0 };
@@ -150,6 +154,55 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(counters.snapshotPushes).toBe(1);
     expect(p.getReviewResultsSince(0)[0]).toMatchObject({ status: "unreviewed" });   // 进度事实仍落 unreviewed
     expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", unreviewed: 1, passed: 0, stuck: 0 });
+    expect(llmCalls).toBe(2);   // 首次 + 随机延迟后重试一次
+  });
+
+  it("LLM 首次失败、重试成功：返回重试结论（随机延迟可注入为 0）", async () => {
+    const p = seedPersistence();
+    let calls = 0;
+    const reviewService = createReviewService(p, {
+      apiKey: "k", retryDelayMs: 0,
+      fetchImpl: (async () => {
+        calls++;
+        if (calls === 1) return { ok: false, status: 503, text: async () => "busy" };   // 首次繁忙
+        return { ok: true, json: async () => ({ choices: [{ message: { content: '{"status":"pass","reason":"重试后通过"}' } }] }) };
+      }) as unknown as typeof fetch,
+    });
+    const stateManager = createStateManager();
+    const deps: ReviewRequestDeps = { persistence: p, reviewService, stateManager, exerciseProgress: createExerciseProgressTracker(), publishSnapshot: () => {} };
+    const r = await requestReview(deps, fileInput);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("pass");   // 重试拿到真实结论，学员不用白等降级
+    expect(calls).toBe(2);
+  });
+
+  it("LLM 挂 + 当前题已有 run 成功 → 完成度降级计通过（桶不被 LLM 故障卡死）", async () => {
+    const p = seedPersistence();
+    const reviewService = createReviewService(p, {
+      apiKey: "k", retryDelayMs: 0,
+      fetchImpl: (async () => { throw new Error("llm down"); }) as unknown as typeof fetch,
+    });
+    const exerciseProgress = createExerciseProgressTracker();
+    const deps: ReviewRequestDeps = { persistence: p, reviewService, stateManager: createStateManager(), exerciseProgress, publishSnapshot: () => {} };
+    exerciseProgress.applyRunSuccess("2025001", "张三", "lesson5/a.py", Date.now() - 500);   // 学员代码已能跑
+    const r = await requestReview(deps, fileInput);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("unreviewed");
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", passed: 1, unreviewed: 0 });   // 降级计通过
+  });
+
+  it("LLM 挂但学员从未 run 成功 → 完成度仍 unreviewed（编码中，不虚报通过）", async () => {
+    const p = seedPersistence();
+    const reviewService = createReviewService(p, {
+      apiKey: "k", retryDelayMs: 0,
+      fetchImpl: (async () => { throw new Error("llm down"); }) as unknown as typeof fetch,
+    });
+    const exerciseProgress = createExerciseProgressTracker();
+    const deps: ReviewRequestDeps = { persistence: p, reviewService, stateManager: createStateManager(), exerciseProgress, publishSnapshot: () => {} };
+    await requestReview(deps, fileInput);
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ id: "lesson5/a.py", passed: 0, unreviewed: 1 });
   });
 
   it("未配置 LLM（source=not_configured）的 unreviewed：同样降级置绿", async () => {

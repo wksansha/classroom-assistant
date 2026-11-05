@@ -40,4 +40,43 @@ describe("ReviewService（key 内容寻址：sha256(filePath + 评审输入) / A
     const second = await svc.review({ ...input, code: "print(2)" });
     expect(second.status).toBe("pass");
   });
+  it("LLM 失败重试一次：随机延迟后二次调用 → 返回重试结论（retryDelayMs 可注入 0）", async () => {
+    const p = createPersistence(":memory:");
+    let calls = 0;
+    const svc = createReviewService(p, {
+      ...opts, retryDelayMs: 0,
+      fetchImpl: (async () => {
+        calls++;
+        if (calls === 1) return { ok: false, status: 503, text: async () => "busy" };   // 首次繁忙 → mock unreviewed
+        return passFetch(undefined as never, undefined as never);                        // 重试 → pass
+      }) as unknown as typeof fetch,
+    });
+    const r = await svc.review(input);
+    expect(r.status).toBe("pass");
+    expect(calls).toBe(2);
+  });
+  it("重试仍失败：返回第二次的 unreviewed（不无限重试）", async () => {
+    const p = createPersistence(":memory:");
+    let calls = 0;
+    const svc = createReviewService(p, {
+      ...opts, retryDelayMs: 0,
+      fetchImpl: (async () => { calls++; return { ok: false, status: 503, text: async () => "busy" }; }) as unknown as typeof fetch,
+    });
+    const r = await svc.review(input);
+    expect(r.status).toBe("unreviewed");
+    expect(r.source).toBe("mock");
+    expect(calls).toBe(2);
+  });
+  it("未配置 LLM（not_configured）不重试：配置缺失重试无意义", async () => {
+    const p = createPersistence(":memory:");
+    let calls = 0;
+    const svc = createReviewService(p, {
+      retryDelayMs: 0,
+      fetchImpl: (async () => { calls++; return passFetch(undefined as never, undefined as never); }) as unknown as typeof fetch,
+    });
+    const r = await svc.review(input);
+    expect(r.status).toBe("unreviewed");
+    expect(r.source).toBe("not_configured");
+    expect(calls).toBe(0);   // 未配置走不到 fetch
+  });
 });

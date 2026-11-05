@@ -26,10 +26,18 @@ export function createReviewService(p: Persistence, opts: ReviewLlmOptions = {})
   return {
     async review(input) {
       const cacheKey = computeReviewCacheKey(input.filePath, input.code);
-      const result = await cache.getReview(
-        { cacheKey },
-        () => limit(() => callReviewLLM({ code: input.code }, opts)),
-      );
+      const attempt = () => limit(() => callReviewLLM({ code: input.code }, opts));
+      const result = await cache.getReview({ cacheKey }, attempt);
+      // LLM 故障自愈（方案A配套）：繁忙/超时/抖动类失败 → 随机等 5~15 秒重试一次（not_configured 是配置缺失，重试无意义）；
+      // unreviewed 不落缓存，重试会真实再打一次 LLM；学员请求同步等待最终结论
+      if (result.status === "unreviewed" && result.source !== "not_configured") {
+        const delay = typeof opts.retryDelayMs === "function" ? opts.retryDelayMs() : (opts.retryDelayMs ?? 5000 + Math.random() * 10_000);
+        logEvent({ event: "review.retry_scheduled", level: "info", data: { filePath: input.filePath, cacheKey, delayMs: Math.round(delay), firstSource: result.source, firstReason: result.reason } });
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        const retried = await cache.getReview({ cacheKey }, attempt);
+        logEvent({ event: "review.retry_completed", level: "info", data: { filePath: input.filePath, cacheKey, status: retried.status, source: retried.source } });
+        return retried;
+      }
       logEvent({ event: "review.completed", level: "debug", data: { filePath: input.filePath, cacheKey, status: result.status, source: result.source } });
       return result;
     },

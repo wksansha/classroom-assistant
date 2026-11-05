@@ -10,7 +10,7 @@ const WIN_START = WIN.getTime();
 function record(overrides: Partial<StudentRecord> & { events: StoredEvent[] }): StudentRecord {
   return {
     studentId: "stu001", studentName: "张三", classId: "3A",
-    lastActivityAt: NOW, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+    lastActivityAt: NOW, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
     machines: new Map(),
     ...overrides,
   };

@@ -35,6 +35,19 @@ describe("review_results 与预热查询（spec dashboard-v2 §5.2/§5.4）", ()
     ]);
   });
 
+  it("getRunSuccessesSince：仅 run 成功且 payload 带 file；失败行与无 file 行跳过", () => {
+    const p = createPersistence(":memory:");
+    const common = { studentName: "张三", classId: "3A", sessionId: null as string | null, date: "2026-10-22" };
+    p.insertTraceEvents([
+      { eventId: "run:a", studentId: "s1", ...common, payload: JSON.stringify({ file: "l1/a.py" }), surface: "run", kind: "execution_success", ts: "2026-10-22T01:00:00.000Z" },
+      { eventId: "run:b", studentId: "s1", ...common, payload: JSON.stringify({ file: "l1/a.py" }), surface: "run", kind: "execution_error", ts: "2026-10-22T01:05:00.000Z" },
+      { eventId: "run:c", studentId: "s2", ...common, payload: "{}", surface: "run", kind: "execution_success", ts: "2026-10-22T01:07:00.000Z" },   // 无 file
+    ]);
+    expect(p.getRunSuccessesSince(Date.parse("2026-10-22T00:00:00.000Z"))).toEqual([
+      { ts: Date.parse("2026-10-22T01:00:00.000Z"), studentId: "s1", studentName: "张三", filePath: "l1/a.py" },
+    ]);
+  });
+
   it("建表幂等：同一 DB 文件重复 createPersistence 不报错且数据保留", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "review-results-"));
     const dbPath = path.join(dir, "test.db");

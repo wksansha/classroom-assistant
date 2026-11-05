@@ -34,6 +34,43 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     expect(t.list(TODAY_START)[0]).toMatchObject({ stuck: 1 });
   });
 
+  it("降级通过：LLM 无结论 unreviewed + 当前题 run 成功 → 计通过（成功先到/后到皆可）", () => {
+    // 成功先到：run 成功后再收到 LLM 挂的 unreviewed
+    const t = createExerciseProgressTracker();
+    t.applyRunSuccess("s1", "张三", "l1/a.py", NOW);
+    t.applyUnreviewed("s1", "张三", "l1/a.py", NOW + 1000);
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 1, unreviewed: 0 });
+    // 成功后到：unreviewed 降级在先，run 成功随后补升级
+    const t2 = createExerciseProgressTracker();
+    t2.applyUnreviewed("s1", "张三", "l1/a.py", NOW);
+    t2.applyRunSuccess("s1", "张三", "l1/a.py", NOW + 1000);
+    expect(t2.list(TODAY_START)[0]).toMatchObject({ passed: 1, unreviewed: 0 });
+  });
+
+  it("run 成功但从未提交评审 → 仍 unreviewed（编码中，不虚报通过）", () => {
+    const t = createExerciseProgressTracker();
+    t.applyRunSuccess("s1", "张三", "l1/a.py", NOW);
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 0, unreviewed: 1 });
+  });
+
+  it("强信号不受降级影响：降级通过后评审 fail 照常打回", () => {
+    const t = createExerciseProgressTracker();
+    t.applyRunSuccess("s1", "张三", "l1/a.py", NOW);
+    t.applyUnreviewed("s1", "张三", "l1/a.py", NOW + 1000);   // 降级通过
+    t.applyReview("s1", "张三", "l1/a.py", "fail", NOW + 2000);   // LLM 恢复后真实评审打回
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 0, stuck: 1 });
+  });
+
+  it("warmUpFromReviews：先回放 run 成功明细 → unreviewed 行合成降级通过", () => {
+    const t = createExerciseProgressTracker();
+    t.applyRunSuccess("s2", "李四", "l1/a.py", TODAY_START);           // 重启回放顺序：先 run 成功
+    t.warmUpFromReviews([
+      { studentId: "s1", studentName: "张三", filePath: "l1/a.py", status: "unreviewed", ts: TODAY_START + 100 },   // 从未 run 成功 → 仍 unreviewed
+      { studentId: "s2", studentName: "李四", filePath: "l1/a.py", status: "unreviewed", ts: TODAY_START + 200 },   // 有 run 成功 → 降级通过
+    ]);
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 1, unreviewed: 1 });
+  });
+
   it("list 当天过滤：昨天格子的学生不计、昨天活跃的题不出现", () => {
     const t = createExerciseProgressTracker();
     t.applyReview("s1", "张三", "l1/a.py", "fail", TODAY_START - 1000);   // 昨天

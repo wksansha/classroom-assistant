@@ -81,7 +81,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       .map((e) => ({
         studentId: e.studentId, studentName: e.studentName,
         classId: records[0]?.classId ?? "default",
-        events: [], lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+        events: [], lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
         machines: new Map(),
       }));
     const allRecords = [...records, ...rosterGhosts];
@@ -126,9 +126,13 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   const hub = createTeacherHub(buildSnapshot);
 
-  // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放窗口内（当天 0 点与重置锚点取较晚者）review_results 与 run 事件；失败降级不阻塞服务
+  // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放窗口内（当天 0 点与重置锚点取较晚者）review_results 与 run 事件；失败降级不阻塞服务。
+  // 顺序：先回放 run 成功明细（标记「代码能跑」弱信号），再回放评审行——降级 unreviewed + runOk 才能正确合成「降级通过」
   try {
     const windowStart = classWindowStart(Date.now());
+    for (const s of persistence.getRunSuccessesSince(windowStart)) {
+      exerciseProgress.applyRunSuccess(s.studentId, s.studentName, s.filePath, s.ts);
+    }
     exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(windowStart));
     for (const r of persistence.getRunEventsSince(windowStart)) trend.record(r.ts, r.success);
   } catch (err) {
@@ -218,9 +222,10 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       }
 
       stateManager.apply(ev, explanation);
-      // 题目涌现（当天）+ 课堂节奏：run 失败置 fail；run 成败驱动 5 分钟分桶
+      // 题目涌现（当天）+ 课堂节奏：run 失败置 fail、成功记「代码能跑」弱信号；run 成败驱动 5 分钟分桶
       if (ev.eventType === "run") {
         if (!ev.success && ev.filePath) exerciseProgress.applyRunFailure(ev.studentId, ev.studentName, ev.filePath, ev.ts);
+        else if (ev.success && ev.filePath) exerciseProgress.applyRunSuccess(ev.studentId, ev.studentName, ev.filePath, ev.ts);
         trend.record(ev.ts, ev.success);
       }
       hub.publish(buildSnapshot());

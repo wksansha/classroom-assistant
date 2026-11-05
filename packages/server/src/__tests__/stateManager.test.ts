@@ -21,6 +21,15 @@ function successEvent(studentId: string, ts: number): NormalizedEvent {
   };
 }
 
+/** 带文件的运行事件（真实 /api/events 的 run 事件携带 filePath） */
+function fileRunEvent(studentId: string, ts: number, filePath: string, success: boolean): NormalizedEvent {
+  return {
+    studentId, studentName: `学生${studentId}`, classId: "3A", eventType: "run", success,
+    errorType: success ? "RunSuccess" : "ZeroDivisionError", errorMessage: success ? "" : "division by zero",
+    samples: [], rawMessage: success ? "run success" : "division by zero", cacheKey: null, exitCode: success ? 0 : 1, filePath, ts,
+  };
+}
+
 describe("stateManager（内存课堂状态）", () => {
   it("首个事件自动建档", () => {
     const sm = createStateManager();
@@ -57,6 +66,45 @@ describe("stateManager（内存课堂状态）", () => {
     expect(r.lastResolvedAt).toBe(3000);
     expect(r.lastErrorAt).toBe(2000);       // 评审通过不清除 lastErrorAt（历史仍在）
     expect(r.lastActivityAt).toBe(3000);
+  });
+
+  it("自我解决：报错后同文件 run 成功 → 清零连续错误并标记已解决（方案A）", () => {
+    const sm = createStateManager();
+    sm.apply(fileRunEvent("stu001", 1000, "week7/loop.py", false), exp);
+    sm.apply(fileRunEvent("stu001", 2000, "week7/loop.py", false), exp);
+    expect(sm.listRecords()[0].consecutiveErrors).toBe(2);
+    sm.apply(fileRunEvent("stu001", 3000, "week7/loop.py", true), null);   // 修好后同文件跑通
+    const r = sm.listRecords()[0];
+    expect(r.consecutiveErrors).toBe(0);
+    expect(r.lastResolvedAt).toBe(3000);
+    expect(r.lastErrorAt).toBe(2000);           // 历史保留
+    expect(r.lastErrorFile).toBeNull();         // 已解决，清空待自解标记
+  });
+
+  it("不同文件 run 成功不自我解决（loop.py 的错不能被 score.py 跑通洗白）", () => {
+    const sm = createStateManager();
+    sm.apply(fileRunEvent("stu001", 1000, "week7/loop.py", false), exp);
+    sm.apply(fileRunEvent("stu001", 2000, "week6/score.py", true), null);
+    const r = sm.listRecords()[0];
+    expect(r.consecutiveErrors).toBe(1);
+    expect(r.lastResolvedAt).toBeNull();
+    expect(r.lastErrorFile).toBe("week7/loop.py");
+  });
+
+  it("评审失败注入的失败（无文件）不可被 run 成功清除：代码能跑 ≠ 逻辑正确", () => {
+    const sm = createStateManager();
+    sm.apply(fileRunEvent("stu001", 1000, "week7/loop.py", false), exp);
+    sm.apply(fileRunEvent("stu001", 2000, "week7/loop.py", true), null);   // 先自解
+    expect(sm.listRecords()[0].lastResolvedAt).toBe(2000);
+    sm.apply({   // 评审 fail 注入（reviewController 不带 filePath）
+      studentId: "stu001", studentName: "学生stu001", classId: "3A", eventType: "run", success: false,
+      errorType: "review_fail", errorMessage: "死循环", samples: [], rawMessage: "评审未通过", cacheKey: null, ts: 3000,
+    }, { category: "逻辑错误", subtype: "review_fail", knowledge: "k" });
+    expect(sm.listRecords()[0].consecutiveErrors).toBe(1);
+    sm.apply(fileRunEvent("stu001", 4000, "week7/loop.py", true), null);   // run 成功不能清除评审维度的账
+    const r = sm.listRecords()[0];
+    expect(r.consecutiveErrors).toBe(1);
+    expect(r.lastResolvedAt).toBe(2000);        // 仍是评审前那次自解，评审 fail 仍未解决
   });
 
   it("事件序列上限 200，超出保留最新", () => {

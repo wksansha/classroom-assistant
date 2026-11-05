@@ -17,6 +17,7 @@ function student(id: string, name: string, events: StoredEvent[], consecutiveErr
     studentId: id, studentName: name, classId: "3A", events,
     lastActivityAt: errors.at(-1)?.ts ?? NOW,
     lastErrorAt: errors.at(-1)?.ts ?? null,
+    lastErrorFile: null,
     lastResolvedAt: null,
     consecutiveErrors,
     // 默认在线（本文件聚焦告警/聚合/建议逻辑；在线排除语义在 loginState.test.ts 覆盖）

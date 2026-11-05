@@ -80,8 +80,11 @@ describe("GET /api/student/:id", () => {
 describe("POST /api/suggestions/ack", () => {
   it("ack 后 summary 中该建议标记已处理；缺 id 400", async () => {
     const a = app();
-    // 单人单错 → 该 subtype 占比 100% ≥40% → class-review
-    await request(a).post("/api/events").send(flatError);
+    // 全班讲评门槛 = 报错学员 ≥4 且占比 ≥40%（0847f3a 防 1/1=100% 误报）：4 人报同一错 → class-review
+    const ids = ["stu001", "stu002", "stu003", "stu004"];
+    for (let i = 0; i < ids.length; i++) {
+      await request(a).post("/api/events").send({ ...flatError, id: `run:it-ack-${i}`, student_id: ids[i], student_name: `学生${i + 1}` });
+    }
     let summary = (await request(a).get("/api/summary").expect(200)).body;
     expect(summary.suggestions.some((s: any) => s.id === "class-review:除数为0")).toBe(true);
     await request(a).post("/api/suggestions/ack").send({ id: "class-review:除数为0" }).expect(200, { ok: true });

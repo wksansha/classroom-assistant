@@ -68,6 +68,8 @@ export interface Persistence {
   saveReviewResult(row: { studentId: string; classId: string | null; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }): void;
   getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; ts: number }[];
   getRunEventsSince(windowStartMs: number): { ts: number; success: boolean }[];
+  /** run 成功明细（重启回放「降级通过」用）：带学员与文件，payload 无 file 的行跳过 */
+  getRunSuccessesSince(windowStartMs: number): { ts: number; studentId: string; studentName: string; filePath: string }[];
   // —— student_tokens（学生分支直连模型）——
   saveStudentToken(studentId: string, token: string): void;
   getStudentToken(studentId: string): string | null;
@@ -322,6 +324,15 @@ export function createPersistence(dbPath?: string): Persistence {
       const rows = db.prepare("SELECT ts, kind FROM trace_events WHERE surface = 'run' AND ts >= ? ORDER BY ts")
         .all(iso) as { ts: string; kind: string }[];
       return rows.map((r) => ({ ts: Date.parse(r.ts), success: r.kind === "execution_success" }));
+    },
+    getRunSuccessesSince(windowStartMs) {
+      const iso = new Date(windowStartMs).toISOString();
+      const rows = db.prepare(`SELECT ts, student_id, student_name, json_extract(payload, '$.file') AS file
+        FROM trace_events WHERE surface = 'run' AND kind = 'execution_success' AND ts >= ? ORDER BY ts`)
+        .all(iso) as { ts: string; student_id: string; student_name: string; file: string | null }[];
+      return rows
+        .filter((r) => r.file)
+        .map((r) => ({ ts: Date.parse(r.ts), studentId: r.student_id, studentName: r.student_name, filePath: r.file as string }));
     },
     // —— student_tokens（学生分支直连模型）——
     saveStudentToken(studentId, token) {

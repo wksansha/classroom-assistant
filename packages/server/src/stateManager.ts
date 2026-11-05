@@ -28,7 +28,9 @@ export interface StudentRecord {
   events: StoredEvent[];
   lastActivityAt: number;
   lastErrorAt: number | null;
-  /** 最近一次评审通过时间（问题「已解决」的唯一信号；run 成功只是活动信号，不置绿） */
+  /** 最近一次运行报错的文件：同文件 run 成功 = 自我解决信号；评审失败注入（无文件）不可被 run 成功清除 */
+  lastErrorFile: string | null;
+  /** 最近一次问题解决时间（评审通过或自我解决；晚于 lastErrorAt = 无未解决错误） */
   lastResolvedAt: number | null;
   consecutiveErrors: number;
   machines: Map<string, MachineSession>;
@@ -88,7 +90,7 @@ export function createStateManager(): StateManager {
       if (!r) {
         r = {
           studentId: ev.studentId, studentName: ev.studentName, classId: ev.classId,
-          events: [], lastActivityAt: ev.ts, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+          events: [], lastActivityAt: ev.ts, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
           machines: new Map(),
         };
         records.set(ev.studentId, r);
@@ -114,14 +116,23 @@ export function createStateManager(): StateManager {
       if (r.events.length > MAX_EVENTS) r.events.splice(0, r.events.length - MAX_EVENTS);
       r.lastActivityAt = Math.max(r.lastActivityAt, ev.ts);
       if (ev.success) {
-        // run 成功只是活动信号；仅评审通过（resolves）才清零连续错误并标记已解决
         if (opts?.resolves) {
+          // 评审通过（注入事件）：清零连续错误并标记已解决
           r.lastResolvedAt = Math.max(r.lastResolvedAt ?? 0, ev.ts);
           r.consecutiveErrors = 0;
+        } else if (ev.eventType === "run" && ev.filePath && r.lastErrorAt !== null
+          && r.lastErrorFile === ev.filePath && (r.lastResolvedAt ?? -1) < r.lastErrorAt) {
+          // 自我解决（方案A）：运行报错后同文件再次运行成功 = 该错误已被学员自己修好，
+          // 即时恢复状态，不等 LLM 评审；评审维度问题由 review_fail 注入另行记账（无文件，不受此清除）
+          r.lastResolvedAt = Math.max(r.lastResolvedAt ?? 0, ev.ts);
+          r.consecutiveErrors = 0;
+          r.lastErrorFile = null;
         }
       } else {
         r.lastErrorAt = Math.max(r.lastErrorAt ?? 0, ev.ts);
         r.consecutiveErrors += 1;
+        // 记录报错文件：run 失败带文件（可被同文件 run 成功自解）；评审 fail 注入无文件（只能评审 pass 清除）
+        r.lastErrorFile = ev.filePath ?? null;
       }
 
       logEvent({ event: "state.event_applied", level: "debug", data: {
@@ -143,7 +154,7 @@ export function createStateManager(): StateManager {
       if (!r) {
         records.set(studentId, {
           studentId, studentName, classId, events: [],
-          lastActivityAt: ts, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+          lastActivityAt: ts, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
           machines: new Map(),
         });
         logEvent({ event: "state.touch_new_record", level: "debug", data: { studentId, ts } });
@@ -159,7 +170,7 @@ export function createStateManager(): StateManager {
       if (!r) {
         r = {
           studentId, studentName, classId, events: [],
-          lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+          lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
           machines: new Map(),
         };
         records.set(studentId, r);
@@ -177,7 +188,7 @@ export function createStateManager(): StateManager {
         // 服务端重启自愈：第一拍心跳重建档案（客户端确认态未变，身份可信）
         r = {
           studentId, studentName, classId, events: [],
-          lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, consecutiveErrors: 0,
+          lastActivityAt: 0, lastErrorAt: null, lastResolvedAt: null, lastErrorFile: null, consecutiveErrors: 0,
           machines: new Map(),
         };
         records.set(studentId, r);
@@ -228,6 +239,7 @@ export function createStateManager(): StateManager {
         r.lastActivityAt = 0;
         r.lastErrorAt = null;
         r.lastResolvedAt = null;
+        r.lastErrorFile = null;
         r.consecutiveErrors = 0;
         // machines 保留：登录会话不丢，学生无需重新确认身份，在线状态平滑过渡到新课
       }

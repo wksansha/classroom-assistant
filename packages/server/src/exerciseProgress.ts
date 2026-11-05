@@ -7,6 +7,10 @@ interface Entry {
   lastTs: number;
   /** 首次活跃时间（epoch ms，min 口径），前端按时间顺序编号展示用 */
   firstTs: number;
+  /** 当前题有运行成功记录（代码能跑）——LLM 无结论时降级计通过的弱信号 */
+  runOk: boolean;
+  /** 曾收到 LLM 无有效结论的评审（unreviewed）：与「从未提交评审」区分，后者 run 成功不算通过 */
+  degraded: boolean;
 }
 
 export interface ReviewResultRow {
@@ -20,10 +24,13 @@ export interface ReviewResultRow {
 export interface ExerciseProgressTracker {
   /** 评审结果驱动：fail → latest=fail；pass → latest=pass；title 为题面名（首个非空生效） */
   applyReview(studentId: string, studentName: string, filePath: string, status: "pass" | "fail", ts: number, title?: string): void;
-  /** 评审请求无有效结论（LLM 未配置/挂/mock 兜底/不确定，spec 决策 #14）：latest=unreviewed；pass/fail 强信号不覆盖 */
+  /** 评审请求无有效结论（LLM 未配置/挂/mock 兜底/不确定，spec 决策 #14）：latest=unreviewed；
+   * pass/fail 强信号不覆盖；若当前题已有 run 成功 → 降级计通过（桶不被 LLM 故障卡死） */
   applyUnreviewed(studentId: string, studentName: string, filePath: string, ts: number, title?: string): void;
   /** run 失败驱动：latest=fail（强负面信号） */
   applyRunFailure(studentId: string, studentName: string, filePath: string, ts: number): void;
+  /** run 成功驱动：记录当前题「代码能跑」弱信号；若此前有 LLM 无结论的降级 unreviewed → 升级为通过 */
+  applyRunSuccess(studentId: string, studentName: string, filePath: string, ts: number): void;
   /** 服务端重启回放（spec §5.3）：仅传当天行；按 ts 升序回放 latest（unreviewed 不覆盖 pass/fail） */
   warmUpFromReviews(rows: ReviewResultRow[]): void;
   /** 课间重置（大屏重置）：清空内存格子，从零统计新课 */
@@ -46,7 +53,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
     let m = files.get(id);
     if (!m) { m = new Map(); files.set(id, m); }
     let e = m.get(studentId);
-    if (!e) { e = { studentName, latest: "unreviewed", lastTs: ts, firstTs: ts }; m.set(studentId, e); }
+    if (!e) { e = { studentName, latest: "unreviewed" as ExerciseStatus, lastTs: ts, firstTs: ts, runOk: false, degraded: false }; m.set(studentId, e); }
     e.studentName = studentName;
     e.lastTs = Math.max(e.lastTs, ts);
     e.firstTs = Math.min(e.firstTs, ts);
@@ -57,23 +64,32 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
     applyReview(studentId, studentName, filePath, status, ts, title) {
       const e = entryOf(filePath, studentId, studentName, ts);
       setTitle(filePath, title);
-      e.latest = status;   // pass / fail
+      e.latest = status;   // pass / fail（强信号，覆盖降级态）
     },
     applyUnreviewed(studentId, studentName, filePath, ts, title) {
       const e = entryOf(filePath, studentId, studentName, ts);
       setTitle(filePath, title);
-      if (e.latest !== "pass" && e.latest !== "fail") e.latest = "unreviewed";   // 强信号不覆盖
+      e.degraded = true;   // 该 unreviewed 来自评审请求（LLM 无有效结论），非「从未提交」
+      if (e.latest !== "pass" && e.latest !== "fail") {
+        e.latest = e.runOk ? "pass" : "unreviewed";   // 降级：当前题代码能跑 → 计通过，桶不被 LLM 故障卡死
+      }
     },
     applyRunFailure(studentId, studentName, filePath, ts) {
       const e = entryOf(filePath, studentId, studentName, ts);
       e.latest = "fail";
+    },
+    applyRunSuccess(studentId, studentName, filePath, ts) {
+      const e = entryOf(filePath, studentId, studentName, ts);
+      e.runOk = true;
+      if (e.degraded && e.latest === "unreviewed") e.latest = "pass";   // 成功晚于降级 unreviewed 到达 → 补升级
     },
     warmUpFromReviews(rows) {
       const sorted = [...rows].sort((a, b) => a.ts - b.ts);
       for (const r of sorted) {
         const e = entryOf(r.filePath, r.studentId, r.studentName, r.ts);
         if (r.status === "unreviewed") {
-          if (e.latest !== "pass" && e.latest !== "fail") e.latest = "unreviewed";   // 与实时语义一致
+          e.degraded = true;   // review_results 落行的 unreviewed 必来自评审请求
+          if (e.latest !== "pass" && e.latest !== "fail") e.latest = e.runOk ? "pass" : "unreviewed";   // 与实时语义一致
         } else {
           e.latest = r.status;
         }

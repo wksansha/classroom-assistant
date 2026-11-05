@@ -27,8 +27,8 @@ function tooltip(s: StudentState): string {
   <section class="matrix tech-card" v-if="store.snapshot">
     <h2 class="tech-title">全班状态</h2>
     <div class="counts">
-      <span class="red"><i class="lg" />卡住 {{ statusCounts.red }} 人</span>
-      <span class="yellow"><i class="lg" />有错误 {{ statusCounts.yellow }} 人</span>
+      <span class="red"><i class="lg" />需要协助 {{ statusCounts.red }} 人</span>
+      <span class="yellow"><i class="lg" />调试中 {{ statusCounts.yellow }} 人</span>
       <span class="green"><i class="lg" />正常 {{ statusCounts.green }} 人</span>
       <span class="off-legend"><i class="lg" />未在线 {{ statusCounts.offline }} 人</span>
     </div>

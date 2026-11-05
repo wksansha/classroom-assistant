@@ -66,7 +66,7 @@ watch(
 .drawer::after { bottom: 6px; right: 6px; border-left: none; border-top: none; }
 header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--tech-card-border); }
 header h3 { margin: 0; flex: 1; display: flex; align-items: center; gap: 9px; font-size: 21px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(80, 160, 255, 0.7); }
-/* 状态圆点：与大屏矩阵同色（青=正常/红=卡住/黄=有错误/灰=未在线；绿色只留给完成度「已通过」） */
+/* 状态圆点：与大屏矩阵同色（青=正常/红=需要协助/黄=调试中/灰=未在线；绿色只留给完成度「已通过」） */
 .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .dot.green { background: var(--tech-cyan); box-shadow: 0 0 8px rgba(124, 231, 255, 0.8); }
 .dot.red { background: var(--tech-red); box-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }

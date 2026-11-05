@@ -8,6 +8,8 @@ export interface ReviewLlmOptions {
   model?: string;
   timeoutMs?: number;      // A11：默认 60s
   fetchImpl?: typeof fetch;
+  /** 首次 LLM 失败后的重试等待（ms，数字或返回 ms 的函数）；缺省随机 5~15 秒（评审繁忙/抖动自愈），测试传 0 */
+  retryDelayMs?: number | (() => number);
 }
 
 export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: string };
