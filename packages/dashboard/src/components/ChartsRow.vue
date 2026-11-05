@@ -120,8 +120,8 @@ function initLine() {
     data: {
       labels: [],
       datasets: [
-        { label: "运行", data: [], borderColor: "#7ce7ff", backgroundColor: "rgba(124,231,255,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
-        { label: "错误", data: [], borderColor: "#ff5f6d", backgroundColor: "rgba(255,95,109,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
+        { label: "成功", data: [], borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
+        { label: "报错", data: [], borderColor: "#ff5f6d", backgroundColor: "rgba(255,95,109,0.15)", tension: 0.3, fill: true, pointRadius: 2 },
       ],
     },
     options: {
