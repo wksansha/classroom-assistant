@@ -45,7 +45,7 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
   box-shadow: 0 0 10px rgba(80, 180, 255, 0.9);
 }
 .status-bar h1 {
-  margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 6px; white-space: nowrap;
+  margin: 0; font-size: 26px; font-weight: 800; letter-spacing: 6px; white-space: nowrap;
   color: var(--text-primary); text-shadow: 0 0 14px rgba(64, 156, 255, 0.9), 0 0 30px rgba(64, 156, 255, 0.5);
 }
 .stats { display: flex; gap: 12px; }
