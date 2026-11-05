@@ -18,10 +18,10 @@ export interface ReviewResultRow {
 }
 
 export interface ExerciseProgressTracker {
-  /** 评审结果驱动：fail → latest=fail；pass → latest=pass */
-  applyReview(studentId: string, studentName: string, filePath: string, status: "pass" | "fail", ts: number): void;
+  /** 评审结果驱动：fail → latest=fail；pass → latest=pass；title 为题面名（首个非空生效） */
+  applyReview(studentId: string, studentName: string, filePath: string, status: "pass" | "fail", ts: number, title?: string): void;
   /** 评审请求无有效结论（LLM 未配置/挂/mock 兜底/不确定，spec 决策 #14）：latest=unreviewed；pass/fail 强信号不覆盖 */
-  applyUnreviewed(studentId: string, studentName: string, filePath: string, ts: number): void;
+  applyUnreviewed(studentId: string, studentName: string, filePath: string, ts: number, title?: string): void;
   /** run 失败驱动：latest=fail（强负面信号） */
   applyRunFailure(studentId: string, studentName: string, filePath: string, ts: number): void;
   /** 服务端重启回放（spec §5.3）：仅传当天行；按 ts 升序回放 latest（unreviewed 不覆盖 pass/fail） */
