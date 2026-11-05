@@ -17,7 +17,6 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
   <header class="status-bar">
     <div class="stats">
       <div class="stat"><span class="num">{{ stats.online }}</span><span class="label">在线 / {{ stats.total }} 人</span></div>
-      <div class="stat warn"><span class="num">{{ stats.needHelp }}</span><span class="label">急需帮助</span></div>
       <div class="stat"><span class="num">{{ stats.runs }}</span><span class="label">运行次数</span></div>
       <div class="stat err"><span class="num">{{ stats.errors }}</span><span class="label">报错总数</span></div>
     </div>
