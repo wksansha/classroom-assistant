@@ -53,14 +53,14 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
   display: flex; align-items: baseline; gap: 5px; padding: 3px 10px;
   background: rgba(20, 50, 100, 0.4); border: 1px solid rgba(63, 140, 255, 0.3); border-radius: 2px;
 }
-.stat .num { font-family: var(--font-num); font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tech-cyan); text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
-.stat .label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.stat .num { font-family: var(--font-num); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tech-cyan); text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
+.stat .label { font-size: 14px; color: var(--text-dim); white-space: nowrap; }
 .stat.warn .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
 .stat.err .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
 .meta { display: flex; align-items: center; gap: 10px; }
-.date { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
-.clock { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.conn { font-size: 12px; white-space: nowrap; }
+.date { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.clock { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.conn { font-size: 13px; white-space: nowrap; }
 .conn.on { color: var(--tech-green); }
 .conn.off { color: var(--tech-red); }
 </style>

@@ -54,7 +54,7 @@ async function ack(id: string) {
   font-size: 12px; font-weight: 700; border-radius: 2px; padding: 2px 8px;
   letter-spacing: 2px; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
 }
-.ai-panel h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
+.ai-panel h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
 .card {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px;
   background: rgba(20, 50, 100, 0.4); border: 1px solid rgba(63, 140, 255, 0.25);
@@ -64,8 +64,8 @@ async function ack(id: string) {
 .card.class-review { border-left-color: var(--tech-red); }
 .card.group-discuss { border-left-color: var(--tech-yellow); }
 .card.individual { border-left-color: var(--tech-green); }
-.kind-tag { font-size: 12px; color: var(--text-dim); }
-.text { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-primary); }
+.kind-tag { font-size: 13px; color: var(--text-dim); }
+.text { margin: 0; font-size: 16px; line-height: 1.55; color: var(--text-primary); }
 .card button {
   align-self: flex-end; padding: 4px 12px; font-size: 13px; cursor: pointer;
   border: 1px solid rgba(63, 140, 255, 0.4); background: transparent; color: var(--text-secondary);

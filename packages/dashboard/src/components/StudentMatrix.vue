@@ -51,7 +51,7 @@ function tooltip(recent: RecentError[]): string {
   padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
   height: 280px;   /* 按全班 22 名学生（1920 宽屏约 11 列 × 2 行）写死；学生更多时网格内部滚动 */
 }
-.counts { display: flex; gap: 14px; font-size: 13px; justify-content: center; }
+.counts { display: flex; gap: 14px; font-size: 15px; justify-content: center; }
 .counts .red { color: var(--tech-red); text-shadow: 0 0 6px rgba(255, 95, 109, 0.6); }
 .counts .yellow { color: var(--tech-yellow); text-shadow: 0 0 6px rgba(255, 197, 61, 0.5); }
 .counts .green { color: var(--tech-green); text-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }

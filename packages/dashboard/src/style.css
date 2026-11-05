@@ -187,7 +187,7 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 .app .tech-card::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
 .app .tech-title {
   margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
-  text-align: center; color: var(--text-secondary); font-size: 14px; font-weight: 700;
+  text-align: center; color: var(--text-secondary); font-size: 16px; font-weight: 700;
   letter-spacing: 3px; text-shadow: 0 0 8px rgba(80, 160, 255, 0.7);
 }
 .app .tech-title::before { content: "›››"; color: #2f6fce; font-size: 9px; letter-spacing: 0; }
