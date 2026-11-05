@@ -11,16 +11,14 @@ Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 
 const store = useClassroom();
-const completionRef = ref<HTMLCanvasElement | null>(null);
 const barRef = ref<HTMLCanvasElement | null>(null);
 const pieRef = ref<HTMLCanvasElement | null>(null);
 const lineRef = ref<HTMLCanvasElement | null>(null);
-let completionChart: Chart | null = null;
 let barChart: Chart | null = null;
 let pieChart: Chart | null = null;
 let lineChart: Chart | null = null;
 
-// —— 完成度卡关注集（spec 决策 #5，沿用 V2 决策 #16/#18/#20）——
+// —— 完成度卡：焦点题模式（全班齐步走课堂——自动锁定活跃人数最多的进行中题）——
 const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
 const doneCount = computed(() => allItems.value.length - activeItems.value.length);
@@ -31,6 +29,13 @@ const overall = computed(() => {
 });
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全部作业已完成");
+/** 焦点题 = 进行中题里三态人数最多者（exerciseProgress 服务端已按总和降序，取首个未通关题） */
+const focusItem = computed(() => activeItems.value[0] ?? null);
+const focusPct = computed(() =>
+  focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
+/** 其余进行中题（焦点之外），最多展示 4 行 */
+const otherActive = computed(() => activeItems.value.slice(1, 5));
+const otherActiveRest = computed(() => Math.max(0, activeItems.value.length - 1 - otherActive.value.length));
 
 // —— 状态占比（spec 决策 #4：仅统计在线学生三值）——
 const statusCounts = computed(() => {
@@ -44,36 +49,7 @@ const statusCounts = computed(() => {
   return counts;
 });
 
-// 四卡各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
-function initCompletion() {
-  if (!completionRef.value) return;
-  if (completionChart) {
-    if (completionChart.canvas === completionRef.value) return;
-    completionChart.destroy();
-    completionChart = null;
-  }
-  completionChart = new Chart(completionRef.value, {
-    type: "bar",
-    data: {
-      labels: [],
-      datasets: [
-        { label: "已完成", data: [], backgroundColor: "#22c55e", stack: "s", borderRadius: 2 },
-        { label: "待完成", data: [], backgroundColor: "#ff5f6d", stack: "s", borderRadius: 2 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "bottom", labels: { boxWidth: 10 } },
-        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label} ${ctx.parsed.y} 人` } },
-      },
-      scales: {
-        x: { stacked: true, ticks: { maxRotation: 45, minRotation: 45 } },
-        y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-      },
-    },
-  });
-}
+// 三卡各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
 function initBar() {
   if (!barRef.value) return;
   if (barChart) {
@@ -160,12 +136,6 @@ const trendPoints = computed(() => {
 function updateCharts() {
   const snap = store.snapshot;
   if (!snap) return;
-  if (completionChart) {
-    completionChart.data.labels = activeItems.value.map((e) => e.displayName);
-    completionChart.data.datasets[0].data = activeItems.value.map((e) => e.passed);
-    completionChart.data.datasets[1].data = activeItems.value.map((e) => e.total - e.passed);   // 待完成 = 全班 - 已完成（含未做/卡住/待评审）
-    completionChart.update();
-  }
   if (barChart) {
     const top3 = snap.aggregates.slice(0, 3);   // 服务端已按涉及人数降序，只取 Top3（大屏可读性）
     barChart.data.labels = top3.map((g) => `${g.category} · ${g.subtype}`);
@@ -186,15 +156,15 @@ function updateCharts() {
 
 onMounted(async () => {
   await nextTick();
-  initCompletion(); initBar(); initPie(); initLine();
+  initBar(); initPie(); initLine();
   updateCharts();
 });
-onBeforeUnmount(() => { completionChart?.destroy(); barChart?.destroy(); pieChart?.destroy(); lineChart?.destroy(); });
+onBeforeUnmount(() => { barChart?.destroy(); pieChart?.destroy(); lineChart?.destroy(); });
 watch(
   () => store.snapshot,
   async () => {
     await nextTick();   // 等待空态→有数据切换后渲染出 canvas
-    initCompletion(); initBar(); initPie(); initLine();
+    initBar(); initPie(); initLine();
     updateCharts();
   },
   { deep: true },
@@ -209,7 +179,22 @@ watch(
         <span v-if="activeItems.length" class="overall">全班通过率 <strong>{{ overall }}%</strong></span>
       </div>
       <p v-if="!activeItems.length" class="empty">{{ completionEmpty }}</p>
-      <div v-else class="chart-wrap"><canvas ref="completionRef">{{ activeItems.map((e) => e.displayName).join(" ") }}</canvas></div>
+      <div v-else class="focus">
+        <div class="focus-name">{{ focusItem!.displayName }}</div>
+        <div class="focus-bar"><div class="focus-bar-fill" :style="{ width: focusPct + '%' }" /></div>
+        <div class="focus-nums">
+          <span class="ok">已完成 {{ focusItem!.passed }} 人</span>
+          <span class="no">待完成 {{ focusItem!.total - focusItem!.passed }} 人</span>
+          <span class="pct">{{ focusPct }}%</span>
+        </div>
+      </div>
+      <div v-if="otherActive.length" class="minor-list">
+        <div v-for="e in otherActive" :key="e.id" class="minor-row">
+          <span class="n">{{ e.displayName }}</span>
+          <span class="v">{{ e.passed }}/{{ e.total }}</span>
+        </div>
+        <div v-if="otherActiveRest > 0" class="minor-row rest">…另有 {{ otherActiveRest }} 题进行中</div>
+      </div>
       <p v-if="doneCount > 0" class="done-note">另有 {{ doneCount }} 题已全部通过</p>
     </div>
     <div class="chart-card tech-card">
@@ -238,6 +223,19 @@ watch(
 .comp-head .overall { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-size: 22px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
+/* —— 焦点题模式（完成度卡）—— */
+.completion .focus { display: flex; flex-direction: column; gap: 10px; margin: auto 0; }
+.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; text-align: center; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-bar { height: 22px; background: rgba(255, 95, 109, 0.25); border: 1px solid var(--tech-card-border); border-radius: 3px; overflow: hidden; }
+.completion .focus-bar-fill { height: 100%; background: linear-gradient(90deg, #16a34a, #22c55e); box-shadow: 0 0 12px rgba(34, 197, 94, 0.7); transition: width 0.6s ease; }
+.completion .focus-nums { display: flex; justify-content: center; gap: 18px; font-size: 14px; }
+.completion .focus-nums .ok { color: var(--tech-green); }
+.completion .focus-nums .no { color: var(--tech-red); }
+.completion .focus-nums .pct { color: var(--tech-cyan); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.completion .minor-list { display: flex; flex-direction: column; gap: 4px; }
+.completion .minor-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
+.completion .minor-row .v { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.completion .minor-row.rest { justify-content: center; }
 .done-note { margin: 0; font-size: 12px; color: var(--text-dim); text-align: center; }
 .empty { margin: auto 0; color: var(--text-dim); font-size: 13px; text-align: center; }
 </style>
