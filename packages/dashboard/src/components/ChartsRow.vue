@@ -57,14 +57,16 @@ function initCompletion() {
     data: {
       labels: [],
       datasets: [
-        { label: "已通过", data: [], backgroundColor: "#22c55e", stack: "s", borderRadius: 2 },
-        { label: "卡住", data: [], backgroundColor: "#ff5f6d", stack: "s", borderRadius: 2 },
-        { label: "待评审", data: [], backgroundColor: "#3fa9ff", stack: "s", borderRadius: 2 },
+        { label: "已完成", data: [], backgroundColor: "#22c55e", stack: "s", borderRadius: 2 },
+        { label: "待完成", data: [], backgroundColor: "#ff5f6d", stack: "s", borderRadius: 2 },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10 } } },
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 10 } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label} ${ctx.parsed.y} 人` } },
+      },
       scales: {
         x: { stacked: true, ticks: { maxRotation: 45, minRotation: 45 } },
         y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
@@ -167,8 +169,7 @@ function updateCharts() {
   if (completionChart) {
     completionChart.data.labels = activeItems.value.map((e) => e.displayName);
     completionChart.data.datasets[0].data = activeItems.value.map((e) => e.passed);
-    completionChart.data.datasets[1].data = activeItems.value.map((e) => e.stuck);
-    completionChart.data.datasets[2].data = activeItems.value.map((e) => e.unreviewed);
+    completionChart.data.datasets[1].data = activeItems.value.map((e) => e.total - e.passed);   // 待完成 = 全班 - 已完成（含未做/卡住/待评审）
     completionChart.update();
   }
   if (barChart) {
