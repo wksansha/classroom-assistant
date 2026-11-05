@@ -89,6 +89,19 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(counters.snapshotPushes).toBe(1);
   });
 
+  it("题面名提取：练习N：标题（备注）→ 进度表只留 练习N：标题；无练习格式回退 # 注释", async () => {
+    const { deps, exerciseProgress } = makeDeps("pass");
+    await requestReview(deps, {
+      ...fileInput,
+      code: '"""\n练习九：集合运算（对应 L14 集合运算与覆盖分析）\n"""\n# ===== 代码区 =====\nprint(1)',
+    });
+    expect(exerciseProgress.list(0)[0]).toMatchObject({ title: "练习九：集合运算" });
+
+    const { deps: deps2, exerciseProgress: ep2 } = makeDeps("pass");
+    await requestReview(deps2, { ...fileInput, code: "# 题：两数之和\n# ===== 代码区 =====\nprint(2)" });
+    expect(ep2.list(0)[0]).toMatchObject({ title: "题：两数之和" });
+  });
+
   it("评审 fail：等同报错，无条件注入（无任何提交行也注入）+ 快照推送", async () => {
     const { deps, counters, stateManager } = makeDeps("fail");
     const r = await requestReview(deps, fileInput);

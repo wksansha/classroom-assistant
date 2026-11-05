@@ -53,10 +53,18 @@ export function buildProjectReviewInput(files: SubmissionFile[]): string {
     .join("\n\n");
 }
 
-/** 题面名提取：代码里「# ===== 代码区 =====」分隔线前第一行非空注释（≤40 字），无则 undefined（进度表回退文件名） */
+/** 题面名提取：代码里「# ===== 代码区 =====」分隔线前找「练习N：标题（备注）」行，只留「练习N：标题」；
+ * 无该格式时兜底取第一行非空 # 注释；都没有则 undefined（进度表回退文件名） */
 function extractExerciseTitle(code: string | undefined): string | undefined {
   if (!code) return undefined;
   const head = code.split(/={3,}\s*代码区\s*={3,}/)[0] ?? "";
+  for (const line of head.split("\n")) {
+    const m = line.match(/练习\s*([^\s：:]{1,6})\s*[：:]\s*(.+)/);
+    if (m) {
+      const rest = m[2].replace(/\s*[（(][^）)]*[）)]\s*$/, "").trim();   // 去掉尾部（…）备注
+      return `练习${m[1]}：${rest}`.slice(0, 40);
+    }
+  }
   for (const line of head.split("\n")) {
     const t = line.trim().replace(/^#+\s*/, "").trim();
     if (t) return t.slice(0, 40);
