@@ -71,8 +71,10 @@ export interface ExerciseProgressItem {
   total: number;
   /** passed/total（决策 #20；装配层注入） */
   passRate: number;
-  /** 首次活跃时间（epoch ms，当天窗口内；用于前端按时间排序锁定当前题） */
+  /** 首次活跃时间（epoch ms，当天窗口内） */
   firstTs: number;
+  /** 最近活跃时间（epoch ms，当天窗口内；前端据其锁定「当前题」——最新成功/报错事件的题） */
+  latestTs: number;
   /** 题面名（评审输入代码分隔线前首行注释；无评审时回退文件名） */
   title: string;
 }

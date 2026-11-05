@@ -88,10 +88,12 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
         let passed = 0, stuck = 0, unreviewed = 0;
         let active = false;
         let firstTs = Number.MAX_SAFE_INTEGER;
+        let latestTs = 0;
         for (const e of students.values()) {
           if (e.lastTs < dayStartMs) continue;   // 当天口径：只统计今天动过的格子
           active = true;
           firstTs = Math.min(firstTs, e.firstTs);
+          latestTs = Math.max(latestTs, e.lastTs);
           if (e.latest === "pass") passed++;
           else if (e.latest === "fail") stuck++;
           else unreviewed++;
@@ -103,6 +105,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           isProject: !id.endsWith(".py"),
           passed, stuck, unreviewed,
           firstTs,
+          latestTs,
           title: fileTitles.get(id) ?? (id.split(/[\\/]/).pop() ?? id),
         });
       }

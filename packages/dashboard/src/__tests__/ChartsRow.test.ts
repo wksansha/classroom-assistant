@@ -40,8 +40,8 @@ const aggregates: AggItem[] = [
   { subtype: "缺少冒号", category: "语法错误", knowledge: "k", count: 8, students: [] },
 ];
 const exerciseProgress: ExerciseProgressItem[] = [
-  { id: "week1/hello.py", displayName: "hello.py", isProject: false, passed: 2, stuck: 1, unreviewed: 1, total: 4, passRate: 0.5, firstTs: 100, title: "输出问候语" },
-  { id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200, title: "成绩判断" },
+  { id: "week1/hello.py", displayName: "hello.py", isProject: false, passed: 2, stuck: 1, unreviewed: 1, total: 4, passRate: 0.5, firstTs: 100, latestTs: 400, title: "输出问候语" },
+  { id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200, latestTs: 300, title: "成绩判断" },
 ];
 
 describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
@@ -70,7 +70,7 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({
       students, aggregates,
-      exerciseProgress: [{ id: "a.py", displayName: "a.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 100, title: "a.py" }],
+      exerciseProgress: [{ id: "a.py", displayName: "a.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 100, latestTs: 200, title: "a.py" }],
       trend: [{ tStart: 1, runs: 2, errors: 1 }],
     }));
     await wrapper.vm.$nextTick();

@@ -21,9 +21,9 @@ const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
-/** 当前题 = 进行中题里最新开始的（firstTs 最大；齐步走课堂即全班正在做的那道） */
+/** 当前题 = 进行中题里最近有成功/报错事件的（latestTs 最大；新题第一人跑完即切换） */
 const focusItem = computed(() =>
-  [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
+  [...activeItems.value].sort((a, b) => b.latestTs - a.latestTs)[0] ?? null);
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
 /** 桶内液体总高 = 已通过 + 报错中（未提交的人不占液面）；绿层/红层按人数占比分层 */
@@ -245,9 +245,9 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; gap: 14px; max-width: 260px; }
-.completion .focus-name { color: var(--text-primary); font-size: 24px; font-weight: 700; line-height: 1.4; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
-.completion .focus-nums { display: flex; flex-direction: column; gap: 8px; font-size: 17px; }
+.completion .focus-info { display: flex; flex-direction: column; gap: 14px; max-width: 300px; align-self: flex-start; }   /* 题面名置右上角 */
+.completion .focus-name { color: var(--text-primary); font-size: 26px; font-weight: 700; line-height: 1.4; text-align: right; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-nums { display: flex; flex-direction: column; gap: 8px; font-size: 17px; text-align: right; }
 .completion .focus-nums .ok { color: var(--tech-green); }
 .completion .focus-nums .warn { color: var(--tech-red); }
 .completion .focus-nums .idle { color: var(--tech-yellow); }

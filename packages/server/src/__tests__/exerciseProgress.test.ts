@@ -9,11 +9,11 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     const t = createExerciseProgressTracker();
     t.applyReview("s1", "张三", "l1/a.py", "fail", NOW);
     expect(t.list(TODAY_START)).toEqual([
-      { id: "l1/a.py", displayName: "a.py", isProject: false, passed: 0, stuck: 1, unreviewed: 0, firstTs: NOW, title: "a.py" },
+      { id: "l1/a.py", displayName: "a.py", isProject: false, passed: 0, stuck: 1, unreviewed: 0, firstTs: NOW, latestTs: NOW, title: "a.py" },
     ]);
     t.applyReview("s1", "张三", "l1/a.py", "pass", NOW + 1000);
     expect(t.list(TODAY_START)).toEqual([
-      { id: "l1/a.py", displayName: "a.py", isProject: false, passed: 1, stuck: 0, unreviewed: 0, firstTs: NOW, title: "a.py" },
+      { id: "l1/a.py", displayName: "a.py", isProject: false, passed: 1, stuck: 0, unreviewed: 0, firstTs: NOW, latestTs: NOW + 1000, title: "a.py" },
     ]);
   });
 
@@ -39,7 +39,7 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     t.applyReview("s1", "张三", "l1/a.py", "fail", TODAY_START - 1000);   // 昨天
     t.applyReview("s2", "李四", "l1/b.py", "fail", NOW);                  // 今天
     expect(t.list(TODAY_START)).toEqual([
-      { id: "l1/b.py", displayName: "b.py", isProject: false, passed: 0, stuck: 1, unreviewed: 0, firstTs: NOW, title: "b.py" },
+      { id: "l1/b.py", displayName: "b.py", isProject: false, passed: 0, stuck: 1, unreviewed: 0, firstTs: NOW, latestTs: NOW, title: "b.py" },
     ]);
     // 同题：昨天 fail 的 s1 不计入今天统计；firstTs 取今天格子（昨天事件不计）
     t.applyReview("s3", "王五", "l1/a.py", "pass", NOW + 2000);
@@ -61,7 +61,7 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     const item = t.list(TODAY_START)[0];
     expect(item.displayName).toBe("weather_app.py");
     expect(item).not.toHaveProperty("students");
-    expect(Object.keys(item).sort()).toEqual(["displayName", "firstTs", "id", "isProject", "passed", "stuck", "title", "unreviewed"]);
+    expect(Object.keys(item).sort()).toEqual(["displayName", "firstTs", "id", "isProject", "latestTs", "passed", "stuck", "title", "unreviewed"]);
   });
 
   it("题面名：applyReview 带 title 时优先展示，未带时回退文件名", () => {
