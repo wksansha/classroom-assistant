@@ -222,7 +222,7 @@ watch(
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
 /* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨 —— */
-.completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 56px; min-height: 0; padding-left: 48px; }   /* 整体右移；状态列离桶更远 */
+.completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 56px; min-height: 0; }   /* 居中：左右空白近似相等 */
 .tank-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: stretch; justify-content: center; }
 .tank {
   position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;
@@ -274,7 +274,7 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; gap: 40px; width: 230px; align-self: center; }   /* 题名+状态行成组垂直居中；题名与状态行间距拉大 */
+.completion .focus-info { display: flex; flex-direction: column; gap: 52px; width: 230px; align-self: center; }   /* 题名+状态行成组垂直居中；题名更高、与状态行距离大 */
 .completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
 .completion .focus-nums { display: flex; flex-direction: column; gap: 16px; font-size: 17px; }
 .completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
