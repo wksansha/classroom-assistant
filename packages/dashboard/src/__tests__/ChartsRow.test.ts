@@ -25,6 +25,7 @@ vi.mock("chart.js", () => {
     Chart: MockChart,
     BarController: stub, BarElement: stub,
     LineController: stub, LineElement: stub, PointElement: stub, Filler: stub,
+    PieController: stub, ArcElement: stub,
     CategoryScale: stub, LinearScale: stub,
     Tooltip: stub, Legend: stub,
   };
@@ -45,63 +46,33 @@ const exerciseProgress: ExerciseProgressItem[] = [
 ];
 
 describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
-  it("四卡标题渲染（完成度在第一张）", async () => {
+  it("三卡标题渲染（全班状态占比在第一张）", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
     const titles = wrapper.findAll("h2").map((h) => h.text());
-    expect(titles).toEqual(["作业完成度", "错误类型TOP3", "课堂节奏"]);
+    expect(titles).toEqual(["全班状态占比", "错误类型TOP3", "课堂节奏"]);
   });
 
-  it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", async () => {
+  /* 【注释保留】作业完成度模块用例——模块恢复时一并恢复（见 ChartsRow.vue 脚本区注释块）
+   *
+   * it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", ...) 原断言：
+   *   输出问候语 / 已通过 2 人 / 编码中 2 人 / 50% / 不含 报错中·未提交·全班通过率·done.py
+   * it("作业选择下拉：默认展示最新进行中题；下拉列出全部题目；选中后不自动切换", ...) 原断言：
+   *   .focus-name = 新题；options = ["新题（0/4）", "旧题（1/4）"]；setValue("old.py") 后 .focus-name = 旧题
+   * it("全部作业已全员通过：显示完成文案", ...) 原断言：
+   *   全员通过，干得漂亮
+   */
+
+  it("有数据时渲染三块 canvas（占比/错误TOP3/课堂节奏；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("输出问候语");              // 焦点题题面名（最新进行中题）
-    expect(wrapper.text()).toContain("已通过 2 人");             // 焦点题已通过
-    expect(wrapper.text()).toContain("编码中 2 人");             // 其余学员（含报错中/未提交，总 4 - 通过 2）
-    expect(wrapper.text()).toContain("50%");                    // 焦点题完成率 2/4
-    expect(wrapper.text()).not.toContain("报错中");              // 完成度卡不再细分报错（由全班状态/错误TOP3表达）
-    expect(wrapper.text()).not.toContain("未提交");
-    expect(wrapper.text()).not.toContain("全班通过率");          // 单题口径，不再展示跨题汇总
-    expect(wrapper.text()).not.toContain("done.py");            // 已通关题折叠不显示
-  });
-
-  it("切题规则：锁定最新涌现（firstTs 最大）的进行中题——旧题再报错也不抢桶", async () => {
-    const { wrapper, store } = mountWithStore(ChartsRow);
-    store.applySnapshot(makeSnapshot({
-      students, aggregates,
-      exerciseProgress: [
-        { id: "old.py", displayName: "old.py", isProject: false, passed: 1, stuck: 1, unreviewed: 0, total: 4, passRate: 0.25, firstTs: 100, latestTs: 999, title: "旧题" },
-        { id: "new.py", displayName: "new.py", isProject: false, passed: 0, stuck: 2, unreviewed: 0, total: 4, passRate: 0, firstTs: 200, latestTs: 300, title: "新题" },
-      ],
-      trend: [{ tStart: 1, runs: 2, errors: 1 }],
-    }));
-    await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("新题");     // firstTs 200 > 100 → 新题为焦点
-    expect(wrapper.text()).not.toContain("旧题"); // 旧题 latestTs 更高也不切换
-  });
-
-  it("全部作业已全员通过：显示完成文案", async () => {
-    const { wrapper, store } = mountWithStore(ChartsRow);
-    store.applySnapshot(makeSnapshot({
-      students, aggregates,
-      exerciseProgress: [{ id: "a.py", displayName: "a.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 100, latestTs: 200, title: "a.py" }],
-      trend: [{ tStart: 1, runs: 2, errors: 1 }],
-    }));
-    await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("全员通过，干得漂亮");
-  });
-
-  it("有数据时渲染两块 canvas（完成度卡为 DOM 进度条；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
-    const { wrapper, store } = mountWithStore(ChartsRow);
-    store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
-    await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(2);
+    expect(wrapper.findAll("canvas")).toHaveLength(3);
     const empty = mountWithStore(ChartsRow);
     empty.store.applySnapshot(makeSnapshot());
     await empty.wrapper.vm.$nextTick();
-    expect(empty.wrapper.text()).toContain("暂无题目数据");
+    expect(empty.wrapper.text()).toContain("暂无学员数据");
     expect(empty.wrapper.text()).toContain("暂无错误数据");
     expect(empty.wrapper.text()).toContain("暂无运行数据");
   });
@@ -116,12 +87,12 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     });
     store.applySnapshot(snapWithData());
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(2);
+    expect(wrapper.findAll("canvas")).toHaveLength(3);
     store.applySnapshot(makeSnapshot());               // → 空态（canvas 卸载）
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll("canvas")).toHaveLength(0);
     store.applySnapshot(snapWithData());               // → 再有数据（canvas 重建）
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(2); // 修复前：此断言失败（旧实例跳过 init）
+    expect(wrapper.findAll("canvas")).toHaveLength(3); // 修复前：此断言失败（旧实例跳过 init）
   });
 });

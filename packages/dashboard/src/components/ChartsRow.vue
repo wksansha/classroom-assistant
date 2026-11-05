@@ -3,10 +3,11 @@ import { computed, onMounted, onBeforeUnmount, watch, nextTick, ref } from "vue"
 import {
   Chart, BarController, BarElement,
   LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
+  PieController, ArcElement,
 } from "chart.js";
 import { useClassroom } from "../stores/classroom";
 
-Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
+Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler, PieController, ArcElement);
 Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 
@@ -48,24 +49,63 @@ const tooltipStyle = {
   cornerRadius: 2,
 };
 
+// 自定义悬浮定位（官方扩展点 Tooltip.positioners）：统一锚定柱体右侧柱顶高度，不随鼠标跳动；
+// 靠右的柱按预估悬浮框宽度翻到柱体左侧防溢出。positioner 收到 tooltip item 数组（items[i].element 图元、
+// items[i].chart 图表实例——与 chart.js 内置 average/nearest 的取法一致）
+type TipItem = { element?: { x: number; y: number }; chart?: { chartArea?: { right: number; left: number } } };
+const tooltipPositioners = (Tooltip as unknown as { positioners: Record<string, unknown> }).positioners ??= {};
+tooltipPositioners.rightOfBar = (items: TipItem[]) => {
+  const el = items[0]?.element;
+  if (!el) return false;
+  const area = items[0]?.chart?.chartArea;
+  const offset = 46;   // 柱厚 85 的一半 + 3px 间隙
+  const flip = !!area && el.x + offset + 160 > area.right;   // 预估悬浮框宽 160px
+  return { x: flip ? el.x - offset : el.x + offset, y: el.y, xAlign: flip ? "right" : "left", yAlign: "center" };
+};
+
 const store = useClassroom();
 const barRef = ref<HTMLCanvasElement | null>(null);
 const lineRef = ref<HTMLCanvasElement | null>(null);
 let barChart: Chart | null = null;
 let lineChart: Chart | null = null;
 
-// —— 完成度卡：单题水桶模式（全班齐步走课堂——只关注当前题，桶满 = 全员通过）——
-const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
-const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
-const completionEmpty = computed(() =>
-  allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
-/** 当前题 = 进行中题里最新涌现的（firstTs 最大）：齐步走课堂逐题推进，新题有第一人成功/报错即切换；
- * 之后旧题即使再报错也不会把桶抢回去 */
-const focusItem = computed(() =>
-  [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
-const focusPct = computed(() =>
-  focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
-/** 液面高度 = 已通过/总人数，与中央百分比严格一致；绿液涨到顶 = 全员通过（报错中由右侧状态行表达） */
+// —— 全班状态占比（饼图）：状态口径与矩阵图例一致（需要协助/调试中/正常，未在线不入图）——
+const pieRef = ref<HTMLCanvasElement | null>(null);
+let pieChart: Chart | null = null;
+const statusCounts = computed(() => {
+  const ss = store.snapshot?.students ?? [];
+  return [
+    { label: "需要协助", count: ss.filter((s) => s.status === "red" && s.online).length, color: "#ff5f6d" },
+    { label: "调试中", count: ss.filter((s) => s.status === "yellow" && s.online).length, color: "#ffc53d" },
+    { label: "正常", count: ss.filter((s) => s.status === "green" && s.online).length, color: "#7ce7ff" },
+  ];
+});
+
+/* ============================================================
+ * 【注释保留】作业完成度模块（单题水桶模式）——想好了随时恢复：
+ * 恢复步骤：① 取消本注释块；② 取消模板中「作业完成度」卡的注释；
+ * ③ 把下方「全班状态占比」饼图卡换成完成度卡；④ 测试文件恢复对应用例
+ *
+ * const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
+ * const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
+ * const completionEmpty = computed(() =>
+ *   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
+ * // 下拉选项：今天全部题目按涌现时间新→旧（一个文件夹多个 py 各自成题）
+ * const sortedItems = computed(() => [...allItems.value].sort((a, b) => b.firstTs - a.firstTs));
+ * // 教员选定题 id；未选/选题消失（课间重置、新一天）时回落到最新进行中题
+ * const selectedId = ref<string | null>(null);
+ * watch(sortedItems, (list) => {
+ *   if (selectedId.value && !list.some((e) => e.id === selectedId.value)) selectedId.value = null;
+ *   if (!selectedId.value && activeItems.value.length) {
+ *     selectedId.value = [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0].id;
+ *   }
+ * });
+ * const displayItem = computed(() =>
+ *   allItems.value.find((e) => e.id === selectedId.value) ?? null);
+ * const focusPct = computed(() =>
+ *   displayItem.value ? Math.round((displayItem.value.passed / displayItem.value.total) * 100) : 0);
+ * // 液面高度 = 已通过/总人数，与中央百分比严格一致；绿液涨到顶 = 全员通过
+ * ============================================================ */
 
 // —— 状态占比已移除（全班状态矩阵已表达三值信息）——
 
@@ -91,6 +131,7 @@ function initBar() {
         tooltip: {
           ...tooltipStyle,
           displayColors: false,
+          position: "rightOfBar" as never,   // 自定义定位器：柱体右侧统一锚定（见文件头 Tooltip.positioners 注册）
           callbacks: {
             label: (ctx) => `涉及 ${ctx.parsed.y} 人`,   // 竖向柱：数值轴是 y
             afterBody: (items) => {
@@ -145,6 +186,35 @@ function initLine() {
     },
   });
 }
+function initPie() {
+  if (!pieRef.value) return;
+  if (pieChart) {
+    if (pieChart.canvas === pieRef.value) return;
+    pieChart.destroy();
+    pieChart = null;
+  }
+  pieChart = new Chart(pieRef.value, {
+    type: "pie",
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        backgroundColor: statusCounts.value.map((s) => s.color),
+        borderColor: "rgba(4, 10, 22, 0.9)",   // 深色分隔线：扇区切分感
+        borderWidth: 2,
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: 6 },
+      plugins: {
+        legend: { position: "right", labels: { boxWidth: 12, color: "#9fd4ff", font: { size: 14 }, padding: 10 } },
+        tooltip: { ...tooltipStyle, displayColors: true, boxWidth: 10, callbacks: { label: (ctx) => ` ${ctx.label}：${ctx.parsed} 人` } },
+      },
+    },
+  });
+}
 
 // —— 课堂节奏（动态时间窗）——
 // 原点 = 第一个运行事件的时间点（纵坐标 0，仅作时间锚）；第一个运行的人归入下一个点计数。
@@ -184,19 +254,24 @@ function updateCharts() {
     lineChart.data.datasets[1].data = trendPoints.value.map((b) => b.errors);
     lineChart.update();
   }
+  if (pieChart) {
+    pieChart.data.labels = statusCounts.value.map((s) => s.label);
+    pieChart.data.datasets[0].data = statusCounts.value.map((s) => s.count);
+    pieChart.update();
+  }
 }
 
 onMounted(async () => {
   await nextTick();
-  initBar(); initLine();
+  initBar(); initLine(); initPie();
   updateCharts();
 });
-onBeforeUnmount(() => { barChart?.destroy(); lineChart?.destroy(); });
+onBeforeUnmount(() => { barChart?.destroy(); lineChart?.destroy(); pieChart?.destroy(); });
 watch(
   () => store.snapshot,
   async () => {
     await nextTick();   // 等待空态→有数据切换后渲染出 canvas
-    initBar(); initLine();
+    initBar(); initLine(); initPie();
     updateCharts();
   },
   { deep: true },
@@ -205,9 +280,10 @@ watch(
 
 <template>
   <section class="charts-row" v-if="store.snapshot">
+    <!-- 【注释保留】作业完成度卡（恢复步骤见脚本区注释块）：
     <div class="chart-card tech-card completion">
       <h2 class="tech-title">作业完成度</h2>
-      <p v-if="!focusItem" class="empty">{{ completionEmpty }}</p>
+      <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
         <div class="tank-wrap">
           <div class="tank">
@@ -221,13 +297,22 @@ watch(
           <div class="tank-base" />
         </div>
         <div class="focus-info">
-          <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
+          <div class="focus-name" :title="displayItem.displayName">{{ displayItem.title }}</div>
           <div class="focus-nums">
-            <span class="ok"><i class="dot" />已通过 <b>{{ focusItem.passed }} 人</b></span>
-            <span class="doing"><i class="dot" />编码中 <b>{{ focusItem.total - focusItem.passed }} 人</b></span>
+            <span class="ok"><i class="dot" />已通过 <b>{{ displayItem.passed }} 人</b></span>
+            <span class="doing"><i class="dot" />编码中 <b>{{ displayItem.total - displayItem.passed }} 人</b></span>
           </div>
         </div>
       </div>
+      <select v-if="sortedItems.length" v-model="selectedId" class="ex-select" title="选择要展示的作业">
+        <option v-for="e in sortedItems" :key="e.id" :value="e.id">{{ e.title }}（{{ e.passed }}/{{ e.total }}）</option>
+      </select>
+    </div>
+    -->
+    <div class="chart-card tech-card">
+      <h2 class="tech-title">全班状态占比</h2>
+      <p v-if="!store.snapshot.students.length" class="empty">暂无学员数据</p>
+      <div v-else class="chart-wrap"><canvas ref="pieRef" /></div>
     </div>
     <div class="chart-card tech-card">
       <h2 class="tech-title">错误类型TOP3</h2>
@@ -246,6 +331,15 @@ watch(
 /* .charts-row 网格定义在全局 style.css（Step 5），此处只写卡内样式 */
 .chart-card { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .chart-card h2 { font-size: 20px; }
+/* 作业选择下拉框：右上角贴角（tech-card 已 relative），深色科技风 */
+.completion .ex-select {
+  position: absolute; right: 10px; top: 8px; z-index: 5; max-width: 52%;
+  background: rgba(8, 20, 42, 0.85); color: var(--text-secondary);
+  border: 1px solid var(--tech-card-border); border-radius: 2px;
+  font-size: 13px; padding: 3px 6px; cursor: pointer; outline: none;
+}
+.completion .ex-select:hover, .completion .ex-select:focus { border-color: var(--tech-cyan); box-shadow: 0 0 8px rgba(124, 231, 255, 0.35); }
+.completion .ex-select option { background: #0c1d38; color: var(--text-primary); }
 .comp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .comp-head .overall { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
