@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useClassroom } from "../stores/classroom";
 import { fmtTime } from "../composables/time";
-import type { RecentError } from "@classroom/shared";
+import type { StudentState } from "@classroom/shared";
 
 const store = useClassroom();
 
@@ -15,8 +15,11 @@ const statusCounts = computed(() => {
   return counts;
 });
 
-function tooltip(recent: RecentError[]): string {
-  return recent.map((r) => `${fmtTime(r.ts)} ${r.subtype}｜${r.knowledge}`).join("\n") || "暂无错误";
+function tooltip(s: StudentState): string {
+  if (!s.online) return "学员未在线";
+  if (s.status === "green") return "状态正常";
+  const errs = s.recentErrors.map((r) => `${fmtTime(r.ts)} ${r.subtype}｜${r.knowledge}`);
+  return errs.length ? errs.join("\n") : "暂无错误";
 }
 </script>
 
@@ -35,7 +38,7 @@ function tooltip(recent: RecentError[]): string {
         :key="s.studentId"
         class="tile"
         :class="[s.status, { offline: !s.online }]"
-        :title="tooltip(s.recentErrors)"
+        :title="tooltip(s)"
         @click="store.openDrawer(s.studentId)"
       >
         <span class="dot" />{{ s.studentName }}

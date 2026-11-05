@@ -21,6 +21,7 @@ describe("StudentMatrix", () => {
     expect(tiles[1].classes()).toContain("yellow");
     expect(tiles[2].classes()).toContain("green");
     expect(tiles[0].attributes("title")).toContain("缺少冒号");
+    expect(tiles[2].attributes("title")).toBe("状态正常");   // 绿色瓦片悬停显示状态正常
     expect(wrapper.text()).toContain("张三");
   });
 
