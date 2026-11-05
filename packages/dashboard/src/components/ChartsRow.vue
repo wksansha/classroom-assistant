@@ -135,30 +135,29 @@ function initLine() {
 }
 
 // —— 课堂节奏（动态时间窗）——
-// 以第一个运行事件（成功或报错）的时间点倒推 5 分钟为原点，到当前时刻的区间十等分；
-// 每段求和为一个点，固定展示 10 个点。课堂越长每段越宽（横轴自动压缩），5 分钟原始桶只做求和原料
+// 原点 = 第一个运行事件（成功或报错，y=1）；共 10 个点 = 原点 + 9 段。
+// 不足 45 分钟保持 5 分钟粒度（用户示例：7:10 首跑 → 7:10 点=1，7:10-7:15 间另有 5 人 → 7:15 点=5）；
+// 更长的课区间自动压缩（interval = 随时长的 elapsed/9）。5 分钟原始桶只做求和原料，按桶中点归属到点。
 const trendPoints = computed(() => {
   const buckets = store.snapshot?.trend ?? [];
   const BUCKET = 5 * 60_000;
   if (buckets.length === 0) return [];
   const snapTs = store.snapshot?.ts ?? Date.now();
-  const origin = buckets[0].tStart - BUCKET;   // 原点倒推 5 分钟
+  const origin = buckets[0].tStart;
   const end = Math.max(snapTs, buckets[buckets.length - 1].tStart + BUCKET);
-  const seg = Math.max(end - origin, BUCKET * 10) / 10;
-  const pts: { tStart: number; runs: number; errors: number }[] = [];
-  let bi = 0;
-  for (let i = 0; i < 10; i++) {
-    const segStart = origin + seg * i;
-    const segEnd = segStart + seg;
-    let runs = 0, errors = 0;
-    while (bi < buckets.length && buckets[bi].tStart < segEnd) {
-      if (buckets[bi].tStart >= segStart) {
-        runs += buckets[bi].runs;
-        errors += buckets[bi].errors;
-      }
-      bi++;
-    }
-    pts.push({ tStart: segStart, runs, errors });
+  const interval = Math.max(end - origin, BUCKET) / 9;
+  const pts = Array.from({ length: 10 }, (_, i) => ({ tStart: origin + interval * i, runs: 0, errors: 0 }));
+  // 首个事件固定为原点（y=1）；首桶剩余计数并入第 2 个点
+  const first = { ...buckets[0] };
+  if (first.runs > 0) { pts[0].runs = 1; first.runs -= 1; }
+  else { pts[0].errors = 1; first.errors -= 1; }
+  const rest = [first, ...buckets.slice(1)];
+  for (const [bi, b] of rest.entries()) {
+    if (b.runs === 0 && b.errors === 0) continue;
+    const mid = b.tStart + BUCKET / 2;
+    const idx = bi === 0 ? 1 : Math.min(9, Math.max(1, Math.floor((mid - origin) / interval)));
+    pts[idx].runs += b.runs;
+    pts[idx].errors += b.errors;
   }
   return pts;
 });
