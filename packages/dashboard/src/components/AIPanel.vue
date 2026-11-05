@@ -43,7 +43,7 @@ async function ack(id: string) {
 <style scoped>
 .ai-panel {
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
-  min-height: 280px; align-self: stretch;   /* 与矩阵卡等高拉伸，消除主区空白；建议超出一屏时内部滚动 */
+  flex: 1 1 auto; min-height: 280px;   /* 填满右列高度，与全班状态卡严格等高；建议超出一屏时内部滚动 */
   overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;
 }
 .ai-panel::-webkit-scrollbar { display: none; }
