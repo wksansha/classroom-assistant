@@ -82,7 +82,7 @@ function initPie() {
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "62%",
-      plugins: { legend: { position: "right", labels: { boxWidth: 10 } } },
+      plugins: { legend: { position: "bottom", align: "end", labels: { boxWidth: 10 } } },
     },
   });
 }
