@@ -61,7 +61,7 @@ function initBar() {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => `涉及 ${ctx.parsed.x} 人`,
+            label: (ctx) => `涉及 ${ctx.parsed.y} 人`,   // 竖向柱：数值轴是 y
             afterBody: (items) => {
               const agg = top3Agg.value.find((g) => g.subtype === items[0].label);
               return agg?.students.map((s) => `· ${s.studentName}`) ?? [];
@@ -75,7 +75,7 @@ function initBar() {
           beginAtZero: true,
           border: { display: false },
           grid: { color: "rgba(63, 140, 255, 0.08)" },   // 极淡横向参考线：填补背景又不形成方框
-          ticks: { maxTicksLimit: 6, color: "#5d7fa6" },
+          ticks: { maxTicksLimit: 6, precision: 0, color: "#5d7fa6" },   // 最多 6 档且恒为整数
         },
       },
     },
