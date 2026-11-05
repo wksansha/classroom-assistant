@@ -138,7 +138,7 @@ function updateCharts() {
   if (!snap) return;
   if (barChart) {
     const top3 = snap.aggregates.slice(0, 3);   // 服务端已按涉及人数降序，只取 Top3（大屏可读性）
-    barChart.data.labels = top3.map((g) => `${g.category} · ${g.subtype}`);
+    barChart.data.labels = top3.map((g) => g.subtype);   // 只显示类型名（category 口径太粗，x 轴字数精简）
     barChart.data.datasets[0].data = top3.map((g) => g.count);
     barChart.update();
   }
