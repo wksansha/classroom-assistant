@@ -23,7 +23,6 @@ vi.mock("chart.js", () => {
   const stub = class {};
   return {
     Chart: MockChart,
-    DoughnutController: stub, ArcElement: stub,
     BarController: stub, BarElement: stub,
     LineController: stub, LineElement: stub, PointElement: stub, Filler: stub,
     CategoryScale: stub, LinearScale: stub,
@@ -51,7 +50,7 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
     const titles = wrapper.findAll("h2").map((h) => h.text());
-    expect(titles).toEqual(["作业完成度", "错误类型TOP3", "全班状态占比", "课堂节奏"]);
+    expect(titles).toEqual(["作业完成度", "错误类型TOP3", "课堂节奏"]);
   });
 
   it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", async () => {
@@ -77,17 +76,16 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(wrapper.text()).toContain("全员通过，干得漂亮");
   });
 
-  it("有数据时渲染三块 canvas（完成度卡为 DOM 进度条；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
+  it("有数据时渲染两块 canvas（完成度卡为 DOM 进度条；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3);
+    expect(wrapper.findAll("canvas")).toHaveLength(2);
     const empty = mountWithStore(ChartsRow);
     empty.store.applySnapshot(makeSnapshot());
     await empty.wrapper.vm.$nextTick();
     expect(empty.wrapper.text()).toContain("暂无题目数据");
     expect(empty.wrapper.text()).toContain("暂无错误数据");
-    expect(empty.wrapper.text()).toContain("暂无学员数据");
     expect(empty.wrapper.text()).toContain("暂无运行数据");
   });
 
@@ -101,12 +99,12 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     });
     store.applySnapshot(snapWithData());
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3);
+    expect(wrapper.findAll("canvas")).toHaveLength(2);
     store.applySnapshot(makeSnapshot());               // → 空态（canvas 卸载）
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll("canvas")).toHaveLength(0);
     store.applySnapshot(snapWithData());               // → 再有数据（canvas 重建）
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3); // 修复前：此断言失败（旧实例跳过 init）
+    expect(wrapper.findAll("canvas")).toHaveLength(2); // 修复前：此断言失败（旧实例跳过 init）
   });
 });

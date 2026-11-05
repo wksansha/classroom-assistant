@@ -1,21 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, watch, nextTick, ref } from "vue";
 import {
-  Chart, DoughnutController, ArcElement, BarController, BarElement,
+  Chart, BarController, BarElement,
   LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
 } from "chart.js";
 import { useClassroom } from "../stores/classroom";
 
-Chart.register(DoughnutController, ArcElement, BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
+Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 
 const store = useClassroom();
 const barRef = ref<HTMLCanvasElement | null>(null);
-const pieRef = ref<HTMLCanvasElement | null>(null);
 const lineRef = ref<HTMLCanvasElement | null>(null);
 let barChart: Chart | null = null;
-let pieChart: Chart | null = null;
 let lineChart: Chart | null = null;
 
 // —— 完成度卡：单题水桶模式（全班齐步走课堂——只关注当前题，桶满 = 全员通过）——
@@ -29,19 +27,9 @@ const focusItem = computed(() =>
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
 
-// —— 状态占比（spec 决策 #4：仅统计在线学生三值）——
-const statusCounts = computed(() => {
-  const counts = { red: 0, yellow: 0, green: 0 };
-  for (const s of store.snapshot?.students ?? []) {
-    if (!s.online) continue;
-    if (s.status === "red") counts.red++;
-    else if (s.status === "yellow") counts.yellow++;
-    else counts.green++;
-  }
-  return counts;
-});
+// —— 状态占比已移除（全班状态矩阵已表达三值信息）——
 
-// 三卡各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
+// 三卡（完成度为 DOM 进度条，另两卡 chart.js）各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
 function initBar() {
   if (!barRef.value) return;
   if (barChart) {
@@ -53,29 +41,12 @@ function initBar() {
     type: "bar",
     data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#ff5f6d", borderRadius: 2, barPercentage: 0.6 }] },
     options: {
-      indexAxis: "y",   // 横向条形图：标签在左横向可读，柱向右延伸（替代倾斜 x 轴文字）
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
-      scales: { x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }, y: { ticks: { autoSkip: false } } },
-    },
-  });
-}
-function initPie() {
-  if (!pieRef.value) return;
-  if (pieChart) {
-    if (pieChart.canvas === pieRef.value) return;
-    pieChart.destroy();
-    pieChart = null;
-  }
-  pieChart = new Chart(pieRef.value, {
-    type: "doughnut",
-    data: {
-      labels: ["卡住", "有错误", "正常"],
-      datasets: [{ data: [0, 0, 0], backgroundColor: ["#e05c66", "#d9a441", "#2fae67"], borderColor: "rgba(255,255,255,0.12)", borderWidth: 1 }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: "62%",
-      plugins: { legend: { position: "bottom", align: "end", labels: { boxWidth: 10 } } },
+      scales: {
+        x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0 } },   // 标签横排不倾斜
+        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+      },
     },
   });
 }
@@ -135,10 +106,6 @@ function updateCharts() {
     barChart.data.datasets[0].data = top3.map((g) => g.count);
     barChart.update();
   }
-  if (pieChart) {
-    pieChart.data.datasets[0].data = [statusCounts.value.red, statusCounts.value.yellow, statusCounts.value.green];
-    pieChart.update();
-  }
   if (lineChart) {
     lineChart.data.labels = trendPoints.value.map((b) => new Date(b.tStart).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
     lineChart.data.datasets[0].data = trendPoints.value.map((b) => b.runs);
@@ -149,15 +116,15 @@ function updateCharts() {
 
 onMounted(async () => {
   await nextTick();
-  initBar(); initPie(); initLine();
+  initBar(); initLine();
   updateCharts();
 });
-onBeforeUnmount(() => { barChart?.destroy(); pieChart?.destroy(); lineChart?.destroy(); });
+onBeforeUnmount(() => { barChart?.destroy(); lineChart?.destroy(); });
 watch(
   () => store.snapshot,
   async () => {
     await nextTick();   // 等待空态→有数据切换后渲染出 canvas
-    initBar(); initPie(); initLine();
+    initBar(); initLine();
     updateCharts();
   },
   { deep: true },
@@ -183,11 +150,6 @@ watch(
       <h2 class="tech-title">错误类型TOP3</h2>
       <p v-if="!store.snapshot.aggregates.length" class="empty">暂无错误数据</p>
       <div v-else class="chart-wrap"><canvas ref="barRef" /></div>
-    </div>
-    <div class="chart-card tech-card">
-      <h2 class="tech-title">全班状态占比</h2>
-      <p v-if="!store.snapshot.students.some((s) => s.online)" class="empty">暂无学员数据</p>
-      <div v-else class="chart-wrap"><canvas ref="pieRef" /></div>
     </div>
     <div class="chart-card tech-card">
       <h2 class="tech-title">课堂节奏</h2>
