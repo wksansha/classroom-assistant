@@ -58,15 +58,15 @@ function tooltip(recent: RecentError[]): string {
 .counts .off-legend { color: var(--text-dim); }
 .grid {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 6px; align-content: start;
+  display: grid; grid-template-columns: repeat(6, 1fr);   /* 固定 6 列：22 人 = 4 行（末行 2 格空），均衡不孤行 */
+  gap: 8px; align-content: start;
   overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;   /* 学生超出可视行数时内部滚动，滚动条隐藏 */
 }
 .grid::-webkit-scrollbar { display: none; }
 .tile {
-  display: flex; align-items: center; gap: 6px; padding: 12px 10px;
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 8px;
   border: 1px solid var(--tech-card-border); border-radius: 2px; cursor: pointer;
-  font-size: 18px; position: relative;
+  font-size: 20px; position: relative;
   background: rgba(20, 50, 100, 0.4); color: var(--text-primary);
 }
 .tile:hover { border-color: var(--tech-cyan); }
