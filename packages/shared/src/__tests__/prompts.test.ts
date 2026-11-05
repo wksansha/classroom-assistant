@@ -12,6 +12,8 @@ describe("buildExplainPrompt（spec §5 模板，learner 不上报代码时自�
     expect(p).not.toContain("文件权限错误 / 其他");
     expect(p).toContain("错误类型：ZeroDivisionError");
     expect(p).toContain("错误信息：division by zero");
+    expect(p).toContain("学员");
+    expect(p).toContain("禁止出现「学生」");   // 措辞约束在位（提示词自身可提及该词）
   });
   it("无代码上下文时降级：不含代码段", () => {
     const p = buildExplainPrompt(base);

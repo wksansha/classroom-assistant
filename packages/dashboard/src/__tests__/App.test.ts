@@ -27,7 +27,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("课堂教学实时助教");
     expect(wrapper.text()).toContain("全班状态");
     expect(wrapper.text()).toContain("教学建议");
-    expect(wrapper.text()).toContain("等待学生上报");
+    expect(wrapper.text()).toContain("等待学员上报");
     expect(wrapper.text()).not.toContain("优先帮助");   // AlertPanel 已移除
     expect(wrapper.text()).not.toContain("错误聚合");   // ErrorAggPanel 一期下线（决策 #17）
     wrapper.unmount();   // 清理 StatusBar 时钟 interval

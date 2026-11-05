@@ -146,7 +146,7 @@ async function confirmPurge() {
         <tbody>
           <tr v-if="filteredRoster.length === 0">
             <td class="empty-roster" :colspan="selectMode ? 4 : 3">
-              {{ props.roster.length === 0 ? "名册为空，在下方输入学号和姓名，按 Enter 添加第一位学生" : "无匹配学生" }}
+              {{ props.roster.length === 0 ? "名册为空，在下方输入学号和姓名，按 Enter 添加第一位学员" : "无匹配学员" }}
             </td>
           </tr>
           <tr v-for="r in filteredRoster" :key="r.studentId">
@@ -176,7 +176,7 @@ async function confirmPurge() {
               <div v-if="addIdDup" class="dup-hint">该学号已在名册中</div>
             </td>
             <td><input class="add-name" ref="addNameInput" v-model="addName" placeholder="姓名" @keyup.enter="addEntry" /></td>
-            <td><button class="add-entry" @click="addEntry">+ 添加学生</button></td>
+            <td><button class="add-entry" @click="addEntry">+ 添加学员</button></td>
           </tr>
         </tfoot>
       </table>

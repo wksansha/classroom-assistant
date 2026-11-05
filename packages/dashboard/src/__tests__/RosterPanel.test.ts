@@ -46,7 +46,7 @@ describe("RosterPanel 行内优先交互", () => {
     expect(w.emitted("refreshed")).toBeTruthy();
   });
 
-  it("添加行：填学号姓名 → + 添加学生 → addRosterEntry + 输入清空 + refreshed + 焦点回学号框", async () => {
+  it("添加行：填学号姓名 → + 添加学员 → addRosterEntry + 输入清空 + refreshed + 焦点回学号框", async () => {
     const w = mountPanel();
     const focusSpy = vi.spyOn(w.find("input.add-id").element as HTMLInputElement, "focus");
     await w.find("input.add-id").setValue("0003");
@@ -91,7 +91,7 @@ describe("RosterPanel 行内优先交互", () => {
     expect(w.text()).toContain("0001");
     expect(w.text()).not.toContain("李四");
     await w.find("input.search").setValue("9999");
-    expect(w.text()).toContain("无匹配学生");
+    expect(w.text()).toContain("无匹配学员");
     await w.find("input.search").setValue("");
     expect(w.findAll("tbody tr").length).toBe(2);
   });
@@ -99,7 +99,7 @@ describe("RosterPanel 行内优先交互", () => {
   it("空名册：显示添加引导文案", () => {
     const w = mount(RosterPanel, { props: { roster: [] } });
     expect(w.text()).toContain("名册为空");
-    expect(w.text()).toContain("添加第一位学生");
+    expect(w.text()).toContain("添加第一位学员");
   });
 
   it("学号本地查重：已存在学号即时标红提示，保存被拦截", async () => {

@@ -217,7 +217,7 @@ watch(
     </div>
     <div class="chart-card tech-card">
       <h2 class="tech-title">全班状态占比</h2>
-      <p v-if="!store.snapshot.students.some((s) => s.online)" class="empty">暂无学生数据</p>
+      <p v-if="!store.snapshot.students.some((s) => s.online)" class="empty">暂无学员数据</p>
       <div v-else class="chart-wrap"><canvas ref="pieRef" /></div>
     </div>
     <div class="chart-card tech-card">

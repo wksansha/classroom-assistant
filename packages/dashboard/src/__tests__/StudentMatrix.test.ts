@@ -57,6 +57,6 @@ describe("StudentMatrix", () => {
     const { wrapper, store } = mountWithStore(StudentMatrix);
     store.applySnapshot(makeSnapshot());
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("等待学生上报");
+    expect(wrapper.text()).toContain("等待学员上报");
   });
 });

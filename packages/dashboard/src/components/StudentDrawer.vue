@@ -30,7 +30,7 @@ watch(
   <div v-if="store.activeStudentId" class="drawer-mask" @click.self="store.closeDrawer()">
     <aside class="drawer">
       <header>
-        <h3>{{ store.activeStudent?.studentName ?? detail?.studentName ?? "未知学生" }}</h3>
+        <h3>{{ store.activeStudent?.studentName ?? detail?.studentName ?? "未知学员" }}</h3>
         <span class="status" :class="store.activeStudent?.status">{{ store.activeStudent?.status ?? "" }}</span>
         <button class="close" @click="store.closeDrawer()">×</button>
       </header>

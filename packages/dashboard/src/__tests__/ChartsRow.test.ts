@@ -88,7 +88,7 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     await empty.wrapper.vm.$nextTick();
     expect(empty.wrapper.text()).toContain("暂无题目数据");
     expect(empty.wrapper.text()).toContain("暂无错误数据");
-    expect(empty.wrapper.text()).toContain("暂无学生数据");
+    expect(empty.wrapper.text()).toContain("暂无学员数据");
     expect(empty.wrapper.text()).toContain("暂无运行数据");
   });
 

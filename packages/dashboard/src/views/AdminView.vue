@@ -85,7 +85,7 @@ onMounted(() => void checkSession());
       <RosterPanel :roster="roster" @refreshed="load()" />
       <section class="danger-zone">
         <h3>大屏数据</h3>
-        <p class="danger-hint">课间换场用：点击后大屏统计清零（学生状态、题目进度、课堂节奏），新课数据从零开始。历史归档保留，服务器重启不会恢复旧数据；学生在线状态不受影响。</p>
+        <p class="danger-hint">课间换场用：点击后大屏统计清零（学员状态、题目进度、课堂节奏），新课数据从零开始。历史归档保留，服务器重启不会恢复旧数据；学员在线状态不受影响。</p>
         <p v-if="resetDone" class="reset-ok">✅ 已重置，大屏已从零开始统计</p>
         <p v-if="resetError" class="login-error">{{ resetError }}</p>
         <button class="danger-btn" :disabled="resetting" @click="showResetConfirm = true">
@@ -95,7 +95,7 @@ onMounted(() => void checkSession());
       <ConfirmDialog
         v-if="showResetConfirm"
         title="重置大屏数据？"
-        body="大屏当前统计（学生状态、告警、题目进度、课堂节奏）将清零，仅统计此后发生的新数据。此操作不影响学生端，也不删除历史归档。"
+        body="大屏当前统计（学员状态、告警、题目进度、课堂节奏）将清零，仅统计此后发生的新数据。此操作不影响学员端，也不删除历史归档。"
         confirm-text="确认重置"
         danger
         @confirm="showResetConfirm = false; void resetDashboard()"

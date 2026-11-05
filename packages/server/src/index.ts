@@ -254,7 +254,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     const detail = stateManager.getStudentDetail(req.params.id);
     if (!detail) {
       logEvent({ event: "api.student_not_found", level: "warn", data: { studentId: req.params.id } });
-      return res.status(404).json({ error: "未找到该学生" });
+      return res.status(404).json({ error: "未找到该学员" });
     }
     const windowStart = classWindowStart(Date.now());
     const events = detail.events.filter((e) => e.ts >= windowStart);

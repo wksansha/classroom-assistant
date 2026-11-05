@@ -42,7 +42,7 @@ function tooltip(recent: RecentError[]): string {
         <span v-if="s.machineCount >= 2" class="machine-badge" :title="`${s.machineCount} 台电脑在线`">×{{ s.machineCount }}</span>
       </div>
     </div>
-    <p v-else class="empty">等待学生上报…</p>
+    <p v-else class="empty">等待学员上报…</p>
   </section>
 </template>
 
