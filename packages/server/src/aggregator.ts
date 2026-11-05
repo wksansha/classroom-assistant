@@ -141,13 +141,13 @@ export function createAggregator(): Aggregator {
         .sort((a, b) => b.count - a.count);
 
       // ── 建议（分母 = 课堂窗口内上报过错误的学生数）──────────
-      // 全班讲评要求报错学员 ≥3 人（否则 1 人报错 1/1=100% 也会误触发）；小组讨论要求 ≥2 人
+      // 全班讲评要求报错学员 ≥4 人（否则 1-3 人报错时占比虚高误触发）；小组讨论要求 ≥2 人
       const errorStudents = records.filter((r) => r.events.some((e) => !e.success && isWithinClassWindow(e.ts, windowStart))).length;
       const suggestions: SuggestionItem[] = [];
       if (errorStudents > 0) {
         for (const g of groups.values()) {
           const ratio = g.students.length / errorStudents;
-          if (errorStudents >= 3 && ratio >= 0.4) {
+          if (errorStudents >= 4 && ratio >= 0.4) {
             suggestions.push({
               id: `class-review:${g.subtype}`, kind: "class-review",
               text: `⚠️ ${g.students.length} 人卡在「${g.subtype}」，建议全班讲评`,

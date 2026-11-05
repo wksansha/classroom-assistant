@@ -12,6 +12,7 @@ import { createAggregator } from "./aggregator";
 import { dayStart } from "./classDay";
 import { createExerciseProgressTracker } from "./exerciseProgress";
 import { createTrendTracker } from "./trend";
+import { createSuggestionEnricher } from "./suggestionEnricher";
 import { createTeacherHub, type TeacherHub } from "./teacherHub";
 import { logEvent } from "./logger";
 import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./llmProxy";
@@ -67,6 +68,9 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     return Math.max(dayStart(now), anchor);
   };
 
+  // 建议文案增强（方案 A：规则管触发、LLM 管内容）：按「动作:错误类型」缓存，LLM 未配置时整体停用
+  const suggestionEnricher = createSuggestionEnricher();
+
   const buildSnapshot = (): TeacherSnapshot => {
     const now = Date.now();
     const records = stateManager.listRecords();
@@ -85,11 +89,25 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     const agg = aggregator.recompute(allRecords, now, windowStart);
     const trendBuckets = trend.list(windowStart);
     const rosterTotal = persistence.getRoster().length;   // 班级总人数（通过率分母，决策 #20）
+    // 建议文案增强：已缓存的要点拼到文案尾部；未缓存的触发异步 LLM 生成（完成后重推快照）
+    const suggestions = agg.suggestions.map((s) => {
+      if (s.kind === "individual") return s;
+      const subtype = s.id.slice(s.kind.length + 1);
+      const tip = suggestionEnricher.peek(s.kind, subtype);
+      return tip ? { ...s, text: `${s.text}——${tip}` } : s;
+    });
+    for (const s of suggestions) {
+      if (s.kind === "individual") continue;
+      const subtype = s.id.slice(s.kind.length + 1);
+      const knowledge = agg.aggregates.find((g) => g.subtype === subtype)?.knowledge ?? "";
+      suggestionEnricher.ensure(s.kind, subtype, knowledge, () => hub.publish(buildSnapshot()));
+    }
     // V1 单班级：records[0]?.classId 作为 classId 来源（未来多班级需改为聚合所有班级）
     return {
       ts: now,
       classId: records[0]?.classId ?? "default",
       ...agg,
+      suggestions,   // 文案增强版（覆盖 agg.suggestions；未命中缓存的保持原文案）
       exerciseProgress: exerciseProgress.list(windowStart).map((e) => ({
         ...e,
         total: rosterTotal,
@@ -308,6 +326,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     exerciseProgress.reset();
     trend.reset();
     aggregator.resetAcked();
+    suggestionEnricher.clear();
     hub.publish(buildSnapshot());
     logEvent({ event: "admin.dashboard_reset", level: "info", data: { anchor } });
     res.json({ ok: true, anchor });

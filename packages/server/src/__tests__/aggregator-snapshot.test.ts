@@ -84,6 +84,7 @@ describe("recompute：完整快照", () => {
       student("stu001", "张三", [err(NOW - MIN, "缺少冒号")]),
       student("stu002", "李四", [err(NOW - MIN, "缺少冒号")]),
       student("stu003", "王五", [err(NOW - MIN, "缺少冒号")]),
+      student("stu004", "赵六", [err(NOW - MIN, "缺少冒号")]),
     ];
     agg.ack("class-review:缺少冒号");
     const snap = agg.recompute(recs, NOW, WIN_START);
@@ -95,6 +96,6 @@ describe("recompute：完整快照", () => {
     const agg = createAggregator();
     const recs = [student("stu001", "张三", [err(NOW - MIN, "缺少冒号")])];
     const snap = agg.recompute(recs, NOW, WIN_START);
-    expect(snap.suggestions).toHaveLength(0);   // 1/1=100% 也不触发（讲评需报错学员≥3、小组讨论需≥2）
+    expect(snap.suggestions).toHaveLength(0);   // 1/1=100% 也不触发（讲评需报错学员≥4、小组讨论需≥2）
   });
 });
