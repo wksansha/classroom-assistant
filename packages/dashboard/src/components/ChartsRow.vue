@@ -36,6 +36,18 @@ const focusPct = computed(() =>
 /** 其余进行中题（焦点之外），最多展示 4 行 */
 const otherActive = computed(() => activeItems.value.slice(1, 5));
 const otherActiveRest = computed(() => Math.max(0, activeItems.value.length - 1 - otherActive.value.length));
+// —— 按时间顺序编号（题目一、题目二…，firstTs 升序；悬停显示原始文件名）——
+const CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+function cnNum(n: number): string {
+  if (n < 10) return CN[n];
+  if (n === 10) return "十";
+  if (n < 20) return "十" + CN[n - 10];
+  return CN[Math.floor(n / 10)] + "十" + (n % 10 ? CN[n % 10] : "");
+}
+const labelById = computed(() => {
+  const sorted = [...allItems.value].sort((a, b) => a.firstTs - b.firstTs);
+  return new Map(sorted.map((e, i) => [e.id, `题目${cnNum(i + 1)}`]));
+});
 
 // —— 状态占比（spec 决策 #4：仅统计在线学生三值）——
 const statusCounts = computed(() => {
@@ -180,7 +192,7 @@ watch(
       </div>
       <p v-if="!activeItems.length" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
-        <div class="focus-name">{{ focusItem!.displayName }}</div>
+        <div class="focus-name" :title="focusItem!.displayName">{{ labelById.get(focusItem!.id) }}</div>
         <div class="focus-bar"><div class="focus-bar-fill" :style="{ width: focusPct + '%' }" /></div>
         <div class="focus-nums">
           <span class="ok">已完成 {{ focusItem!.passed }} 人</span>
@@ -190,7 +202,7 @@ watch(
       </div>
       <div v-if="otherActive.length" class="minor-list">
         <div v-for="e in otherActive" :key="e.id" class="minor-row">
-          <span class="n">{{ e.displayName }}</span>
+          <span class="n" :title="e.displayName">{{ labelById.get(e.id) }}</span>
           <span class="v">{{ e.passed }}/{{ e.total }}</span>
         </div>
         <div v-if="otherActiveRest > 0" class="minor-row rest">…另有 {{ otherActiveRest }} 题进行中</div>

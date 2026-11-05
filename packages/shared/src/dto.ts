@@ -71,6 +71,8 @@ export interface ExerciseProgressItem {
   total: number;
   /** passed/total（决策 #20；装配层注入） */
   passRate: number;
+  /** 首次活跃时间（epoch ms，当天窗口内；用于前端按时间顺序编号展示） */
+  firstTs: number;
 }
 
 export interface TrendBucket {

@@ -5,6 +5,8 @@ interface Entry {
   latest: ExerciseStatus;
   /** 最近一次事件时间（epoch ms），list 当天过滤用 */
   lastTs: number;
+  /** 首次活跃时间（epoch ms，min 口径），前端按时间顺序编号展示用 */
+  firstTs: number;
 }
 
 export interface ReviewResultRow {
@@ -38,9 +40,10 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
     let m = files.get(id);
     if (!m) { m = new Map(); files.set(id, m); }
     let e = m.get(studentId);
-    if (!e) { e = { studentName, latest: "unreviewed", lastTs: ts }; m.set(studentId, e); }
+    if (!e) { e = { studentName, latest: "unreviewed", lastTs: ts, firstTs: ts }; m.set(studentId, e); }
     e.studentName = studentName;
     e.lastTs = Math.max(e.lastTs, ts);
+    e.firstTs = Math.min(e.firstTs, ts);
     return e;
   };
 
@@ -76,9 +79,11 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
       for (const [id, students] of files) {
         let passed = 0, stuck = 0, unreviewed = 0;
         let active = false;
+        let firstTs = Number.MAX_SAFE_INTEGER;
         for (const e of students.values()) {
           if (e.lastTs < dayStartMs) continue;   // 当天口径：只统计今天动过的格子
           active = true;
+          firstTs = Math.min(firstTs, e.firstTs);
           if (e.latest === "pass") passed++;
           else if (e.latest === "fail") stuck++;
           else unreviewed++;
@@ -89,6 +94,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           displayName: id.split(/[\\/]/).pop() ?? id,
           isProject: !id.endsWith(".py"),
           passed, stuck, unreviewed,
+          firstTs,
         });
       }
       return items.sort((a, b) => {
