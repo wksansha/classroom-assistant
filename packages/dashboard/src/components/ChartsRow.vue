@@ -71,11 +71,12 @@ function initBar() {
   }
   barChart = new Chart(barRef.value, {
     type: "bar",
-    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#3fa9ff", borderRadius: 2, barPercentage: 0.6 }] },
+    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#ff5f6d", borderRadius: 2, barPercentage: 0.6 }] },
     options: {
+      indexAxis: "y",   // 横向条形图：标签在左横向可读，柱向右延伸（替代倾斜 x 轴文字）
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }, x: { ticks: { maxRotation: 45, minRotation: 45 } } },
+      scales: { x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }, y: { ticks: { autoSkip: false } } },
     },
   });
 }
@@ -90,7 +91,7 @@ function initPie() {
     type: "doughnut",
     data: {
       labels: ["卡住", "有错误", "正常"],
-      datasets: [{ data: [0, 0, 0], backgroundColor: ["#ff5f6d", "#ffc53d", "#22c55e"], borderColor: "rgba(63,140,255,0.3)", borderWidth: 1 }],
+      datasets: [{ data: [0, 0, 0], backgroundColor: ["#e05c66", "#d9a441", "#2fae67"], borderColor: "rgba(255,255,255,0.12)", borderWidth: 1 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "62%",
@@ -233,7 +234,7 @@ watch(
 .chart-card h2 { font-size: 13px; }
 .comp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .comp-head .overall { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
-.comp-head .overall strong { font-size: 22px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
+.comp-head .overall strong { font-family: var(--font-num); font-size: 22px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
 /* —— 焦点题模式（完成度卡）—— */
 .completion .focus { display: flex; flex-direction: column; gap: 10px; margin: auto 0; }
@@ -243,11 +244,11 @@ watch(
 .completion .focus-nums { display: flex; justify-content: center; gap: 18px; font-size: 14px; }
 .completion .focus-nums .ok { color: var(--tech-green); }
 .completion .focus-nums .no { color: var(--tech-red); }
-.completion .focus-nums .pct { color: var(--tech-cyan); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
-.completion .minor-list { display: flex; flex-direction: column; gap: 4px; }
-.completion .minor-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
-.completion .minor-row .v { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
-.completion .minor-row.rest { justify-content: center; }
-.done-note { margin: 0; font-size: 12px; color: var(--text-dim); text-align: center; }
+.completion .focus-nums .pct { font-family: var(--font-num); color: var(--tech-cyan); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.completion .minor-list { display: flex; flex-direction: column; gap: 5px; }
+.completion .minor-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--text-secondary); }
+.completion .minor-row .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.completion .minor-row.rest { justify-content: center; color: var(--text-dim); font-size: 13px; }
+.done-note { margin: 0; font-size: 13px; color: var(--text-secondary); text-align: center; }
 .empty { margin: auto 0; color: var(--text-dim); font-size: 13px; text-align: center; }
 </style>

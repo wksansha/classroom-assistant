@@ -58,8 +58,8 @@ function tooltip(recent: RecentError[]): string {
 .counts .off-legend { color: var(--text-dim); }
 .grid {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 8px; align-content: start;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px; align-content: start;
   overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;   /* 学生超出可视行数时内部滚动，滚动条隐藏 */
 }
 .grid::-webkit-scrollbar { display: none; }

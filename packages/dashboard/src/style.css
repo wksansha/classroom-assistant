@@ -145,7 +145,7 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 /* —— 科技荧光风主题（spec 2026-11-04 §3；作用域限定主视图 .app，admin 域不受影响）—— */
 .app {
   --tech-card-grad: linear-gradient(180deg, rgba(16, 42, 80, 0.55), rgba(8, 20, 42, 0.75));
-  --tech-card-border: rgba(63, 140, 255, 0.45);
+  --tech-card-border: rgba(255, 255, 255, 0.1);   /* 极细半透明边框：不再用亮蓝实线框死模块（四角折角标保留科技感） */
   --tech-card-glow: 0 0 14px rgba(30, 100, 220, 0.25), inset 0 0 24px rgba(30, 90, 200, 0.12);
   --tech-corner: #7ce7ff;
   --tech-cyan: #7ce7ff;
@@ -157,16 +157,19 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
   --text-primary: #d8ecff;
   --text-secondary: #9fd4ff;
   --text-dim: #5d7fa6;
+  --font-num: "Bahnschrift", "DIN Alternate", "Cascadia Mono", Consolas, monospace;   /* 数字等宽仪表盘字体（Win 自带 Bahnschrift 即 DIN）*/
   min-height: 100vh;
   height: 100vh;
   overflow: hidden;   /* 投屏 1080p 一屏铺满：内容不足时图表行弹性拉伸补位，超出时内部滚动 */
   color: var(--text-primary);
-  /* 星空渐变底 + 两层 36px 网格纹理（spec §4.6；多背景分层避免伪元素遮挡内容） */
+  /* 星空渐变底 + 两层 36px 网格纹理 + 四角暗蓝 vignette（多背景分层避免伪元素遮挡内容） */
   background:
     linear-gradient(rgba(56, 132, 255, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(56, 132, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(700px 500px at 0% 100%, rgba(30, 90, 220, 0.16), transparent 70%),
+    radial-gradient(700px 500px at 100% 100%, rgba(30, 90, 220, 0.16), transparent 70%),
     radial-gradient(1200px 500px at 50% -100px, #0b1e3a 0%, #060d1a 55%, #04070d 100%);
-  background-size: 36px 36px, 36px 36px, auto;
+  background-size: 36px 36px, 36px 36px, auto, auto, auto;
 }
 .app .tech-card {
   position: relative;
