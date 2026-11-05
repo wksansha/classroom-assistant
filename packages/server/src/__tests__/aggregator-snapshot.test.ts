@@ -80,10 +80,21 @@ describe("recompute：完整快照", () => {
 
   it("ack 后建议标记已处理（内存态）", () => {
     const agg = createAggregator();
-    const recs = [student("stu001", "张三", [err(NOW - MIN, "缺少冒号")])];
+    const recs = [
+      student("stu001", "张三", [err(NOW - MIN, "缺少冒号")]),
+      student("stu002", "李四", [err(NOW - MIN, "缺少冒号")]),
+      student("stu003", "王五", [err(NOW - MIN, "缺少冒号")]),
+    ];
     agg.ack("class-review:缺少冒号");
     const snap = agg.recompute(recs, NOW, WIN_START);
     const s = snap.suggestions.find(x => x.id === "class-review:缺少冒号");
     expect(s?.acked).toBe(true);
+  });
+
+  it("小样本防误报：仅 1 人报错不触发全班讲评/小组讨论", () => {
+    const agg = createAggregator();
+    const recs = [student("stu001", "张三", [err(NOW - MIN, "缺少冒号")])];
+    const snap = agg.recompute(recs, NOW, WIN_START);
+    expect(snap.suggestions).toHaveLength(0);   // 1/1=100% 也不触发（讲评需报错学员≥3、小组讨论需≥2）
   });
 });
