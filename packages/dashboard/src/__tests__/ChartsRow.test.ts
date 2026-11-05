@@ -51,7 +51,7 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
     const titles = wrapper.findAll("h2").map((h) => h.text());
-    expect(titles).toEqual(["作业完成度", "错误类型分布", "全班状态占比", "课堂节奏"]);
+    expect(titles).toEqual(["作业完成度", "错误类型TOP3", "全班状态占比", "课堂节奏"]);
   });
 
   it("完成度卡关注集（spec 决策 #5/#16）：未全员通过的题入柱 + 通过率头部大数字；已全员通过折叠摘要", async () => {

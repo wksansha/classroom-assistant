@@ -189,7 +189,7 @@ watch(
       <p v-if="doneCount > 0" class="done-note">另有 {{ doneCount }} 题已全部通过</p>
     </div>
     <div class="chart-card tech-card">
-      <h2 class="tech-title">错误类型分布</h2>
+      <h2 class="tech-title">错误类型TOP3</h2>
       <p v-if="!store.snapshot.aggregates.length" class="empty">暂无错误数据</p>
       <div v-else class="chart-wrap"><canvas ref="barRef" /></div>
     </div>
