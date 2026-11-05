@@ -154,7 +154,6 @@ watch(
             <span class="ok">已完成 {{ focusItem.passed }} 人</span>
             <span class="no">待完成 {{ focusItem.total - focusItem.passed }} 人</span>
           </div>
-          <p class="focus-hint">桶满 = 全员通过</p>
         </div>
       </div>
     </div>
@@ -234,7 +233,6 @@ watch(
 .completion .focus-nums { display: flex; flex-direction: column; gap: 8px; font-size: 17px; }
 .completion .focus-nums .ok { color: var(--tech-green); }
 .completion .focus-nums .no { color: var(--tech-red); }
-.completion .focus-hint { margin: 0; font-size: 13px; color: var(--text-dim); }
 @media (prefers-reduced-motion: reduce) {
   .liquid .wave, .liquid .bubble { animation: none; }
 }
