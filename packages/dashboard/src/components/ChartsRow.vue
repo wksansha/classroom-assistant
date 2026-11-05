@@ -246,12 +246,12 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; width: 220px; align-self: stretch; }   /* 与桶等高；窄列让人数更靠左 */
-.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 18px 0 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }   /* 题目左对齐，字数多自动换行 */
-.completion .focus-nums { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; font-size: 17px; }   /* 三行整体垂直居中于桶 */
+.completion .focus-info { display: flex; flex-direction: column; gap: 20px; width: 230px; align-self: center; }   /* 题名+状态行成组垂直居中，题名紧邻状态行 */
+.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-nums { display: flex; flex-direction: column; gap: 16px; font-size: 17px; }
 .completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
 .completion .focus-nums .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.completion .focus-nums b { margin-left: auto; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数右对齐，中间留白 */
+.completion .focus-nums b { margin-left: 14px; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数紧跟状态名固定间距，三行等宽标签天然上下对齐 */
 .completion .focus-nums .ok .dot { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .completion .focus-nums .warn .dot { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.7); }
 .completion .focus-nums .idle .dot { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.7); }
