@@ -41,6 +41,9 @@ const greenPct = computed(() => {
 
 // —— 状态占比已移除（全班状态矩阵已表达三值信息）——
 
+/** 错误TOP3 数据引用（tooltip 悬停显示涉事学员名单用） */
+const top3Agg = computed(() => store.snapshot?.aggregates.slice(0, 3) ?? []);
+
 // 三卡（完成度为 DOM 进度条，另两卡 chart.js）各自独立 init/update：某卡无数据时不阻塞其余卡片（spec §5.5）
 function initBar() {
   if (!barRef.value) return;
@@ -51,10 +54,21 @@ function initBar() {
   }
   barChart = new Chart(barRef.value, {
     type: "bar",
-    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#ff5f6d", borderRadius: 2, barPercentage: 0.6 }] },
+    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#ff5f6d", borderRadius: 2, barThickness: 48 }] },   // 固定柱厚：1-3 根也不变粗
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `涉及 ${ctx.parsed.x} 人`,
+            afterBody: (items) => {
+              const agg = top3Agg.value.find((g) => g.subtype === items[0].label);
+              return agg?.students.map((s) => `· ${s.studentName}`) ?? [];
+            },
+          },
+        },
+      },
       scales: {
         x: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0, color: "#5d7fa6" } },
         y: {
@@ -127,7 +141,7 @@ function updateCharts() {
   const snap = store.snapshot;
   if (!snap) return;
   if (barChart) {
-    const top3 = snap.aggregates.slice(0, 3);   // 服务端已按涉及人数降序，只取 Top3（大屏可读性）
+    const top3 = top3Agg.value;                 // 服务端已按涉及人数降序，只取 Top3（大屏可读性）
     barChart.data.labels = top3.map((g) => g.subtype);   // 只显示类型名（category 口径太粗，x 轴字数精简）
     barChart.data.datasets[0].data = top3.map((g) => g.count);
     barChart.update();
