@@ -26,6 +26,17 @@ const focusItem = computed(() =>
   [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
+/** 桶内液体总高 = 已通过 + 报错中（未提交的人不占液面）；绿层/红层按人数占比分层 */
+const filledPct = computed(() => {
+  if (!focusItem.value) return 0;
+  const e = focusItem.value;
+  return Math.round(((e.passed + e.stuck) / e.total) * 100);
+});
+const greenPct = computed(() => {
+  const e = focusItem.value;
+  const filled = e ? e.passed + e.stuck : 0;
+  return filled === 0 ? 0 : Math.round((e!.passed / filled) * 100);
+});
 
 // —— 状态占比已移除（全班状态矩阵已表达三值信息）——
 
@@ -140,7 +151,9 @@ watch(
         <div class="tank-wrap">
           <div class="tank">
             <div class="ticks" />
-            <div class="liquid" :style="{ height: focusPct + '%' }">
+            <div class="liquid" :class="{ 'all-green': focusItem.stuck === 0 }" :style="{ height: filledPct + '%' }">
+              <div class="layer green" :style="{ height: greenPct + '%' }" />
+              <div class="layer red" />
               <i class="wave w1" /><i class="wave w2" />
               <i class="bubble b1" /><i class="bubble b2" /><i class="bubble b3" />
             </div>
@@ -151,8 +164,9 @@ watch(
         <div class="focus-info">
           <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
           <div class="focus-nums">
-            <span class="ok">已完成 {{ focusItem.passed }} 人</span>
-            <span class="no">待完成 {{ focusItem.total - focusItem.passed }} 人</span>
+            <span class="ok">已通过 {{ focusItem.passed }} 人</span>
+            <span class="warn">报错中 {{ focusItem.stuck }} 人</span>
+            <span class="idle">未提交 {{ focusItem.total - focusItem.passed - focusItem.stuck }} 人</span>
           </div>
         </div>
       </div>
@@ -196,16 +210,19 @@ watch(
 }
 .liquid {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 1;
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.85), rgba(21, 128, 61, 0.95));
+  display: flex; flex-direction: column;
   box-shadow: inset 0 0 30px rgba(34, 197, 94, 0.45), 0 0 18px rgba(34, 197, 94, 0.35);
   transition: height 0.8s ease;
 }
+.liquid .layer.green { background: linear-gradient(180deg, rgba(34, 197, 94, 0.9), rgba(21, 128, 61, 0.95)); box-shadow: inset 0 0 24px rgba(34, 197, 94, 0.4); }
+.liquid .layer.red { flex: 1; background: linear-gradient(180deg, rgba(224, 92, 102, 0.9), rgba(180, 50, 60, 0.95)); box-shadow: inset 0 0 24px rgba(224, 92, 102, 0.35); }
 .liquid .wave {
   position: absolute; top: -9px; left: -25%; width: 200%; height: 18px;
-  border-radius: 42%; background: rgba(34, 197, 94, 0.85);
+  border-radius: 42%; background: rgba(224, 92, 102, 0.85);
 }
 .liquid .wave.w1 { animation: tank-wave 7s linear infinite; }
 .liquid .wave.w2 { animation: tank-wave 11s linear infinite reverse; opacity: 0.6; }
+.liquid.all-green .wave { background: rgba(34, 197, 94, 0.85); }   /* 无人报错时液面为绿 */
 @keyframes tank-wave {
   from { transform: translateX(-25%) rotate(0deg); }
   to { transform: translateX(-25%) rotate(360deg); }
@@ -232,7 +249,8 @@ watch(
 .completion .focus-name { color: var(--text-primary); font-size: 24px; font-weight: 700; line-height: 1.4; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
 .completion .focus-nums { display: flex; flex-direction: column; gap: 8px; font-size: 17px; }
 .completion .focus-nums .ok { color: var(--tech-green); }
-.completion .focus-nums .no { color: var(--tech-red); }
+.completion .focus-nums .warn { color: var(--tech-red); }
+.completion .focus-nums .idle { color: var(--tech-yellow); }
 @media (prefers-reduced-motion: reduce) {
   .liquid .wave, .liquid .bubble { animation: none; }
 }
