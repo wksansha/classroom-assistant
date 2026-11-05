@@ -132,6 +132,24 @@ function initLine() {
   });
 }
 
+// —— 课堂节奏（spec 决策 #4 补充）：5 分钟桶存储，展示时动态合并——
+// 90 分钟课 = 18 桶，窄卡里太挤；桶数 >12 时按倍数合并相邻桶（如 90 分钟 → 9 个 10 分钟点），点数控制在 12 以内
+const mergedTrend = computed(() => {
+  const buckets = store.snapshot?.trend ?? [];
+  if (buckets.length <= 12) return buckets;
+  const factor = Math.ceil(buckets.length / 12);
+  const out: { tStart: number; runs: number; errors: number }[] = [];
+  for (let i = 0; i < buckets.length; i += factor) {
+    let runs = 0, errors = 0;
+    for (let j = i; j < Math.min(i + factor, buckets.length); j++) {
+      runs += buckets[j].runs;
+      errors += buckets[j].errors;
+    }
+    out.push({ tStart: buckets[i].tStart, runs, errors });
+  }
+  return out;
+});
+
 function updateCharts() {
   const snap = store.snapshot;
   if (!snap) return;
@@ -153,9 +171,9 @@ function updateCharts() {
     pieChart.update();
   }
   if (lineChart) {
-    lineChart.data.labels = snap.trend.map((b) => new Date(b.tStart).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
-    lineChart.data.datasets[0].data = snap.trend.map((b) => b.runs);
-    lineChart.data.datasets[1].data = snap.trend.map((b) => b.errors);
+    lineChart.data.labels = mergedTrend.value.map((b) => new Date(b.tStart).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
+    lineChart.data.datasets[0].data = mergedTrend.value.map((b) => b.runs);
+    lineChart.data.datasets[1].data = mergedTrend.value.map((b) => b.errors);
     lineChart.update();
   }
 }
