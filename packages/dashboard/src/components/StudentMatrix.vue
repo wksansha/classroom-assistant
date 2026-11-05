@@ -27,10 +27,10 @@ function tooltip(s: StudentState): string {
   <section class="matrix tech-card" v-if="store.snapshot">
     <h2 class="tech-title">全班状态</h2>
     <div class="counts">
-      <span class="red">🔴 卡住 {{ statusCounts.red }} 人</span>
-      <span class="yellow">🟡 有错误 {{ statusCounts.yellow }} 人</span>
-      <span class="green">🟢 正常 {{ statusCounts.green }} 人</span>
-      <span class="off-legend">⚪ 未在线 {{ statusCounts.offline }} 人</span>
+      <span class="red"><i class="lg" />卡住 {{ statusCounts.red }} 人</span>
+      <span class="yellow"><i class="lg" />有错误 {{ statusCounts.yellow }} 人</span>
+      <span class="green"><i class="lg" />正常 {{ statusCounts.green }} 人</span>
+      <span class="off-legend"><i class="lg" />未在线 {{ statusCounts.offline }} 人</span>
     </div>
     <div class="grid" v-if="store.snapshot.students.length">
       <div
@@ -55,10 +55,16 @@ function tooltip(s: StudentState): string {
   /* 高度随内容自适应（4 行瓦片完整可见优先）；学生更多时卡内滚动，滚动条隐藏 */
 }
 .counts { display: flex; gap: 14px; font-size: 15px; justify-content: center; }
+/* 图例发光圆点：正常用青色（绿色只留给作业完成度的「已通过」，避免跨卡歧义） */
+.counts .lg { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: -1px; }
 .counts .red { color: var(--tech-red); text-shadow: 0 0 6px rgba(255, 95, 109, 0.6); }
+.counts .red .lg { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.7); }
 .counts .yellow { color: var(--tech-yellow); text-shadow: 0 0 6px rgba(255, 197, 61, 0.5); }
-.counts .green { color: var(--tech-green); text-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+.counts .yellow .lg { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.6); }
+.counts .green { color: var(--tech-cyan); text-shadow: 0 0 6px rgba(124, 231, 255, 0.5); }
+.counts .green .lg { background: var(--tech-cyan); box-shadow: 0 0 6px rgba(124, 231, 255, 0.7); }
 .counts .off-legend { color: var(--text-dim); }
+.counts .off-legend .lg { background: var(--tech-offline); }
 .grid {
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: repeat(6, 1fr);   /* 固定 6 列：22 人 = 4 行（末行 2 格空），均衡不孤行 */
@@ -75,11 +81,11 @@ function tooltip(s: StudentState): string {
 .tile:hover { border-color: var(--tech-cyan); }
 .tile.red { border-color: rgba(255, 95, 109, 0.6); }
 .tile.yellow { border-color: rgba(255, 197, 61, 0.5); }
-.tile.green { border-color: rgba(34, 197, 94, 0.5); }
+.tile.green { border-color: rgba(124, 231, 255, 0.5); }   /* 正常显示为青色（绿色留给完成度「已通过」） */
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .tile.red .dot { background: var(--tech-red); box-shadow: 0 0 8px rgba(255, 95, 109, 0.9); }
 .tile.yellow .dot { background: var(--tech-yellow); box-shadow: 0 0 8px rgba(255, 197, 61, 0.7); }
-.tile.green .dot { background: var(--tech-green); box-shadow: 0 0 8px rgba(34, 197, 94, 0.7); }
+.tile.green .dot { background: var(--tech-cyan); box-shadow: 0 0 8px rgba(124, 231, 255, 0.8); }
 .tile.offline { opacity: 0.45; background: var(--tech-offline); }
 .tile.offline .dot { background: #5d7fa6; box-shadow: none; }
 .machine-badge {

@@ -10,6 +10,44 @@ Chart.register(BarController, BarElement, LineController, LineElement, PointElem
 Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 
+/** 柱体垂直渐变：顶部亮、向下渐隐成光柱（chartArea 未布局完成的首帧回退纯色） */
+const barGradient = (ctx: { chart: { chartArea?: { top: number; bottom: number }; ctx: CanvasRenderingContext2D } }) => {
+  const area = ctx.chart.chartArea;
+  if (!area) return "#ff5f6d";
+  const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, "#ff8a93");
+  g.addColorStop(0.4, "#ff5f6d");
+  g.addColorStop(1, "#b62c37");   // 底部实色深红收口：光柱不悬空
+  return g;
+};
+
+/** 霓虹辉光插件：为每个 dataset 的描边加同色光晕（折线=流动霓虹，柱体=光柱轮廓） */
+const neonGlow = {
+  id: "neonGlow",
+  beforeDatasetDraw(chart: Chart, args: { index: number }) {
+    const ds = chart.data.datasets[args.index] as { borderColor?: string };
+    chart.ctx.save();
+    chart.ctx.shadowBlur = 14;
+    chart.ctx.shadowColor = ds.borderColor ?? "rgba(80, 200, 255, 0.55)";
+  },
+  afterDatasetDraw(chart: Chart) {
+    chart.ctx.restore();
+  },
+};
+
+/** 悬浮提示科技风（两图共用）：深蓝面板+青描边+大字号，替代 chart.js 默认小黑框 */
+const tooltipStyle = {
+  backgroundColor: "rgba(6, 14, 30, 0.95)",
+  borderColor: "rgba(63, 140, 255, 0.5)",
+  borderWidth: 1,
+  titleColor: "#7fd7ff",
+  bodyColor: "#dbe9ff",
+  titleFont: { size: 15, weight: 700 as const },
+  bodyFont: { size: 14 },
+  padding: 10,
+  cornerRadius: 2,
+};
+
 const store = useClassroom();
 const barRef = ref<HTMLCanvasElement | null>(null);
 const lineRef = ref<HTMLCanvasElement | null>(null);
@@ -27,17 +65,7 @@ const focusItem = computed(() =>
   [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0] ?? null);
 const focusPct = computed(() =>
   focusItem.value ? Math.round((focusItem.value.passed / focusItem.value.total) * 100) : 0);
-/** 桶内液体总高 = 已通过 + 报错中（未提交的人不占液面）；绿层/红层按人数占比分层 */
-const filledPct = computed(() => {
-  if (!focusItem.value) return 0;
-  const e = focusItem.value;
-  return Math.round(((e.passed + e.stuck) / e.total) * 100);
-});
-const greenPct = computed(() => {
-  const e = focusItem.value;
-  const filled = e ? e.passed + e.stuck : 0;
-  return filled === 0 ? 0 : Math.round((e!.passed / filled) * 100);
-});
+/** 液面高度 = 已通过/总人数，与中央百分比严格一致；绿液涨到顶 = 全员通过（报错中由右侧状态行表达） */
 
 // —— 状态占比已移除（全班状态矩阵已表达三值信息）——
 
@@ -54,12 +82,15 @@ function initBar() {
   }
   barChart = new Chart(barRef.value, {
     type: "bar",
-    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: "#ff5f6d", borderRadius: 2, barThickness: 48 }] },   // 固定柱厚：1-3 根也不变粗
+    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: barGradient, borderColor: "#ff8a93", borderWidth: 1, borderRadius: 8, barThickness: 85 }] },   // 光柱渐变+描边：1-3 根也不变粗
+    plugins: [neonGlow],
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
         tooltip: {
+          ...tooltipStyle,
+          displayColors: false,
           callbacks: {
             label: (ctx) => `涉及 ${ctx.parsed.y} 人`,   // 竖向柱：数值轴是 y
             afterBody: (items) => {
@@ -70,7 +101,7 @@ function initBar() {
         },
       },
       scales: {
-        x: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0, color: "#5d7fa6" } },
+        x: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0, color: "#5d7fa6", font: { size: 15 } } },
         y: {
           beginAtZero: true,
           border: { display: false },
@@ -90,6 +121,7 @@ function initLine() {
   }
   lineChart = new Chart(lineRef.value, {
     type: "line",
+    plugins: [neonGlow],
     data: {
       labels: [],
       datasets: [
@@ -100,9 +132,9 @@ function initLine() {
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, color: "#9fd4ff" } } },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, color: "#9fd4ff", font: { size: 13 } } }, tooltip: { ...tooltipStyle } },
       scales: {
-        x: { grid: { display: false }, border: { display: false }, ticks: { color: "#5d7fa6", maxRotation: 0, minRotation: 0 } },
+        x: { grid: { display: false }, border: { display: false }, ticks: { color: "#5d7fa6", maxRotation: 0, minRotation: 0, font: { size: 15 } } },
         y: {
           beginAtZero: true,
           border: { display: false },
@@ -180,9 +212,7 @@ watch(
         <div class="tank-wrap">
           <div class="tank">
             <div class="ticks" />
-            <div class="liquid" :class="{ 'all-green': focusItem.stuck === 0 }" :style="{ height: filledPct + '%' }">
-              <div class="layer green" :style="{ height: greenPct + '%' }" />
-              <div class="layer red" />
+            <div class="liquid" :style="{ height: focusPct + '%' }">
               <i class="wave w1" /><i class="wave w2" />
               <i class="bubble b1" /><i class="bubble b2" /><i class="bubble b3" />
             </div>
@@ -194,8 +224,7 @@ watch(
           <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
           <div class="focus-nums">
             <span class="ok"><i class="dot" />已通过 <b>{{ focusItem.passed }} 人</b></span>
-            <span class="warn"><i class="dot" />报错中 <b>{{ focusItem.stuck }} 人</b></span>
-            <span class="idle"><i class="dot" />未提交 <b>{{ focusItem.total - focusItem.passed - focusItem.stuck }} 人</b></span>
+            <span class="doing"><i class="dot" />编码中 <b>{{ focusItem.total - focusItem.passed }} 人</b></span>
           </div>
         </div>
       </div>
@@ -221,6 +250,7 @@ watch(
 .comp-head .overall { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
 .chart-wrap { flex: 1; min-height: 160px; position: relative; }   /* 高度随卡片弹性拉伸（chart.js responsive 自适应），不再写死 240px */
+.chart-wrap::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 0%, rgba(63, 140, 255, 0.1), transparent 62%); }   /* 顶部微光：给图区垫一层纵深 */
 /* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨 —— */
 .completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 56px; min-height: 0; }   /* 居中：左右空白近似相等 */
 .tank-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: stretch; justify-content: center; }
@@ -229,7 +259,7 @@ watch(
   border: 1px solid var(--tech-card-border); border-top: none;
   border-radius: 4px 4px 16px 16px;
   background: rgba(8, 20, 42, 0.6);
-  box-shadow: inset 0 0 24px rgba(30, 90, 200, 0.18);
+  box-shadow: inset 0 0 24px rgba(30, 90, 200, 0.18), 0 0 16px rgba(63, 140, 255, 0.22);
   overflow: hidden;
 }
 .tank-base { width: 200px; height: 6px; border-radius: 3px; background: rgba(63, 140, 255, 0.35); box-shadow: 0 0 12px rgba(63, 140, 255, 0.5); }
@@ -239,26 +269,25 @@ watch(
 }
 .liquid {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 1;
-  display: flex; flex-direction: column;
-  box-shadow: inset 0 0 30px rgba(34, 197, 94, 0.45), 0 0 18px rgba(34, 197, 94, 0.35);
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.9), rgba(21, 128, 61, 0.95));
+  box-shadow: inset 0 0 24px rgba(34, 197, 94, 0.4), 0 0 18px rgba(34, 197, 94, 0.35);
   transition: height 0.8s ease;
 }
-.liquid .layer.green { background: linear-gradient(180deg, rgba(34, 197, 94, 0.9), rgba(21, 128, 61, 0.95)); box-shadow: inset 0 0 24px rgba(34, 197, 94, 0.4); }
-.liquid .layer.red { flex: 1; background: linear-gradient(180deg, rgba(224, 92, 102, 0.9), rgba(180, 50, 60, 0.95)); box-shadow: inset 0 0 24px rgba(224, 92, 102, 0.35); }
 .liquid .wave {
-  position: absolute; top: -9px; left: -25%; width: 200%; height: 18px;
-  border-radius: 42%; background: rgba(224, 92, 102, 0.85);
+  position: absolute; top: -12px; left: -25%; width: 200%; height: 24px;
+  border-radius: 50%; background: rgba(34, 197, 94, 0.85);   /* 波浪与绿液同色，只作液面高光 */
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.55);
 }
-.liquid .wave.w1 { animation: tank-wave 7s linear infinite; }
-.liquid .wave.w2 { animation: tank-wave 11s linear infinite reverse; opacity: 0.6; }
-.liquid.all-green .wave { background: rgba(34, 197, 94, 0.85); }   /* 无人报错时液面为绿 */
+.liquid .wave.w1 { animation: tank-wave 5s ease-in-out infinite alternate; }
+.liquid .wave.w2 { animation: tank-wave 8s ease-in-out infinite alternate-reverse; opacity: 0.6; }
 @keyframes tank-wave {
-  from { transform: translateX(-25%) rotate(0deg); }
-  to { transform: translateX(-25%) rotate(360deg); }
+  /* 轻微起伏：±2.5° 摇摆 + 平移（往复动画无缝循环），不再整体旋转（旋转会让细长波条扫成对角斜线） */
+  from { transform: translateX(-4%) rotate(2.5deg); }
+  to { transform: translateX(4%) rotate(-2.5deg); }
 }
 .liquid .bubble {
   position: absolute; bottom: 0; width: 8px; height: 8px; border-radius: 50%;
-  background: rgba(255, 255, 255, 0.35); animation: tank-bubble 4s ease-in infinite;
+  background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 6px rgba(120, 255, 190, 0.6); animation: tank-bubble 4s ease-in infinite;
 }
 .liquid .bubble.b1 { left: 22%; animation-delay: 0s; }
 .liquid .bubble.b2 { left: 55%; width: 5px; height: 5px; animation-delay: 1.4s; }
@@ -274,18 +303,16 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; gap: 52px; width: 230px; align-self: center; }   /* 题名+状态行成组垂直居中；题名更高、与状态行距离大 */
+.completion .focus-info { display: flex; flex-direction: column; gap: 52px; max-width: 230px; align-self: center; }   /* 贴内容收缩（写死宽度会在右侧留一大块空白导致视觉不居中）；题名超长时按 230px 换行 */
 .completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
 .completion .focus-nums { display: flex; flex-direction: column; gap: 16px; font-size: 17px; }
 .completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
 .completion .focus-nums .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.completion .focus-nums b { margin-left: 14px; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数紧跟状态名固定间距，三行等宽标签天然上下对齐 */
+.completion .focus-nums b { margin-left: 14px; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数紧跟状态名固定间距，两行等宽标签天然上下对齐 */
 .completion .focus-nums .ok .dot { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
-.completion .focus-nums .warn .dot { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.7); }
-.completion .focus-nums .idle .dot { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.7); }
+.completion .focus-nums .doing .dot { background: var(--tech-blue); box-shadow: 0 0 6px rgba(63, 169, 255, 0.7); }
 .completion .focus-nums .ok { color: var(--tech-green); }
-.completion .focus-nums .warn { color: var(--tech-red); }
-.completion .focus-nums .idle { color: var(--tech-yellow); }
+.completion .focus-nums .doing { color: var(--tech-blue); }   /* 只有已通过/正在进行中两态：报错细节由全班状态与错误TOP3表达 */
 @media (prefers-reduced-motion: reduce) {
   .liquid .wave, .liquid .bubble { animation: none; }
 }

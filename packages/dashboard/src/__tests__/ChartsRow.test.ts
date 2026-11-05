@@ -59,9 +59,10 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain("输出问候语");              // 焦点题题面名（最新进行中题）
     expect(wrapper.text()).toContain("已通过 2 人");             // 焦点题已通过
-    expect(wrapper.text()).toContain("报错中 1 人");             // 焦点题报错中
-    expect(wrapper.text()).toContain("未提交 1 人");             // 焦点题未提交
+    expect(wrapper.text()).toContain("编码中 2 人");             // 其余学员（含报错中/未提交，总 4 - 通过 2）
     expect(wrapper.text()).toContain("50%");                    // 焦点题完成率 2/4
+    expect(wrapper.text()).not.toContain("报错中");              // 完成度卡不再细分报错（由全班状态/错误TOP3表达）
+    expect(wrapper.text()).not.toContain("未提交");
     expect(wrapper.text()).not.toContain("全班通过率");          // 单题口径，不再展示跨题汇总
     expect(wrapper.text()).not.toContain("done.py");            // 已通关题折叠不显示
   });
