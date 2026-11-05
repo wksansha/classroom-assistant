@@ -57,7 +57,12 @@ function initBar() {
       plugins: { legend: { display: false } },
       scales: {
         x: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, maxRotation: 0, minRotation: 0, color: "#5d7fa6" } },
-        y: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, color: "#5d7fa6" } },
+        y: {
+          beginAtZero: true,
+          border: { display: false },
+          grid: { color: "rgba(63, 140, 255, 0.08)" },   // 极淡横向参考线：填补背景又不形成方框
+          ticks: { maxTicksLimit: 6, color: "#5d7fa6" },
+        },
       },
     },
   });
@@ -84,7 +89,12 @@ function initLine() {
       plugins: { legend: { position: "bottom", labels: { boxWidth: 10, color: "#9fd4ff" } } },
       scales: {
         x: { grid: { display: false }, border: { display: false }, ticks: { color: "#5d7fa6", maxRotation: 0, minRotation: 0 } },
-        y: { beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: { stepSize: 1, precision: 0, color: "#5d7fa6" } },
+        y: {
+          beginAtZero: true,
+          border: { display: false },
+          grid: { color: "rgba(63, 140, 255, 0.08)" },   // 极淡横向参考线
+          ticks: { maxTicksLimit: 6, color: "#5d7fa6" },
+        },
       },
     },
   });
