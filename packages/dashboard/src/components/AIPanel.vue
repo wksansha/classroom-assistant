@@ -54,7 +54,7 @@ async function ack(id: string) {
   font-size: 12px; font-weight: 700; border-radius: 2px; padding: 2px 8px;
   letter-spacing: 2px; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
 }
-.ai-panel h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
+.ai-panel h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
 .card {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px;
   background: rgba(20, 50, 100, 0.4); border: 1px solid rgba(63, 140, 255, 0.25);

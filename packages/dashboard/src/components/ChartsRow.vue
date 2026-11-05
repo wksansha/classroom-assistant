@@ -188,7 +188,7 @@ watch(
 <style scoped>
 /* .charts-row 网格定义在全局 style.css（Step 5），此处只写卡内样式 */
 .chart-card { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.chart-card h2 { font-size: 18px; }
+.chart-card h2 { font-size: 20px; }
 .comp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .comp-head .overall { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .comp-head .overall strong { font-family: var(--font-num); font-size: 26px; color: var(--tech-cyan); margin-left: 4px; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8); }
