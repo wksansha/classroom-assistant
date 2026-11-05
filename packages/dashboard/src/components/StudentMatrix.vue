@@ -49,7 +49,7 @@ function tooltip(recent: RecentError[]): string {
 <style scoped>
 .matrix {
   padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
-  height: 280px;   /* 按全班 22 名学生（1920 宽屏约 11 列 × 2 行）写死；学生更多时网格内部滚动 */
+  /* 高度随内容自适应（4 行瓦片完整可见优先）；学生更多时卡内滚动，滚动条隐藏 */
 }
 .counts { display: flex; gap: 14px; font-size: 15px; justify-content: center; }
 .counts .red { color: var(--tech-red); text-shadow: 0 0 6px rgba(255, 95, 109, 0.6); }
