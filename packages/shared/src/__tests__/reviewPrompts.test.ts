@@ -23,4 +23,11 @@ describe("buildReviewPrompt", () => {
     expect(p).toContain("unreviewed");
     expect(p).toContain("不构成对你的要求");
   });
+
+  it("TODO 分步任务规则：pass 占位属未开始而非错误，只评判已实现部分", () => {
+    const p = buildReviewPrompt({ studentCode: "# TODO 1：筛选\nprint(1)\n# TODO 2：导入\npass" });
+    expect(p).toContain("分步任务清单");
+    expect(p).toContain("未开始而非错误");
+    expect(p).toContain("已实现部分");
+  });
 });
