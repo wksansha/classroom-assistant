@@ -135,9 +135,9 @@ function initLine() {
 }
 
 // —— 课堂节奏（动态时间窗）——
-// 原点 = 第一个运行事件（成功或报错，y=1）；共 10 个点 = 原点 + 9 段。
-// 不足 45 分钟保持 5 分钟粒度（用户示例：7:10 首跑 → 7:10 点=1，7:10-7:15 间另有 5 人 → 7:15 点=5）；
-// 更长的课区间自动压缩（interval = 随时长的 elapsed/9）。5 分钟原始桶只做求和原料，按桶中点归属到点。
+// 原点 = 第一个运行事件的时间点（纵坐标 0，仅作时间锚）；第一个运行的人归入下一个点计数。
+// 共 10 个点 = 原点 + 9 段；不足 45 分钟保持 5 分钟粒度（用户示例：7:10 首跑 → 7:10 点=0，
+// 7:10-7:15 间另有 5 人 + 首跑者 → 7:15 点=6）；更长的课区间自动压缩（interval = elapsed/9）。
 const trendPoints = computed(() => {
   const buckets = store.snapshot?.trend ?? [];
   const BUCKET = 5 * 60_000;
@@ -147,12 +147,7 @@ const trendPoints = computed(() => {
   const end = Math.max(snapTs, buckets[buckets.length - 1].tStart + BUCKET);
   const interval = Math.max(end - origin, BUCKET) / 9;
   const pts = Array.from({ length: 10 }, (_, i) => ({ tStart: origin + interval * i, runs: 0, errors: 0 }));
-  // 首个事件固定为原点（y=1）；首桶剩余计数并入第 2 个点
-  const first = { ...buckets[0] };
-  if (first.runs > 0) { pts[0].runs = 1; first.runs -= 1; }
-  else { pts[0].errors = 1; first.errors -= 1; }
-  const rest = [first, ...buckets.slice(1)];
-  for (const [bi, b] of rest.entries()) {
+  for (const [bi, b] of buckets.entries()) {
     if (b.runs === 0 && b.errors === 0) continue;
     const mid = b.tStart + BUCKET / 2;
     const idx = bi === 0 ? 1 : Math.min(9, Math.max(1, Math.floor((mid - origin) / interval)));
