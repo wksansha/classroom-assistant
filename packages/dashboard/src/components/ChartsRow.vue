@@ -132,22 +132,33 @@ function initLine() {
   });
 }
 
-// —— 课堂节奏（spec 决策 #4 补充）：5 分钟桶存储，展示时动态合并——
-// 90 分钟课 = 18 桶，窄卡里太挤；桶数 >12 时按倍数合并相邻桶（如 90 分钟 → 9 个 10 分钟点），点数控制在 12 以内
-const mergedTrend = computed(() => {
+// —— 课堂节奏（动态时间窗）——
+// 以第一个运行事件（成功或报错）的时间点倒推 5 分钟为原点，到当前时刻的区间十等分；
+// 每段求和为一个点，固定展示 10 个点。课堂越长每段越宽（横轴自动压缩），5 分钟原始桶只做求和原料
+const trendPoints = computed(() => {
   const buckets = store.snapshot?.trend ?? [];
-  if (buckets.length <= 12) return buckets;
-  const factor = Math.ceil(buckets.length / 12);
-  const out: { tStart: number; runs: number; errors: number }[] = [];
-  for (let i = 0; i < buckets.length; i += factor) {
+  const BUCKET = 5 * 60_000;
+  if (buckets.length === 0) return [];
+  const snapTs = store.snapshot?.ts ?? Date.now();
+  const origin = buckets[0].tStart - BUCKET;   // 原点倒推 5 分钟
+  const end = Math.max(snapTs, buckets[buckets.length - 1].tStart + BUCKET);
+  const seg = Math.max(end - origin, BUCKET * 10) / 10;
+  const pts: { tStart: number; runs: number; errors: number }[] = [];
+  let bi = 0;
+  for (let i = 0; i < 10; i++) {
+    const segStart = origin + seg * i;
+    const segEnd = segStart + seg;
     let runs = 0, errors = 0;
-    for (let j = i; j < Math.min(i + factor, buckets.length); j++) {
-      runs += buckets[j].runs;
-      errors += buckets[j].errors;
+    while (bi < buckets.length && buckets[bi].tStart < segEnd) {
+      if (buckets[bi].tStart >= segStart) {
+        runs += buckets[bi].runs;
+        errors += buckets[bi].errors;
+      }
+      bi++;
     }
-    out.push({ tStart: buckets[i].tStart, runs, errors });
+    pts.push({ tStart: segStart, runs, errors });
   }
-  return out;
+  return pts;
 });
 
 function updateCharts() {
@@ -171,9 +182,9 @@ function updateCharts() {
     pieChart.update();
   }
   if (lineChart) {
-    lineChart.data.labels = mergedTrend.value.map((b) => new Date(b.tStart).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
-    lineChart.data.datasets[0].data = mergedTrend.value.map((b) => b.runs);
-    lineChart.data.datasets[1].data = mergedTrend.value.map((b) => b.errors);
+    lineChart.data.labels = trendPoints.value.map((b) => new Date(b.tStart).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
+    lineChart.data.datasets[0].data = trendPoints.value.map((b) => b.runs);
+    lineChart.data.datasets[1].data = trendPoints.value.map((b) => b.errors);
     lineChart.update();
   }
 }
