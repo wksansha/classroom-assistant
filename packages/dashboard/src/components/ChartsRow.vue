@@ -246,8 +246,8 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; width: 260px; align-self: stretch; }   /* 与桶等高：题名在上，状态行垂直居中 */
-.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.4; text-align: right; margin: 18px 0 0; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-info { display: flex; flex-direction: column; width: 220px; align-self: stretch; }   /* 与桶等高；窄列让人数更靠左 */
+.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 18px 0 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }   /* 题目左对齐，字数多自动换行 */
 .completion .focus-nums { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; font-size: 17px; }   /* 三行整体垂直居中于桶 */
 .completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
 .completion .focus-nums .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
