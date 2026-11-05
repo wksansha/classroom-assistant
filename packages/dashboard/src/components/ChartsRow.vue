@@ -165,9 +165,9 @@ watch(
         <div class="focus-info">
           <div class="focus-name" :title="focusItem.displayName">{{ focusItem.title }}</div>
           <div class="focus-nums">
-            <span class="ok"><i class="dot" />已通过 {{ focusItem.passed }} 人</span>
-            <span class="warn"><i class="dot" />报错中 {{ focusItem.stuck }} 人</span>
-            <span class="idle"><i class="dot" />未提交 {{ focusItem.total - focusItem.passed - focusItem.stuck }} 人</span>
+            <span class="ok"><i class="dot" />已通过 <b>{{ focusItem.passed }} 人</b></span>
+            <span class="warn"><i class="dot" />报错中 <b>{{ focusItem.stuck }} 人</b></span>
+            <span class="idle"><i class="dot" />未提交 <b>{{ focusItem.total - focusItem.passed - focusItem.stuck }} 人</b></span>
           </div>
         </div>
       </div>
@@ -246,11 +246,12 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; gap: 14px; max-width: 300px; align-self: flex-start; }   /* 题面名置右上角 */
-.completion .focus-name { color: var(--text-primary); font-size: 26px; font-weight: 700; line-height: 1.4; text-align: right; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
-.completion .focus-nums { display: flex; flex-direction: column; gap: 10px; font-size: 17px; margin-top: 10px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.1); }   /* 与题面名用分隔线区分开 */
-.completion .focus-nums span { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.completion .focus-info { display: flex; flex-direction: column; width: 260px; align-self: stretch; }   /* 与桶等高：题名在上，状态行垂直居中 */
+.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.4; text-align: right; margin: 18px 0 0; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
+.completion .focus-nums { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; font-size: 17px; }   /* 三行整体垂直居中于桶 */
+.completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
 .completion .focus-nums .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.completion .focus-nums b { margin-left: auto; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数右对齐，中间留白 */
 .completion .focus-nums .ok .dot { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .completion .focus-nums .warn .dot { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.7); }
 .completion .focus-nums .idle .dot { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.7); }
