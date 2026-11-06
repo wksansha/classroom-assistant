@@ -66,7 +66,11 @@ export function registerLlmProxy(app: Express, config: LlmProxyConfig | null): v
         logEvent({ event: "llm_proxy.upstream_error", level: "error", data: {
           status: upstream.status, studentId, body: text.slice(0, 200),
         }, durationMs: Date.now() - startTime });
-        res.status(upstream.status).json({ error: `上游模型错误 (${upstream.status})` });
+        // 学生可见文案：429=限流，其余上游错误统一"访问失败"（不含堆栈/英文细节）
+        const msg = upstream.status === 429
+          ? "大模型访问繁忙（限流），请稍后重试"
+          : `大模型访问失败 (${upstream.status})，请稍后重试`;
+        res.status(upstream.status).json({ error: msg });
         return;
       }
 
@@ -108,7 +112,10 @@ export function registerLlmProxy(app: Express, config: LlmProxyConfig | null): v
         aborted,
       }, durationMs: Date.now() - startTime });
       if (!res.headersSent) {
-        res.status(502).json({ error: aborted ? "请求已取消" : "代理上游失败" });
+        // 典型场景：内网大模型服务未开机/网络不通 → fetch 直接抛错走这里
+        res.status(502).json({ error: aborted
+          ? "请求已取消"
+          : "大模型访问失败：教师端大模型服务未开机或网络不通，请联系教员检查" });
       } else {
         res.end(); // 流中途失败，结束响应让客户端收尾
       }
