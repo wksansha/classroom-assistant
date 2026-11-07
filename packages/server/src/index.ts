@@ -9,6 +9,7 @@ import { createCache } from "./explainService/cache";
 import { createExplainService } from "./explainService";
 import { createStateManager } from "./stateManager";
 import { createAggregator } from "./aggregator";
+import { createActivityFeed } from "./activityFeed";
 import { dayStart } from "./classDay";
 import { createExerciseProgressTracker } from "./exerciseProgress";
 import { createTrendTracker } from "./trend";
@@ -44,6 +45,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub } {
   const persistence = createPersistence(deps.dbPath);
   const stateManager = createStateManager();
+  const activityFeed = createActivityFeed();
   const cache = createCache(persistence);
   const explainService = createExplainService(cache);
   // —— Gitea 联动（学生分支直连模型）：三环境变量齐备才启用；缺任一则跳过（info 一条）——
@@ -121,6 +123,10 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
         errors: agg.students.reduce((sum, s) => sum + s.errorCountTotal, 0),   // 当天报错总次数（errorCountTotal 已按窗口过滤）
       },
+      activityFeed: activityFeed.list(),
+      // 评审 LLM 配置探测（与 reviewService/llm.ts 的 not_configured 判定同源）：
+      // false = 降级模式，feed 只会出现运行类条目（评审 unreviewed 不入 feed）
+      reviewOnline: Boolean(deps.reviewConfig?.apiKey ?? process.env.LLM_API_KEY),
     };
   };
 
@@ -135,6 +141,24 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     }
     exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(windowStart));
     for (const r of persistence.getRunEventsSince(windowStart)) trend.record(r.ts, r.success);
+    // 课堂动态回放：run 成功 + 评审三态（unreviewed 只计数）；按 ts 升序喂入 → 缓冲新的在前。
+    // run_fail 不回放（events 表未归档 error_type），重启后失败条目从零累计（计数含历史成功，不回零）
+    const feedRows = [
+      ...persistence.getRunSuccessesSince(windowStart).map((s) => ({
+        kind: "run_ok" as const, studentId: s.studentId, studentName: s.studentName,
+        filePath: s.filePath, ts: s.ts,
+      })),
+      ...persistence.getReviewResultsSince(windowStart).map((r) => ({
+        kind: r.status === "pass" ? ("review_pass" as const)
+          : r.status === "fail" ? ("review_fail" as const)
+          : ("review_count" as const),
+        studentId: r.studentId, studentName: r.studentName,
+        filePath: r.filePath, ts: r.ts,
+        reasonTag: r.status === "fail" ? "评审意见" : null,
+        reason: r.status === "fail" ? r.reason : null,
+      })),
+    ].sort((a, b) => a.ts - b.ts);
+    activityFeed.replay(feedRows);
   } catch (err) {
     logEvent({ event: "warmup.failed", level: "warn", data: { error: err instanceof Error ? err.message : String(err) } });
   }
@@ -227,6 +251,11 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         if (!ev.success && ev.filePath) exerciseProgress.applyRunFailure(ev.studentId, ev.studentName, ev.filePath, ev.ts);
         else if (ev.success && ev.filePath) exerciseProgress.applyRunSuccess(ev.studentId, ev.studentName, ev.filePath, ev.ts);
         trend.record(ev.ts, ev.success);
+        // 课堂动态：run 成功/失败都产生条目（失败带异常名+消息摘要）
+        activityFeed.recordRun({
+          studentId: ev.studentId, studentName: ev.studentName, success: ev.success, ts: ev.ts,
+          filePath: ev.filePath ?? null, errorType: ev.errorType, errorMessage: ev.errorMessage,
+        });
       }
       hub.publish(buildSnapshot());
       logEvent({ event: "route.event_processed", data: {
@@ -285,6 +314,15 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     res.json({ ...detail, events });
   });
 
+  // 课堂动态代码懒加载（悬浮代码卡）：评审输入全文缓存在内存 LRU，快照不带代码防膨胀
+  app.get("/api/feed/code", (req, res) => {
+    const studentId = String(req.query.studentId ?? "");
+    const filePath = String(req.query.filePath ?? "");
+    if (!studentId || !filePath) return res.status(400).json({ error: "缺少参数" });
+    const hit = activityFeed.getCode(studentId, filePath);
+    res.json(hit ?? { title: null, code: null });
+  });
+
   // 标记建议已处理（V1 仅内存）
   app.post("/api/suggestions/ack", (req, res) => {
     const id = typeof req.body?.id === "string" ? req.body.id : null;
@@ -330,6 +368,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     stateManager.resetForNewClass();
     exerciseProgress.reset();
     trend.reset();
+    activityFeed.reset();
     aggregator.resetAcked();
     suggestionEnricher.clear();
     hub.publish(buildSnapshot());
@@ -344,7 +383,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
 
   // 运行触发评审路由（V2.0 F5：写回最新提交 + fail 注入实时聚合，Task 6）
   const reviewRequestDeps: ReviewRequestDeps = {
-    persistence, reviewService, stateManager, exerciseProgress,
+    persistence, reviewService, stateManager, exerciseProgress, activityFeed,
     publishSnapshot: () => hub.publish(buildSnapshot()),
   };
   registerReviewRoutes(app, reviewRequestDeps);

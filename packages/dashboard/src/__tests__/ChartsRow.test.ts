@@ -25,7 +25,6 @@ vi.mock("chart.js", () => {
     Chart: MockChart,
     BarController: stub, BarElement: stub,
     LineController: stub, LineElement: stub, PointElement: stub, Filler: stub,
-    PieController: stub, ArcElement: stub,
     CategoryScale: stub, LinearScale: stub,
     Tooltip: stub, Legend: stub,
   };
@@ -46,33 +45,45 @@ const exerciseProgress: ExerciseProgressItem[] = [
 ];
 
 describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
-  it("三卡标题渲染（全班状态占比在第一张）", async () => {
+  it("三卡标题渲染（课堂节奏在第一张，与主区矩阵列对齐）", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
     const titles = wrapper.findAll("h2").map((h) => h.text());
-    expect(titles).toEqual(["全班状态占比", "错误类型TOP3", "课堂节奏"]);
+    expect(titles).toEqual(["课堂节奏", "作业完成度", "错误类型TOP3"]);
   });
 
-  /* 【注释保留】作业完成度模块用例——模块恢复时一并恢复（见 ChartsRow.vue 脚本区注释块）
-   *
-   * it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", ...) 原断言：
-   *   输出问候语 / 已通过 2 人 / 编码中 2 人 / 50% / 不含 报错中·未提交·全班通过率·done.py
-   * it("作业选择下拉：默认展示最新进行中题；下拉列出全部题目；选中后不自动切换", ...) 原断言：
-   *   .focus-name = 新题；options = ["新题（0/4）", "旧题（1/4）"]；setValue("old.py") 后 .focus-name = 旧题
-   * it("全部作业已全员通过：显示完成文案", ...) 原断言：
-   *   全员通过，干得漂亮
-   */
-
-  it("有数据时渲染三块 canvas（占比/错误TOP3/课堂节奏；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
+  it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3);
+    const text = wrapper.find(".completion").text();
+    expect(text).toContain("输出问候语");           // 锁定最新进行中题（done.py 已全员通过不入 activeItems）
+    expect(text).toContain("已通过 2 人");
+    expect(text).toContain("编码中 2 人");
+    expect(text).toContain("50%");
+    expect(text).not.toContain("报错中");
+    expect(text).not.toContain("done.py");
+  });
+
+  it("全部作业已全员通过：显示完成文案", async () => {
+    const { wrapper, store } = mountWithStore(ChartsRow);
+    store.applySnapshot(makeSnapshot({
+      exerciseProgress: [{ id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200, latestTs: 300, title: "成绩判断" }],
+    }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".completion").text()).toContain("全员通过，干得漂亮");
+  });
+
+  it("有数据时渲染两块 canvas（课堂节奏/错误TOP3；完成度为 DOM 水桶；chart.js 已 mock）；无数据卡片显示空态文案", async () => {
+    const { wrapper, store } = mountWithStore(ChartsRow);
+    store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll("canvas")).toHaveLength(2);
     const empty = mountWithStore(ChartsRow);
     empty.store.applySnapshot(makeSnapshot());
     await empty.wrapper.vm.$nextTick();
-    expect(empty.wrapper.text()).toContain("暂无学员数据");
+    expect(empty.wrapper.text()).toContain("暂无题目数据");
     expect(empty.wrapper.text()).toContain("暂无错误数据");
     expect(empty.wrapper.text()).toContain("暂无运行数据");
   });
@@ -87,12 +98,12 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     });
     store.applySnapshot(snapWithData());
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3);
+    expect(wrapper.findAll("canvas")).toHaveLength(2);
     store.applySnapshot(makeSnapshot());               // → 空态（canvas 卸载）
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll("canvas")).toHaveLength(0);
     store.applySnapshot(snapWithData());               // → 再有数据（canvas 重建）
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll("canvas")).toHaveLength(3); // 修复前：此断言失败（旧实例跳过 init）
+    expect(wrapper.findAll("canvas")).toHaveLength(2); // 修复前：此断言失败（旧实例跳过 init）
   });
 });

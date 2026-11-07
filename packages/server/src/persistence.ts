@@ -66,7 +66,7 @@ export interface Persistence {
   saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
   // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2；三态事实表，缓存表约束不变）——
   saveReviewResult(row: { studentId: string; classId: string | null; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }): void;
-  getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; ts: number }[];
+  getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }[];
   getRunEventsSince(windowStartMs: number): { ts: number; success: boolean }[];
   /** run 成功明细（重启回放「降级通过」用）：带学员与文件，payload 无 file 的行跳过 */
   getRunSuccessesSince(windowStartMs: number): { ts: number; studentId: string; studentName: string; filePath: string }[];
@@ -313,10 +313,10 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     getReviewResultsSince(windowStartMs) {
       return db.prepare(`SELECT r.student_id AS studentId, COALESCE(ro.student_name, r.student_id) AS studentName,
-          r.file_path AS filePath, r.status, r.ts
+          r.file_path AS filePath, r.status, r.reason, r.ts
         FROM review_results r LEFT JOIN roster ro ON ro.student_id = r.student_id
         WHERE r.ts >= ? ORDER BY r.ts`).all(windowStartMs) as
-        { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; ts: number }[];
+        { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }[];
     },
     getRunEventsSince(windowStartMs) {
       // trace_events.ts 为 ISO-8601 文本（字典序即时间序），窗口起点转 ISO 比较

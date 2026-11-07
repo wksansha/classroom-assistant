@@ -6,6 +6,12 @@ const store = useClassroom();
 const visible = computed(() => store.snapshot?.suggestions.filter((s) => !s.acked) ?? []);
 const KIND_LABEL: Record<string, string> = { "class-review": "全班讲评", "group-discuss": "小组讨论", individual: "单独辅导" };
 
+/** 正文强调：转义 HTML 后把「」内的关键词加粗提亮（服务端文案 + LLM 增强，防注入先转义） */
+function emphasize(text: string): string {
+  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc.replace(/「([^」]+)」/g, "「<strong>$1</strong>」");
+}
+
 async function ack(id: string) {
   try {
     await fetch("/api/suggestions/ack", {
@@ -27,15 +33,14 @@ async function ack(id: string) {
 
 <template>
   <section class="ai-panel tech-card" v-if="store.snapshot">
-    <div class="panel-head">
-      <span class="ai-badge">AI</span>
-      <h2>教学建议</h2>
-    </div>
-    <p v-if="!visible.length" class="empty">暂无建议，课堂运转良好</p>
-    <div class="card" v-for="s in visible" :key="s.id" :class="s.kind">
-      <span class="kind-tag">{{ KIND_LABEL[s.kind] ?? s.kind }}</span>
-      <p class="text">{{ s.text }}</p>
-      <button @click="ack(s.id)">标记已处理</button>
+    <h2 class="tech-title"><span class="ai-badge">AI</span>教学建议</h2>
+    <div class="panel-body">
+      <p v-if="!visible.length" class="empty">暂无建议，课堂运转良好</p>
+      <div class="card" v-for="s in visible" :key="s.id" :class="s.kind">
+        <span class="kind-tag">{{ KIND_LABEL[s.kind] ?? s.kind }}</span>
+        <p class="text" v-html="emphasize(s.text)" />
+        <button @click="ack(s.id)">标记已处理</button>
+      </div>
     </div>
   </section>
 </template>
@@ -43,29 +48,32 @@ async function ack(id: string) {
 <style scoped>
 .ai-panel {
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
-  flex: 1 1 auto; min-height: 280px;   /* 填满右列高度，与全班状态卡严格等高；建议超出一屏时内部滚动 */
-  overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;
+  min-height: 0;   /* 高度与矩阵对齐（right-col 拉伸）；滚动在内层 .panel-body，不再裁剪 tech-card 四角折角标 */
 }
-.ai-panel::-webkit-scrollbar { display: none; }
-.panel-head { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.panel-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.panel-body::-webkit-scrollbar { display: none; }
 .ai-badge {
   background: rgba(63, 169, 255, 0.2); color: var(--tech-cyan);
-  border: 1px solid var(--tech-blue);
+  border: 1px solid rgba(63, 169, 255, 0.35);   /* 亮蓝边框降透明度，避免刺眼 */
   font-size: 12px; font-weight: 700; border-radius: 2px; padding: 2px 8px;
   letter-spacing: 2px; text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
 }
-.ai-panel h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 3px; color: var(--text-secondary); text-shadow: 0 0 8px rgba(80, 160, 255, 0.7); }
 .card {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px;
   background: rgba(20, 50, 100, 0.4); border: 1px solid rgba(63, 140, 255, 0.25);
-  border-left: 4px solid var(--tech-blue);
+  border-left: 4px solid rgba(63, 169, 255, 0.45);   /* 默认色条降透明度（各 kind 会覆盖为对应状态色） */
   border-radius: 2px; padding: 12px; margin-bottom: 2px;
 }
 .card.class-review { border-left-color: var(--tech-red); }
 .card.group-discuss { border-left-color: var(--tech-yellow); }
 .card.individual { border-left-color: var(--tech-green); }
 .kind-tag { font-size: 13px; color: var(--text-dim); }
-.text { margin: 0; font-size: 16px; line-height: 1.55; color: var(--text-primary); }
+.text { margin: 0; font-size: 15px; line-height: 1.6; color: var(--text-primary); }
+.text :deep(strong) { font-weight: 700; color: #fff; text-shadow: 0 0 6px rgba(80, 220, 255, 0.35); }
 .card button {
   align-self: flex-end; padding: 4px 12px; font-size: 13px; cursor: pointer;
   border: 1px solid rgba(63, 140, 255, 0.4); background: transparent; color: var(--text-secondary);

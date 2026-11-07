@@ -4,6 +4,7 @@ import { useClassroom } from "./stores/classroom";
 import { connectClassroom } from "./api/sse";
 import StatusBar from "./components/StatusBar.vue";
 import StudentMatrix from "./components/StudentMatrix.vue";
+import EventFeed from "./components/EventFeed.vue";
 import AIPanel from "./components/AIPanel.vue";
 import ChartsRow from "./components/ChartsRow.vue";
 import StudentDrawer from "./components/StudentDrawer.vue";
@@ -32,6 +33,7 @@ onUnmounted(() => {
     <StatusBar />
     <main class="main-grid">
       <StudentMatrix />
+      <EventFeed />
       <div class="right-col">
         <AIPanel />
       </div>

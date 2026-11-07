@@ -53,6 +53,28 @@ export interface SuggestionItem {
   acked: boolean;
 }
 
+/** 课堂动态条目四态（spec 课堂动态）：评审 unreviewed 不产生条目 = LLM 降级自动只显示运行类 */
+export type ActivityKind = "run_ok" | "run_fail" | "review_pass" | "review_fail";
+
+export interface ActivityFeedItem {
+  /** 去重/进入动画 key：`{studentId}:{kind}:{seq}` */
+  id: string;
+  kind: ActivityKind;
+  studentId: string;
+  studentName: string;
+  ts: number;
+  /** 该生该题的第 N 次（run=运行总数含失败；review=评审请求数含 unreviewed），按 studentId+filePath 计数 */
+  attempt: number;
+  /** 失败原因标签（run_fail=Python 异常名；review_fail=评审意见），成功类为 null */
+  reasonTag: string | null;
+  /** 失败原因摘要，成功类为 null */
+  reason: string | null;
+  /** 题面名（评审输入首行注释提取；run 事件回退最近一次评审缓存的题名），代码卡悬浮展示 */
+  title: string | null;
+  /** 代码懒加载锚点（/api/feed/code），run 事件可能为 null */
+  filePath: string | null;
+}
+
 /** 题目涌现格子的三态（spec 决策 #14/#18）：格子因评审/run 事件而生，无"未开始"预置。
  * 仅用于服务端内部计数，快照不输出学生名单（2026-10-22 拍板） */
 export type ExerciseStatus = "pass" | "fail" | "unreviewed";
@@ -116,6 +138,10 @@ export interface TeacherSnapshot {
   /** 当天全量桶，tStart 升序 */
   trend: TrendBucket[];
   stats: ClassStats;
+  /** 课堂动态（最近 30 条，新的在前；内存环形缓冲，重启后由回放重建） */
+  activityFeed: ActivityFeedItem[];
+  /** 评审 LLM 是否配置（false = 降级模式，feed 只会出现运行类条目） */
+  reviewOnline: boolean;
 }
 
 export type SSEMessage =

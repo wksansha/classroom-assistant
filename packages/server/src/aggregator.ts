@@ -51,8 +51,8 @@ export function computeScore(r: StudentRecord, now: number, windowStart: number)
 }
 
 export interface Aggregator {
-  /** V2（dashboard-v2 Task 9）：exerciseProgress/trend/stats 由装配层（index.ts buildSnapshot）注入 */
-  recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId" | "exerciseProgress" | "trend" | "stats">;
+  /** V2（dashboard-v2 Task 9）：exerciseProgress/trend/stats/activityFeed/reviewOnline 由装配层（index.ts buildSnapshot）注入 */
+  recompute(records: StudentRecord[], now: number, windowStart: number): Omit<TeacherSnapshot, "ts" | "classId" | "exerciseProgress" | "trend" | "stats" | "activityFeed" | "reviewOnline">;
   ack(id: string): void;
   /** 课间重置（大屏重置）：清空告警确认集合，新课告警从零开始 */
   resetAcked(): void;

@@ -52,7 +52,9 @@ function tooltip(s: StudentState): string {
 <style scoped>
 .matrix {
   padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
-  /* 高度随内容自适应（4 行瓦片完整可见优先）；学生更多时卡内滚动，滚动条隐藏 */
+  /* 高度固定（≈5 行半瓦片，1080p 下 40vh，第 6 行露半行提示可滚动）：主区行高由本卡决定，
+     课堂动态/AI 面板对齐此高度；学生超出可视行数时 .grid 内部滚动，滚动条隐藏 */
+  height: clamp(400px, 40vh, 470px);
 }
 .counts { display: flex; gap: 14px; font-size: 15px; justify-content: center; }
 /* 图例发光圆点：正常用青色（绿色只留给作业完成度的「已通过」，避免跨卡歧义） */
@@ -67,14 +69,15 @@ function tooltip(s: StudentState): string {
 .counts .off-legend .lg { background: var(--tech-offline); }
 .grid {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: repeat(6, 1fr);   /* 固定 6 列：22 人 = 4 行（末行 2 格空），均衡不孤行 */
+  padding-top: 15px;   /* 瓦片整体下移：压缩卡底空白 */
+  display: grid; grid-template-columns: repeat(4, 1fr);   /* 固定 4 列：卡更窄更高，与课堂动态/AI 列三列并立 */
   gap: 8px; align-content: start;
   overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;   /* 学生超出可视行数时内部滚动，滚动条隐藏 */
 }
 .grid::-webkit-scrollbar { display: none; }
 .tile {
-  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 8px;
-  border: 1px solid var(--tech-card-border); border-radius: 2px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 8px;
+  border: 1px solid var(--tech-card-border); border-radius: 8px; cursor: pointer;
   font-size: 20px; position: relative;
   background: rgba(20, 50, 100, 0.4); color: var(--text-primary);
 }

@@ -1,10 +1,9 @@
-import type {
-  NormalizedEvent, ReviewResult, SubmissionFile, ReviewRequestInput,
-} from "@classroom/shared";
+import type { NormalizedEvent, ReviewResult, SubmissionFile, ReviewRequestInput } from "@classroom/shared";
 import type { Persistence } from "../persistence";
 import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
 import type { ExerciseProgressTracker } from "../exerciseProgress";
+import type { ActivityFeed } from "../activityFeed";
 import { logEvent } from "../logger";
 
 export interface ReviewRequestDeps {
@@ -12,6 +11,7 @@ export interface ReviewRequestDeps {
   reviewService: ReviewService;
   stateManager: StateManager;
   exerciseProgress: ExerciseProgressTracker;   // 题目进度矩阵（spec dashboard-v2 §5.3）
+  activityFeed?: ActivityFeed;                 // 课堂动态（可选注入，测试可缺省）
   publishSnapshot: () => void;   // fail 注入后推全量快照（告警/聚合面板刷新）
 }
 
@@ -163,21 +163,31 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   }
 
   const reviewCode = input.files ? buildProjectReviewInput(input.files) : input.code;
+  const title = extractExerciseTitle(input.code);
   const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode });
+
+  // 课堂动态：代码 LRU（悬浮代码卡懒加载源）+ 评审条目（unreviewed 只计数不产生条目 = LLM 降级自动满足）
+  if (deps.activityFeed) {
+    deps.activityFeed.stashCode({ studentId: rosterEntry.studentId, filePath: input.filePath, code: reviewCode, title });
+    deps.activityFeed.recordReview({
+      studentId: rosterEntry.studentId, studentName: rosterEntry.studentName,
+      filePath: input.filePath, ts: Date.now(), status: review.status, reason: review.reason, title,
+    });
+  }
 
   // 评审结果驱动教师端状态（notify 已退役）：fail 等同报错进告警/聚合；pass 置绿（清零连续错误）；
   // unreviewed 为瞬态，不改变学生状态
   if (review.status === "fail") {
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "fail", reason: review.reason, title: extractExerciseTitle(input.code) });
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "fail", reason: review.reason, title });
     injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   } else if (review.status === "pass") {
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "pass", reason: review.reason, title: extractExerciseTitle(input.code) });
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "pass", reason: review.reason, title });
     injectReviewPass(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   } else {
     // unreviewed（spec 决策 #14）：落进度事实表 + 待评审计数。
     // LLM 可用但拿不准（source === "llm"）→ 瞬态不变学生状态；
     // LLM 不可用类（not_configured/timeout/mock 兜底）→ run 成功降级置绿（清零连续错误），不卡黄
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "unreviewed", reason: review.reason, title: extractExerciseTitle(input.code) });
+    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "unreviewed", reason: review.reason, title });
     if (review.source !== "llm") {
       injectLlmUnavailableResolve(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, reason: review.reason });
     }
