@@ -82,7 +82,13 @@ function tooltip(s: StudentState): string {
   background: rgba(20, 50, 100, 0.4); color: var(--text-primary);
 }
 .tile:hover { border-color: var(--tech-cyan); }
-.tile.red { border-color: rgba(255, 95, 109, 0.6); }
+.tile.red { border-color: rgba(255, 95, 109, 0.6); box-shadow: 0 0 10px rgba(255, 95, 109, 0.18), inset 0 0 8px rgba(255, 95, 109, 0.08); }   /* 静态微光：整片不闪，避免急迫感 */
+/* 呼吸转移到状态圆点：小亮点 3s 缓动，扫视可发现但不制造警报感 */
+.tile.red:not(.offline) .dot { animation: dot-red-pulse 3s ease-in-out infinite; }
+@keyframes dot-red-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 95, 109, 0.4); }
+  50% { box-shadow: 0 0 12px rgba(255, 95, 109, 0.95); }
+}
 .tile.yellow { border-color: rgba(255, 197, 61, 0.5); }
 .tile.green { border-color: rgba(124, 231, 255, 0.5); }   /* 正常显示为青色（绿色留给完成度「已通过」） */
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }

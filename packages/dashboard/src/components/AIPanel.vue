@@ -42,6 +42,8 @@ async function ack(id: string) {
         <button @click="ack(s.id)">标记已处理</button>
       </div>
     </div>
+    <!-- 底部渐隐遮罩：内容超长被截断时暗示"下方还有"，消除半行文字的截断感 -->
+    <i class="fade-mask" v-if="visible.length >= 3" />
   </section>
 </template>
 
@@ -57,6 +59,11 @@ async function ack(id: string) {
   scrollbar-width: none; -ms-overflow-style: none;
 }
 .panel-body::-webkit-scrollbar { display: none; }
+.fade-mask {
+  position: absolute; left: 12px; right: 12px; bottom: 10px; height: 34px; z-index: 2;
+  background: linear-gradient(180deg, rgba(6, 14, 30, 0), rgba(6, 14, 30, 0.92));
+  pointer-events: none;   /* 不挡"标记已处理"按钮点击 */
+}
 .ai-badge {
   background: rgba(63, 169, 255, 0.2); color: var(--tech-cyan);
   border: 1px solid rgba(63, 169, 255, 0.35);   /* 亮蓝边框降透明度，避免刺眼 */

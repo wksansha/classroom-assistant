@@ -118,7 +118,7 @@ export interface ClassStats {
   needHelp: number;
   /** 当天 run 成功总次数 */
   runs: number;
-  /** 当天报错总次数（窗口内全部学生错误事件数之和，含 run 失败与 diag 错误） */
+  /** 近 5 分钟报错次数（滚动窗口，课堂安静即回落；区别于只增不减的当天累计值） */
   errors: number;
 }
 

@@ -17,8 +17,11 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
   <header class="status-bar">
     <div class="stats">
       <div class="stat"><span class="num">{{ stats.online }}</span><span class="label">在线 / {{ stats.total }} 人</span></div>
+      <div class="stat" :class="{ help: stats.needHelp > 0 }">
+        <span class="num">{{ stats.needHelp }}</span><span class="label">需要协助</span>
+      </div>
+      <div class="stat err"><span class="num">{{ stats.errors }}</span><span class="label">近5分钟报错</span></div>
       <div class="stat"><span class="num">{{ stats.runs }}</span><span class="label">运行次数</span></div>
-      <div class="stat err"><span class="num">{{ stats.errors }}</span><span class="label">报错总数</span></div>
     </div>
     <h1>课堂教学实时助教</h1>
     <div class="meta">
@@ -57,6 +60,14 @@ const clock = computed(() => new Date(now.value).toLocaleTimeString("zh-CN", { h
 .stat .label { font-size: 14px; color: var(--text-dim); white-space: nowrap; }
 .stat.warn .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
 .stat.err .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
+/* 需要协助 >0：红字 + 与矩阵红瓦片同款 2s 呼吸辉光，教师第一眼锁定 */
+.stat.help { border-color: rgba(255, 95, 109, 0.55); animation: stat-help-pulse 2s ease-in-out infinite; }
+.stat.help .num { color: var(--tech-red); text-shadow: 0 0 8px rgba(255, 95, 109, 0.8); }
+.stat.help .label { color: var(--text-secondary); }
+@keyframes stat-help-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 95, 109, 0); }
+  50% { box-shadow: 0 0 14px rgba(255, 95, 109, 0.45), inset 0 0 8px rgba(255, 95, 109, 0.1); }
+}
 .meta { display: flex; align-items: center; gap: 10px; }
 .date { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .clock { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }

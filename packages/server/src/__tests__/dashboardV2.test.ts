@@ -55,7 +55,7 @@ describe("按天窗口与 V2 快照（spec dashboard-v2）", () => {
     expect(summary.body.trend[0]).toMatchObject({ runs: 0, errors: 3 });
     expect(summary.body.students[0].status).toBe("red");   // 同 subtype ×3 未解决
     expect(summary.body.stats.needHelp).toBe(1);
-    expect(summary.body.stats.errors).toBe(3);   // 三条 run 失败事件 → 当天报错总数
+    expect(summary.body.stats.errors).toBe(3);   // 三条 run 失败事件均在近 5 分钟内 → 滚动窗口报错数
   });
 
   it("学生抽屉详情：仅返回当天（窗口内）事件（spec §4.2）", async () => {

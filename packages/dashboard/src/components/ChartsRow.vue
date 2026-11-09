@@ -10,15 +10,36 @@ Chart.register(BarController, BarElement, LineController, LineElement, PointElem
 Chart.defaults.color = "#9fd4ff";
 Chart.defaults.borderColor = "rgba(63, 140, 255, 0.2)";
 
-/** 柱体垂直渐变：顶部亮、向下渐隐成光柱（chartArea 未布局完成的首帧回退纯色） */
+/** 柱体垂直渐变（统一红色系：错误=红是本屏最强语义，类别信息由 x 轴标签与 tooltip 承载）：
+ * 顶部亮、向下渐隐成光柱（chartArea 未布局完成的首帧回退纯色） */
 const barGradient = (ctx: { chart: { chartArea?: { top: number; bottom: number }; ctx: CanvasRenderingContext2D } }) => {
   const area = ctx.chart.chartArea;
   if (!area) return "#ff5f6d";
   const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-  g.addColorStop(0, "#ff8a93");
-  g.addColorStop(0.4, "#ff5f6d");
-  g.addColorStop(1, "#b62c37");   // 底部实色深红收口：光柱不悬空
+  g.addColorStop(0, "#ffa2aa");
+  g.addColorStop(0.35, "#ff5f6d");
+  g.addColorStop(1, "#7e1d24");   // 底部深红收口：柱身瘦了之后拉大明暗差，光柱层次才立得住
   return g;
+};
+
+/** 柱顶数值标签：投影下无需悬浮即可读数（瘦柱后"高度"不再是唯一信息维度） */
+const barValueLabels = {
+  id: "barValueLabels",
+  afterDatasetsDraw(chart: Chart) {
+    const meta = chart.getDatasetMeta(0);
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = "700 19px Bahnschrift, Consolas, monospace";
+    ctx.fillStyle = "#ffb3b9";
+    ctx.textAlign = "center";
+    ctx.shadowColor = "rgba(255, 95, 109, 0.6)";
+    ctx.shadowBlur = 6;
+    for (const el of meta.data) {
+      const v = (el as unknown as { $context?: { raw?: number } }).$context?.raw;
+      if (typeof v === "number") ctx.fillText(String(v), el.x, el.y - 9);
+    }
+    ctx.restore();
+  },
 };
 
 /** 霓虹辉光插件：为每个 dataset 的描边加同色光晕（折线=流动霓虹，柱体=光柱轮廓） */
@@ -59,7 +80,7 @@ tooltipPositioners.rightOfBar = (items: TipItem[]) => {
   const el = items[0]?.element;
   if (!el) return false;
   const area = items[0]?.chart?.chartArea;
-  const offset = 46;   // 柱厚 85 的一半 + 3px 间隙
+  const offset = 21;   // 柱厚 30 的一半 + 间隙（瘦柱后锚点贴近柱体）
   const flip = !!area && el.x + offset + 160 > area.right;   // 预估悬浮框宽 160px
   return { x: flip ? el.x - offset : el.x + offset, y: el.y, xAlign: flip ? "right" : "left", yAlign: "center" };
 };
@@ -75,14 +96,15 @@ const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
-// 今天全部题目按涌现时间新→旧（一个文件夹多个 py 各自成题）；无下拉框，自动锁定最新进行中题
+// 选题消失（课间重置、新一天）时回落到最新进行中题；回落时优先选有评审牵引（已通过>0）的题，
+// 纯 run 报错涌现的题（尚无一人评审，必然 0%）不抢占水桶焦点（0% 液面不可见，会被误读成"没数据"）
 const sortedItems = computed(() => [...allItems.value].sort((a, b) => b.firstTs - a.firstTs));
-// 选题消失（课间重置、新一天）时回落到最新进行中题
 const selectedId = ref<string | null>(null);
 watch(sortedItems, (list) => {
   if (selectedId.value && !list.some((e) => e.id === selectedId.value)) selectedId.value = null;
   if (!selectedId.value && activeItems.value.length) {
-    selectedId.value = [...activeItems.value].sort((a, b) => b.firstTs - a.firstTs)[0].id;
+    selectedId.value = [...activeItems.value]
+      .sort((a, b) => ((b.passed > 0 ? 1 : 0) - (a.passed > 0 ? 1 : 0)) || (b.firstTs - a.firstTs))[0].id;
   }
 });
 const displayItem = computed(() =>
@@ -104,8 +126,18 @@ function initBar() {
   }
   barChart = new Chart(barRef.value, {
     type: "bar",
-    data: { labels: [], datasets: [{ label: "涉及人数", data: [], backgroundColor: barGradient, borderColor: "#ff8a93", borderWidth: 1, borderRadius: 8, barThickness: 85 }] },   // 光柱渐变+描边：1-3 根也不变粗
-    plugins: [neonGlow],
+    data: {
+      labels: [],
+      datasets: [{
+        label: "涉及人数", data: [],
+        backgroundColor: barGradient,
+        borderColor: "#ff8a93",
+        borderWidth: 1,
+        borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
+        barThickness: 30, maxBarThickness: 40,
+      }],
+    },   /* 瘦光柱：仅顶部圆角，红色系渐变+辉光负责质感 */
+    plugins: [neonGlow, barValueLabels],
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
@@ -118,7 +150,7 @@ function initBar() {
             label: (ctx) => `涉及 ${ctx.parsed.y} 人`,   // 竖向柱：数值轴是 y
             afterBody: (items) => {
               const agg = top3Agg.value.find((g) => g.subtype === items[0].label);
-              return agg?.students.map((s) => `· ${s.studentName}`) ?? [];
+              return agg ? [`类别：${agg.category}`, ...agg.students.map((s) => `· ${s.studentName}`)] : [];
             },
           },
         },
@@ -293,24 +325,33 @@ watch(
   position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;
   border: 1px solid var(--tech-card-border); border-top: none;
   border-radius: 4px 4px 16px 16px;
-  background: rgba(8, 20, 42, 0.6);
+  /* 玻璃管容器感：底槽渐暗 + 两侧 1px 高光（::after 绘制），不再是画在背景上的涂色柱 */
+  background: linear-gradient(180deg, rgba(8, 20, 42, 0.55), rgba(4, 10, 22, 0.8) 90%);
   box-shadow: inset 0 0 24px rgba(30, 90, 200, 0.18), 0 0 16px rgba(63, 140, 255, 0.22);
   overflow: hidden;
+}
+.tank::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.08) 0, rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px, transparent calc(100% - 1px),
+    rgba(255, 255, 255, 0.08) calc(100% - 1px));
 }
 .tank-base { width: 200px; height: 6px; border-radius: 3px; background: rgba(63, 140, 255, 0.35); box-shadow: 0 0 12px rgba(63, 140, 255, 0.5); }
 .ticks {
   position: absolute; inset: 0; pointer-events: none; z-index: 3;
-  background: repeating-linear-gradient(to top, transparent 0 calc(10% - 1px), rgba(255, 255, 255, 0.14) calc(10% - 1px) 10%);
+  background: repeating-linear-gradient(to top, transparent 0 calc(10% - 1px), rgba(255, 255, 255, 0.07) calc(10% - 1px) 10%);
 }
 .liquid {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 1;
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.9), rgba(21, 128, 61, 0.95));
-  box-shadow: inset 0 0 24px rgba(34, 197, 94, 0.4), 0 0 18px rgba(34, 197, 94, 0.35);
+  /* 液体整体提亮：浅液位时"体"也读作实心绿，消除亮带下发黑的断层观感 */
+  background: linear-gradient(180deg, rgba(74, 222, 128, 0.95), rgba(34, 197, 94, 0.9) 45%, rgba(28, 160, 80, 0.92));
+  box-shadow: inset 0 0 24px rgba(34, 197, 94, 0.45), 0 0 18px rgba(34, 197, 94, 0.35);
   transition: height 0.8s ease;
 }
 .liquid .wave {
   position: absolute; top: -12px; left: -25%; width: 200%; height: 24px;
-  border-radius: 50%; background: rgba(34, 197, 94, 0.85);   /* 波浪与绿液同色，只作液面高光 */
+  border-radius: 50%; background: rgba(120, 235, 160, 0.9);   /* 波浪比液"体"再亮一档，作液面发光切线 */
   box-shadow: 0 0 14px rgba(34, 197, 94, 0.55);
 }
 .liquid .wave.w1 { animation: tank-wave 5s ease-in-out infinite alternate; }

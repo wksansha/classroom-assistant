@@ -121,7 +121,7 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
         total: agg.students.length,
         needHelp: agg.students.filter((s) => s.status === "red").length,
         runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
-        errors: agg.students.reduce((sum, s) => sum + s.errorCountTotal, 0),   // 当天报错总次数（errorCountTotal 已按窗口过滤）
+        errors: allRecords.reduce((sum, r) => sum + r.events.filter((e) => !e.success && e.ts >= windowStart && now - e.ts <= 5 * 60_000).length, 0),   // 近 5 分钟报错数（滚动窗口：顶栏红色大数永远只表达"现在"，课堂安静即回落）
       },
       activityFeed: activityFeed.list(),
       // 评审 LLM 配置探测（与 reviewService/llm.ts 的 not_configured 判定同源）：

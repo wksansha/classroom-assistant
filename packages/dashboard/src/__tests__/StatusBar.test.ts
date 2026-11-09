@@ -15,7 +15,8 @@ describe("StatusBar（顶栏，spec dashboard-v2 §3①）", () => {
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain("课堂教学实时助教");
     expect(wrapper.text()).toContain("42");
-    expect(wrapper.text()).toContain("报错总数");
+    expect(wrapper.text()).toContain("近5分钟报错");
+    expect(wrapper.text()).toContain("需要协助");
     expect(wrapper.text()).toContain("2");
     expect(wrapper.text()).not.toContain("已通过评审");
     wrapper.unmount();   // 清理时钟 interval，避免泄漏到环境拆除
