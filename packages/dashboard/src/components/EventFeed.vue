@@ -217,10 +217,11 @@ onMounted(() => {
   padding: 12px 10px 8px; display: flex; flex-direction: column; gap: 8px;
   min-height: 0; contain: size;   /* 脱离内容撑高：高度由矩阵行决定，与矩阵等高 */
 }
-.feed-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
-.feed-head .tech-title { flex: 1; }
+/* 标题独占流内居中；两个徽章绝对定位钉两侧——出现/消失（含 1fr min-content 撑宽问题）均不影响标题位置 */
+.feed-head { position: relative; display: flex; justify-content: center; align-items: center; padding: 0 6px; }
 .llm-badge {
-  font-family: var(--font-num); font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  position: absolute; right: 6px;
+  font-family: var(--font-num); font-size: 13px; font-weight: 700; letter-spacing: 1px;
   padding: 3px 10px; border-radius: 2px; white-space: nowrap;
   background: rgba(63, 169, 255, 0.15); color: var(--tech-cyan); border: 1px solid var(--tech-blue);
   text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
@@ -229,8 +230,8 @@ onMounted(() => {
 .llm-badge.degraded { background: rgba(90, 120, 160, 0.15); color: var(--text-dim); border-color: rgba(90, 120, 160, 0.4); text-shadow: none; animation: none; }
 @keyframes badge-glow { 0%, 100% { box-shadow: 0 0 4px rgba(63, 169, 255, 0.3); } 50% { box-shadow: 0 0 12px rgba(63, 169, 255, 0.6); } }
 .pause-badge {
-  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 2px; white-space: nowrap;
-  margin-right: 10px;   /* 与 AI在线评审 徽章留出间距 */
+  position: absolute; left: 6px;
+  font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 2px; white-space: nowrap;
   background: rgba(255, 197, 61, 0.12); color: var(--tech-yellow); border: 1px solid rgba(255, 197, 61, 0.45);
 }
 .feed-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; padding: 0 4px; }

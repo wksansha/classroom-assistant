@@ -47,6 +47,7 @@ async function ack(id: string) {
 
 <style scoped>
 .ai-panel {
+  flex: 1;         /* 拉伸填满 right-col：与左侧矩阵/课堂动态等高（此前缺 flex:1 导致高度只随内容变化） */
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
   min-height: 0;   /* 高度与矩阵对齐（right-col 拉伸）；滚动在内层 .panel-body，不再裁剪 tech-card 四角折角标 */
 }

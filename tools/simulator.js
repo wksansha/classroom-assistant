@@ -88,6 +88,40 @@ async function post(body) {
   if (!res.ok) console.error(`[Sim] 上报失败 ${res.status}`);
 }
 
+// ── 登录态在线模型三信号：identity_confirmed（启动一次）+ heartbeat（60s 一拍）──
+// 不发这两类信号的学生在服务端登录态模型下永不在线，大屏矩阵显示灰色、
+// 急需帮助告警会排除离线学生。machine_id 稳定复用，幂等重跑安全。
+const machineId = (sid) => `sim-machine-${sid}`;
+
+function students() {
+  return Array.from({ length: N }, (_, i) => ({
+    student_id: `stu${String(i + 1).padStart(3, "0")}`,
+    student_name: NAMES[i % NAMES.length],
+    class_id: "3A",
+  }));
+}
+
+async function loginStudent(s) {
+  await post({
+    id: eventId("behavior"), ts: new Date().toISOString(),
+    surface: "behavior", kind: "identity_confirmed",
+    payload: { machine_id: machineId(s.student_id) },
+    ...s,
+  });
+}
+
+async function heartbeat(s) {
+  const res = await fetch(`${URL}/api/heartbeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      student_id: s.student_id, student_name: s.student_name,
+      machine_id: machineId(s.student_id),
+    }),
+  });
+  if (!res.ok) console.error(`[Sim] 心跳失败 ${res.status} ${s.student_id}`);
+}
+
 function nextEvent() {
   const i = Math.floor(Math.random() * N);
   const student = {
@@ -126,6 +160,9 @@ function nextEvent() {
 let sent = 0;
 console.log(`[Sim] ${N} 名学生 → ${URL}，间隔 ${INTERVAL}ms，成功率 ${SUCCESS_RATIO}`);
 (async function loop() {
+  const roster = students();
+  for (const s of roster) await loginStudent(s);           // 启动先确认身份点亮在线
+  setInterval(() => { for (const s of roster) void heartbeat(s); }, 60_000);
   while (true) {
     await post(nextEvent());
     sent++;
