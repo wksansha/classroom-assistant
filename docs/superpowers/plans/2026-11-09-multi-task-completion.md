@@ -42,7 +42,7 @@
 
 - `ChartsRow.vue`：
   - 新增 `selectedFileId` 状态：下拉选项 = **预选清单（置顶一组）∪ 涌现题（追加一组）**，默认"自动跟随"（现有涌现优先规则生效）；点选 = 锁定该文件；切"自动" = 恢复跟随
-  - 预选但未涌现的文件可点选：无桶数据时水桶区显示"尚未有学生运行"占位
+  - 预选但未涌现的文件可点选：按零进度虚拟桶正常渲染（passed=0 / 编码中=stats.total 即花名册人数，液面 0%）
   - `displayItem.tasks?.length >= 2` → 任务 tab（任务名取 bucket.name），默认选中第一个 passed < total 的桶；桶数据驱动水桶液面/已通过/编码中
   - 单任务/无声明题：无 tab，展示 top-level（现状）
 - TDD：拆出选择逻辑纯函数（`pickFocusFile` / `pickDefaultTask` / `mergeFileOptions`）补单测；组件测试视现有 ChartsRow 测试基建决定深度
