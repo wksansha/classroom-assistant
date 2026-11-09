@@ -41,10 +41,20 @@
 ## T6 大屏完成度卡：文件下拉 + 任务 tab
 
 - `ChartsRow.vue`：
-  - 新增 `selectedFileId` 状态：下拉选项 = 涌现题（firstTs 排序），默认"自动跟随"（现有涌现优先规则生效）；点选 = 锁定该文件；切"自动" = 恢复跟随
+  - 新增 `selectedFileId` 状态：下拉选项 = **预选清单（置顶一组）∪ 涌现题（追加一组）**，默认"自动跟随"（现有涌现优先规则生效）；点选 = 锁定该文件；切"自动" = 恢复跟随
+  - 预选但未涌现的文件可点选：无桶数据时水桶区显示"尚未有学生运行"占位
   - `displayItem.tasks?.length >= 2` → 任务 tab（任务名取 bucket.name），默认选中第一个 passed < total 的桶；桶数据驱动水桶液面/已通过/编码中
   - 单任务/无声明题：无 tab，展示 top-level（现状）
-- TDD：拆出选择逻辑纯函数（`pickFocusFile` / `pickDefaultTask`）补单测；组件测试视现有 ChartsRow 测试基建决定深度
+- TDD：拆出选择逻辑纯函数（`pickFocusFile` / `pickDefaultTask` / `mergeFileOptions`）补单测；组件测试视现有 ChartsRow 测试基建决定深度
+
+## T6b 管理页「本节课文件」+ 服务端预选接口
+
+- 服务端（`index.ts` + 新增 `giteaTree.ts` 或挂 routes）：
+  - `GET /api/exercises/tree`：经 Gitea API（GITEA_URL + classroom-server token，现有凭证）列题库 main 分支目录树（一级目录 → 文件夹内 .py），60s 内存缓存
+  - `GET/POST /api/classroom/lesson-files`：预选清单存 meta 表（key = `classroom.lesson_files`），GET 供大屏快照旁路或独立拉取（推荐独立拉取：大屏低频 GET，不塞快照）
+- 管理页 `AdminView.vue`：新增「本节课文件」面板（文件夹下拉 → 文件 checkbox 多选 → 保存），样式沿用花名册面板形态
+- 大屏 `ChartsRow.vue`：挂载时 GET lesson-files 合入下拉预选组
+- TDD：tree 接口（mock Gitea 响应）、lesson-files 读写、管理页面板渲染
 
 ## T7 回归与核对
 
@@ -59,5 +69,5 @@
 ## 明确不做
 
 - 多文件作业聚合（预留 filePath 目录维度扩展位）
-- Gitea 文件树接口 / 管理页选择器（被大屏卡内下拉取代）
+- 30% 阈值自动切（被预选清单 + 手动锁定 + 涌现兜底取代）
 - 学生端回执 UI 改版（reason 服务端拼接即可）
