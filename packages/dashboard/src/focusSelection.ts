@@ -3,25 +3,25 @@
 
 import type { ExerciseProgressItem, TaskBucket } from "@classroom/shared";
 
-/** 下拉「最新动态」哨兵值（选中 = 系统自动挑题） */
-export const AUTO_FILE_ID = "__auto__";
+/** 下拉「最新动态」哨兵值已废弃（用户 2026-11-10 交互重做）：有预选 → 下拉只列预选文件；无预选 → 无下拉（自动挑题） */
 
 export interface FileOption {
   id: string;
   label: string;
-  group: "lesson" | "emerged";
 }
 
-/** 预选清单 ∪ 涌现题 → 下拉选项：预选置顶一组（未涌现的也在），涌现追加一组（涌现时间新→旧） */
-export function mergeFileOptions(lessonFiles: string[], items: ExerciseProgressItem[]): FileOption[] {
-  const emergedIds = new Set(items.map((i) => i.id));
-  const lesson: FileOption[] = lessonFiles
-    .filter((f) => !emergedIds.has(f))
-    .map((f) => ({ id: f, label: f.split(/[\\/]/).pop() ?? f, group: "lesson" }));
-  const emerged: FileOption[] = [...items]
-    .sort((a, b) => b.firstTs - a.firstTs)
-    .map((i) => ({ id: i.id, label: i.title || i.displayName, group: "emerged" as const }));
-  return [...lesson, ...emerged];
+/** 取文件名（basename）：预选清单带目录、事件上报可能是裸名，展示与匹配统一按文件名对齐 */
+export const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+/** 预选清单 → 下拉选项：完全以教师选择为准，顺序 = 管理页保存顺序，label 只显示文件名 */
+export function lessonFileOptions(lessonFiles: string[]): FileOption[] {
+  return lessonFiles.map((f) => ({ id: f, label: baseName(f) }));
+}
+
+/** 按文件名在涌现题中定位：预选路径带目录、涌现 id 可能是裸名，basename 命中即同一文件 */
+export function findItemByBase(items: ExerciseProgressItem[], targetId: string): ExerciseProgressItem | undefined {
+  const t = baseName(targetId);
+  return items.find((i) => baseName(i.id) === t);
 }
 
 /** 自动挑题（「最新动态」语义）：未全员通过的题里，有评审牵引（passed>0）优先，再按涌现时间最新 */

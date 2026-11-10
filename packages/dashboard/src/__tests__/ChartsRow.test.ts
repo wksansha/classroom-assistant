@@ -53,12 +53,13 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(titles).toEqual(["课堂节奏", "作业完成度", "错误类型TOP3"]);
   });
 
-  it("完成度卡单题水桶模式：锁定最新进行中题，题面名+已完成/待完成人数+完成率", async () => {
+  it("完成度卡单题水桶模式（无预选）：锁定最新进行中题，显示文件名+已完成/待完成人数+完成率", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({ students, aggregates, exerciseProgress, trend: [{ tStart: 1, runs: 2, errors: 1 }] }));
     await wrapper.vm.$nextTick();
     const text = wrapper.find(".completion").text();
-    expect(text).toContain("输出问候语");           // 锁定最新进行中题（done.py 已全员通过不入 activeItems）
+    expect(text).toContain("hello.py");            // 无预选 → 原下拉位置显示当前焦点文件名（用户 2026-11-10）
+    expect(text).not.toContain("输出问候语");       // 题面名不再展示
     expect(text).toContain("已通过 2 人");
     expect(text).toContain("编码中 2 人");
     expect(text).toContain("50%");

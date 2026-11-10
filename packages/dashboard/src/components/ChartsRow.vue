@@ -6,7 +6,7 @@ import {
   LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
 } from "chart.js";
 import { useClassroom } from "../stores/classroom";
-import { AUTO_FILE_ID, mergeFileOptions, pickDefaultTask, pickFocusFile } from "../focusSelection";
+import { baseName, findItemByBase, lessonFileOptions, pickDefaultTask, pickFocusFile } from "../focusSelection";
 
 Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 Chart.defaults.color = "#9fd4ff";
@@ -98,41 +98,41 @@ const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
 
-// 文件下拉：预选清单（管理页 lesson-files 接口，未上线时为空）∪ 涌现题；null = 「最新动态」自动挑题
+// 文件焦点（用户 2026-11-10 交互重做）：有预选 → 下拉只列预选文件（保存顺序、默认第一个），
+// 完全以教师选择为准（不混入涌现/自动模式）；无预选 → 无下拉，自动挑题，原下拉位置显示当前文件名
 const lessonFiles = ref<string[]>([]);
 const selectedFileId = ref<string | null>(null);
-const fileOptions = computed(() => mergeFileOptions(lessonFiles.value, allItems.value));
-const lessonOptions = computed(() => fileOptions.value.filter((o) => o.group === "lesson"));
-const emergedOptions = computed(() => fileOptions.value.filter((o) => o.group === "emerged"));
-const selectModel = computed({
-  get: () => selectedFileId.value ?? AUTO_FILE_ID,
-  set: (v: string) => { selectedFileId.value = v === AUTO_FILE_ID ? null : v; },
-});
-// 「最新动态」自动挑题：有评审牵引（passed>0）优先 → 涌现时间最新
-const autoFocusId = computed(() => pickFocusFile(allItems.value));
-// 锁定文件消失（课间重置）且不在预选清单 → 回「最新动态」
-watch(allItems, (items) => {
-  if (selectedFileId.value && !items.some((e) => e.id === selectedFileId.value)
-    && !lessonFiles.value.includes(selectedFileId.value)) {
-    selectedFileId.value = null;
+const fileOptions = computed(() => lessonFileOptions(lessonFiles.value));
+// 预选清单变化（保存/清空）→ 默认第一个；选中项不在清单里 → 回第一个
+watch(lessonFiles, (files) => {
+  if (files.length && (!selectedFileId.value || !files.includes(selectedFileId.value))) {
+    selectedFileId.value = files[0];
   }
+  if (!files.length) selectedFileId.value = null;
+}, { immediate: true });
+// 「最新动态」自动挑题（无预选时）：有评审牵引（passed>0）优先 → 涌现时间最新
+const autoFocusId = computed(() => pickFocusFile(allItems.value));
+// 下拉绑定：清单就绪前 selectedFileId 尚未落值，get 回退第一个，避免 select 显示空白
+const selectModel = computed({
+  get: () => selectedFileId.value ?? lessonFiles.value[0] ?? "",
+  set: (v: string) => { selectedFileId.value = v; },
 });
-// 预选清单：挂载拉取一次，失败静默（下拉退化为仅涌现组）
+// 预选清单：挂载拉取一次，失败静默（无预选 → 自动挑题模式）
 onMounted(() => {
   fetch("/api/classroom/lesson-files")
     .then((r) => (r.ok ? r.json() : { files: [] }))
     .then((d: { files?: string[] }) => { lessonFiles.value = d.files ?? []; })
-    .catch(() => { /* 接口未上线/离线：下拉仅涌现组 */ });
+    .catch(() => { /* 接口未上线/离线：自动挑题模式 */ });
 });
 
-// 焦点题：教师锁定优先，否则「最新动态」；预选未涌现 → 零进度虚拟桶（0/花名册人数，液面 0%）
+// 焦点题：教师预选优先，否则「最新动态」；预选按文件名匹配涌现题（路径带目录 vs 裸名），
+// 未涌现 → 零进度虚拟桶（0/在线人数，液面 0%）
 const displayItem = computed<ExerciseProgressItem | null>(() => {
   const targetId = selectedFileId.value ?? autoFocusId.value;
   if (!targetId) return null;
-  const found = allItems.value.find((e) => e.id === targetId);
+  const found = findItemByBase(allItems.value, targetId);
   if (found) return found;
-  if (!lessonFiles.value.includes(targetId)) return null;
-  const label = targetId.split(/[\\/]/).pop() ?? targetId;
+  const label = baseName(targetId);
   return {
     id: targetId, displayName: label, isProject: false,
     passed: 0, stuck: 0, unreviewed: 0,
@@ -322,17 +322,12 @@ watch(
     </div>
     <div class="chart-card tech-card completion">
       <h2 class="tech-title">作业完成度</h2>
-      <!-- 下拉框独立悬浮（用户 2026-11-10 重申）：不占标题行布局（标题保持绝对居中），
-           top 固定在标题与桶顶之间，left 对齐「度」字左缘（约卡中心+35px） -->
-      <select v-if="displayItem && fileOptions.length" v-model="selectModel" class="file-select" title="切换焦点题：最新动态 = 系统自动挑题">
-        <option :value="AUTO_FILE_ID">最新动态</option>
-        <optgroup v-if="lessonOptions.length" label="本节课文件">
-          <option v-for="o in lessonOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-        </optgroup>
-        <optgroup v-if="emergedOptions.length" label="课堂涌现">
-          <option v-for="o in emergedOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-        </optgroup>
+      <!-- 用户 2026-11-10：有预选 → 下拉只列预选文件（保存顺序、默认第一个，完全以教师选择为准）；
+           无预选 → 无下拉，原下拉位置显示当前桶展示的文件名 -->
+      <select v-if="lessonFiles.length" v-model="selectModel" class="file-select" title="切换焦点文件">
+        <option v-for="o in fileOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
       </select>
+      <span v-else-if="displayItem" class="focus-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
       <!-- 层次（用户 2026-11-10 定稿）：左水桶居中，右列 = 任务 tab + 已通过/编码中 整体垂直居中 -->
       <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
@@ -420,6 +415,12 @@ watch(
  * 水平左缘对齐标题「度」字左缘——标题 5 字居中，度字左缘 ≈ 卡中心 + 35px。
  * 不占文档流，标题保持绝对居中，不再被 grid 列挤偏 */
 .completion .file-select { position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2; }   /* top 50（用户 2026-11-10 指定）：标题行之下再往下沉，桶顶之上 */
+/* 无预选模式（用户 2026-11-10）：不下拉，原下拉位置静态显示当前焦点文件名（与下拉同位同字号） */
+.completion .focus-name {
+  position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2;
+  max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--text-secondary);
+}
 .completion .focus { flex: 1; display: flex; align-items: stretch; justify-content: center; gap: 48px; min-height: 0; }   /* 两列拉伸填满剩余高度（底部不留白，用户 2026-11-10）：水桶顶=下拉框顶、水桶底≈人数列底 */
 .completion .side-col { flex: none; width: 150px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; min-height: 0; height: 100%; }   /* 宽度锁 150：任务 tab 出现/消失不改变列宽，切换下拉时水桶不左右移动（用户 2026-11-10）；两块整体垂直居中，中线与水桶一致 */
 .tank-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: center; }

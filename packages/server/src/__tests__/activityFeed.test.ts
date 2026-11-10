@@ -74,6 +74,15 @@ describe("activityFeed.stashCode/getCode", () => {
     expect(f.getCode("s0", "a.py")).toBeNull();
     expect(f.getCode("s204", "a.py")).toEqual({ title: null, code: "c204" });
   });
+
+  it("路径形态不一致按文件名回退（用户 2026-11-10）：评审存相对路径，run 条目查绝对路径也能命中；不跨学生串卡", () => {
+    const f = createActivityFeed();
+    f.stashCode({ studentId: "s1", filePath: "Python程序设计/课后练习-下发/ex05_while.py", code: "print(1)", title: "练习五" });
+    f.stashCode({ studentId: "s2", filePath: "ex05_while.py", code: "print(2)" });
+    expect(f.getCode("s1", "c:\\Users\\stu\\Desktop\\Python程序设计\\课后练习-下发\\ex05_while.py")).toEqual({ title: "练习五", code: "print(1)" });
+    expect(f.getCode("s2", "Python程序设计/课后练习-下发/ex05_while.py")).toEqual({ title: null, code: "print(2)" });
+    expect(f.getCode("s1", "ex08_dict.py")).toBeNull();
+  });
 });
 
 // ── 缓冲上限与重置 ──

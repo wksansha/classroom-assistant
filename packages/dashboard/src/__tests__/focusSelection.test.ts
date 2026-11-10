@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_FILE_ID, mergeFileOptions, pickDefaultTask, pickFocusFile } from "../focusSelection";
+import { baseName, findItemByBase, lessonFileOptions, pickDefaultTask, pickFocusFile } from "../focusSelection";
 import type { ExerciseProgressItem, TaskBucket } from "@classroom/shared";
 
 function item(partial: Partial<ExerciseProgressItem>): ExerciseProgressItem {
@@ -11,22 +11,30 @@ function item(partial: Partial<ExerciseProgressItem>): ExerciseProgressItem {
   };
 }
 
-describe("mergeFileOptions（预选 ∪ 涌现，spec 2026-11-09 §6）", () => {
-  it("预选置顶一组（含未涌现）、涌现追加一组按时间新→旧；重复文件只在预选组出现", () => {
-    const options = mergeFileOptions(
-      ["l21/old.py", "l21/new.py"],
-      [
-        item({ id: "l21/new.py", firstTs: 2000, title: "新题" }),
-        item({ id: "l15/old2.py", firstTs: 3000, title: "更题" }),
-        item({ id: "l15/old.py", firstTs: 1000, title: "旧题" }),
-      ],
-    );
-    expect(options).toEqual([
-      { id: "l21/old.py", label: "old.py", group: "lesson" },          // 预选未涌现也入列
-      { id: "l15/old2.py", label: "更题", group: "emerged" },          // 涌现 3000
-      { id: "l21/new.py", label: "新题", group: "emerged" },           // 涌现 2000
-      { id: "l15/old.py", label: "旧题", group: "emerged" },           // 涌现 1000
+describe("lessonFileOptions（预选清单 → 下拉选项，用户 2026-11-10）", () => {
+  it("顺序 = 保存顺序，label 只显示文件名（basename），不做任何增删排序", () => {
+    expect(lessonFileOptions(["第3章/zz.py", "第2章/aa.py"])).toEqual([
+      { id: "第3章/zz.py", label: "zz.py" },
+      { id: "第2章/aa.py", label: "aa.py" },
     ]);
+  });
+});
+
+describe("findItemByBase（预选路径 ↔ 涌现 id 按文件名匹配）", () => {
+  const items = [
+    item({ id: "lesson1/a.py" }),
+    item({ id: "裸名.py", title: "题面" }),
+  ];
+  it("带目录预选路径命中涌现裸名/带目录 id", () => {
+    expect(findItemByBase(items, "某目录/a.py")?.id).toBe("lesson1/a.py");
+    expect(findItemByBase(items, "lesson1/a.py")?.id).toBe("lesson1/a.py");
+    expect(findItemByBase(items, "x/裸名.py")?.id).toBe("裸名.py");
+  });
+  it("未涌现 → undefined（上游造零进度虚拟桶）", () => {
+    expect(findItemByBase(items, "nope.py")).toBeUndefined();
+  });
+  it("baseName 兼容两种分隔符", () => {
+    expect(baseName("a\\b/c.py")).toBe("c.py");
   });
 });
 
@@ -67,11 +75,5 @@ describe("pickDefaultTask（任务 tab 默认桶）", () => {
     const allPassed: TaskBucket[] = tasks.map((b) => ({ ...b, passed: 20 }));
     expect(pickDefaultTask(allPassed, 20)).toBe("任务一");
     expect(pickDefaultTask([], 20)).toBeNull();
-  });
-});
-
-describe("AUTO_FILE_ID 哨兵", () => {
-  it("下拉「最新动态」选项值", () => {
-    expect(AUTO_FILE_ID).toBe("__auto__");
   });
 });

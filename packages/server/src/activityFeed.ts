@@ -66,6 +66,9 @@ export interface ActivityFeed {
 /** 计数键：studentId + filePath（\u0000 分隔避免拼接歧义） */
 const countKey = (studentId: string, filePath: string | null) => `${studentId}\u0000${filePath ?? "_"}`;
 
+/** 文件名（basename）：运行事件带本机绝对路径、评审请求带相对路径，同一文件的两种上报形态 */
+const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
 export function createActivityFeed(): ActivityFeed {
   const items: ActivityFeedItem[] = [];   // 新的在前
   const runCounts = new Map<string, number>();
@@ -138,7 +141,16 @@ export function createActivityFeed(): ActivityFeed {
     },
 
     getCode(studentId, filePath) {
-      return codeStash.get(countKey(studentId, filePath)) ?? null;
+      const hit = codeStash.get(countKey(studentId, filePath));
+      if (hit) return hit;
+      // 路径形态不一致回退：运行条目是本机绝对路径、代码缓存键是评审上报的相对路径，
+      // 精确未命中时按文件名匹配同一学生的同名片（LRU ≤200 条，线性扫无压力）
+      const target = baseName(filePath);
+      for (const [key, val] of codeStash) {
+        if (!key.startsWith(`${studentId}\u0000`)) continue;
+        if (baseName(key.slice(studentId.length + 1)) === target) return val;
+      }
+      return null;
     },
 
     list: () => [...items],
