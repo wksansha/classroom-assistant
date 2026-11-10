@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import type { RosterEntry } from "@classroom/shared";
 import { adminApi, ADMIN_TOKEN_KEY } from "../api/admin";
 import RosterPanel from "../components/RosterPanel.vue";
+import LessonFilesPanel from "../components/LessonFilesPanel.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 
 const state = ref<"checking" | "login" | "ready">("checking");
@@ -83,6 +84,7 @@ onMounted(() => void checkSession());
     </form>
     <template v-else>
       <RosterPanel :roster="roster" @refreshed="load()" />
+      <LessonFilesPanel />
       <section class="danger-zone">
         <h3>大屏数据</h3>
         <p class="danger-hint">课间换场用：点击后大屏统计清零（学员状态、题目进度、课堂节奏），新课数据从零开始。历史归档保留，服务器重启不会恢复旧数据；学员在线状态不受影响。</p>

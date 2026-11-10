@@ -3,12 +3,21 @@ export type ReviewStatus = "pass" | "fail" | "unreviewed";
 
 export interface SubmissionFile { path: string; content: string }
 
+/** 单文件多任务：逐任务结论（spec 2026-11-09 §4）；ReviewResult.tasks 存在于多任务题（≥2 任务声明） */
+export interface ReviewTaskVerdict {
+  name: string;               // 与题面声明的任务名一致
+  status: ReviewStatus;
+  reason: string;             // ≤50 字
+}
+
 export interface ReviewResult {
   status: ReviewStatus;
-  reason: string;             // ≤100 字
+  reason: string;             // ≤100 字（多任务题 = 逐任务结论拼接摘要）
   reviewedAt: number;
   model: string;              // 审计
   source: "llm" | "mock" | "timeout" | "not_configured";
+  /** 多任务题逐任务结论；单任务题/LLM 不可用兜底时缺省 */
+  tasks?: ReviewTaskVerdict[];
 }
 
 export interface RosterEntry { studentId: string; studentName: string; }

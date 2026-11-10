@@ -20,7 +20,7 @@ import { registerLlmProxy, readLlmConfigFromEnv, type LlmProxyConfig } from "./l
 import type { ReviewLlmOptions } from "./reviewService";
 import { createReviewService } from "./reviewService";
 import { registerRosterRoutes } from "./routes/roster";
-import { createGiteaAdmin } from "./gitea/adminApi";
+import { createGiteaAdmin, type ExerciseFolder } from "./gitea/adminApi";
 import { registerReviewRoutes } from "./routes/reviews";
 import { type ReviewRequestDeps } from "./controllers/reviewController";
 import { registerTraceArchiveRoutes } from "./routes/traceArchive";
@@ -133,13 +133,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
   const hub = createTeacherHub(buildSnapshot);
 
   // 重启回放（spec §5.3/§5.4，决策 #18）：仅回放窗口内（当天 0 点与重置锚点取较晚者）review_results 与 run 事件；失败降级不阻塞服务。
-  // 顺序：先回放 run 成功明细（标记「代码能跑」弱信号），再回放评审行——降级 unreviewed + runOk 才能正确合成「降级通过」
+  // 顺序：评审行先行（多任务题重建任务注册表，spec 2026-11-09 §5），run 成功明细随后——降级 unreviewed + runOk 合成「降级通过」语义等价
   try {
     const windowStart = classWindowStart(Date.now());
+    // 评审行先行回放（多任务题重建任务注册表，spec 2026-11-09 §5），run 明细其后——降级通过合成语义等价
+    exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(windowStart));
     for (const s of persistence.getRunSuccessesSince(windowStart)) {
       exerciseProgress.applyRunSuccess(s.studentId, s.studentName, s.filePath, s.ts);
     }
-    exerciseProgress.warmUpFromReviews(persistence.getReviewResultsSince(windowStart));
     for (const r of persistence.getRunEventsSince(windowStart)) trend.record(r.ts, r.success);
     // 课堂动态回放：run 成功 + 评审三态（unreviewed 只计数）；按 ts 升序喂入 → 缓冲新的在前。
     // run_fail 不回放（events 表未归档 error_type），重启后失败条目从零累计（计数含历史成功，不回零）
@@ -374,6 +375,42 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     hub.publish(buildSnapshot());
     logEvent({ event: "admin.dashboard_reset", level: "info", data: { anchor } });
     res.json({ ok: true, anchor });
+  });
+
+  // ── 管理页「本节课文件」+ 大屏预选下拉（spec 2026-11-09 §7）──
+  const LESSON_FILES_KEY = "classroom.lesson_files";
+  const readLessonFiles = (): string[] => {
+    try {
+      const arr = JSON.parse(persistence.getMeta(LESSON_FILES_KEY) ?? "[]") as unknown;
+      return Array.isArray(arr) ? arr.filter((f): f is string => typeof f === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  const treeCache: { folders: ExerciseFolder[] | null; ts: number } = { folders: null, ts: 0 };
+  // 题库目录树（管理页面板数据源；Gitea 未配置/不可达 → available=false 空列表；60s 内存缓存）
+  app.get("/api/exercises/tree", adminGuard.requireAdmin, async (_req, res) => {
+    if (!gitea) return res.json({ available: false, folders: [] });
+    const now = Date.now();
+    if (!treeCache.folders || now - treeCache.ts > 60_000) {
+      treeCache.folders = await gitea.listExerciseTree();
+      treeCache.ts = now;
+    }
+    return res.json({ available: treeCache.folders !== null, folders: treeCache.folders ?? [] });
+  });
+  // 预选清单：GET 公开（大屏完成度卡下拉），POST 管理面（写 meta，重启保留）
+  app.get("/api/classroom/lesson-files", (_req, res) => {
+    return res.json({ files: readLessonFiles() });
+  });
+  app.post("/api/classroom/lesson-files", adminGuard.requireAdmin, (req, res) => {
+    const b = (req.body ?? {}) as { files?: unknown };
+    if (!Array.isArray(b.files)
+      || b.files.some((f) => typeof f !== "string" || !f || f.includes("..") || f.startsWith("/") || /^[a-zA-Z]:/.test(f))) {
+      return res.status(400).json({ error: "参数非法" });
+    }
+    persistence.setMeta(LESSON_FILES_KEY, JSON.stringify(b.files));
+    logEvent({ event: "admin.lesson_files_set", level: "info", data: { count: b.files.length } });
+    return res.json({ ok: true, files: b.files as string[] });
   });
 
   registerRosterRoutes(app, {

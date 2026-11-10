@@ -80,11 +80,17 @@ function eventId(surface) {
 }
 
 async function post(body) {
-  const res = await fetch(`${URL}/api/events`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${URL}/api/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error(`[Sim] 上报失败（连接错误，下轮重试）: ${err.cause?.code ?? err.message}`);
+    return;
+  }
   if (!res.ok) console.error(`[Sim] 上报失败 ${res.status}`);
 }
 
@@ -111,14 +117,20 @@ async function loginStudent(s) {
 }
 
 async function heartbeat(s) {
-  const res = await fetch(`${URL}/api/heartbeat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      student_id: s.student_id, student_name: s.student_name,
-      machine_id: machineId(s.student_id),
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(`${URL}/api/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        student_id: s.student_id, student_name: s.student_name,
+        machine_id: machineId(s.student_id),
+      }),
+    });
+  } catch (err) {
+    console.error(`[Sim] 心跳失败（连接错误，下轮重试）: ${err.cause?.code ?? err.message}`);
+    return;
+  }
   if (!res.ok) console.error(`[Sim] 心跳失败 ${res.status} ${s.student_id}`);
 }
 

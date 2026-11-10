@@ -12,12 +12,12 @@ describe("review_results 与预热查询（spec dashboard-v2 §5.2/§5.4）", ()
     p.saveReviewResult({ studentId: "s2", classId: null, filePath: "l1/a.py", status: "unreviewed", reason: "评审不可用", ts: 1500 });
     p.saveReviewResult({ studentId: "s3", classId: null, filePath: "l1/a.py", status: "pass", reason: "通过", ts: 2000 });
     expect(p.getReviewResultsSince(0)).toEqual([
-      { studentId: "s1", studentName: "张三", filePath: "l1/a.py", status: "fail", reason: "死循环", ts: 1000 },
-      { studentId: "s2", studentName: "s2", filePath: "l1/a.py", status: "unreviewed", reason: "评审不可用", ts: 1500 },
-      { studentId: "s3", studentName: "s3", filePath: "l1/a.py", status: "pass", reason: "通过", ts: 2000 },
+      { studentId: "s1", studentName: "张三", filePath: "l1/a.py", status: "fail", reason: "死循环", ts: 1000, taskId: null },
+      { studentId: "s2", studentName: "s2", filePath: "l1/a.py", status: "unreviewed", reason: "评审不可用", ts: 1500, taskId: null },
+      { studentId: "s3", studentName: "s3", filePath: "l1/a.py", status: "pass", reason: "通过", ts: 2000, taskId: null },
     ]);
     expect(p.getReviewResultsSince(1600)).toEqual([
-      { studentId: "s3", studentName: "s3", filePath: "l1/a.py", status: "pass", reason: "通过", ts: 2000 },
+      { studentId: "s3", studentName: "s3", filePath: "l1/a.py", status: "pass", reason: "通过", ts: 2000, taskId: null },
     ]);
   });
 
@@ -56,7 +56,7 @@ describe("review_results 与预热查询（spec dashboard-v2 §5.2/§5.4）", ()
     p1.close();
     const p2 = createPersistence(dbPath);   // CREATE TABLE IF NOT EXISTS 二次执行
     expect(p2.getReviewResultsSince(0)).toEqual([
-      { studentId: "s1", studentName: "s1", filePath: "l1/a.py", status: "pass", reason: null, ts: 100 },
+      { studentId: "s1", studentName: "s1", filePath: "l1/a.py", status: "pass", reason: null, ts: 100, taskId: null },
     ]);
     p2.close();
     fs.rmSync(dir, { recursive: true, force: true });

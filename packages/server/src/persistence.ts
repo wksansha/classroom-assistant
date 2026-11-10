@@ -65,8 +65,8 @@ export interface Persistence {
   getCachedReview(cacheKey: string): ReviewResult | null;
   saveReviewCache(row: { cacheKey: string; review: ReviewResult }): void;
   // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2；三态事实表，缓存表约束不变）——
-  saveReviewResult(row: { studentId: string; classId: string | null; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }): void;
-  getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }[];
+  saveReviewResult(row: { studentId: string; classId: string | null; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number; taskId?: string | null }): void;
+  getReviewResultsSince(windowStartMs: number): { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number; taskId: string | null }[];
   getRunEventsSince(windowStartMs: number): { ts: number; success: boolean }[];
   /** run 成功明细（重启回放「降级通过」用）：带学员与文件，payload 无 file 的行跳过 */
   getRunSuccessesSince(windowStartMs: number): { ts: number; studentId: string; studentName: string; filePath: string }[];
@@ -98,6 +98,14 @@ export function createPersistence(dbPath?: string): Persistence {
   if (tableExists("events")) db.exec("DROP TABLE events"); // 事件表退役（spec §5.4，无 event_id 不迁移）
   if (tableExists("review_cache") && colsOf("review_cache").includes("exercise_id")) {
     db.exec("DROP TABLE review_cache");   // 旧 key 公式（含 versionHash）已失效，丢弃无损
+  }
+  // —— 单文件多任务（spec 2026-11-09 §5）：存量库幂等补列 task_id（NULL = 旧整文件行）——
+  if (tableExists("review_results") && !colsOf("review_results").includes("task_id")) {
+    db.exec("ALTER TABLE review_results ADD COLUMN task_id TEXT");
+  }
+  // —— 评审缓存存逐任务结论 JSON（spec 2026-11-09 §4；无则旧缓存行无任务维度，缓存命中按单任务处理）——
+  if (tableExists("review_cache") && !colsOf("review_cache").includes("tasks")) {
+    db.exec("ALTER TABLE review_cache ADD COLUMN tasks TEXT");
   }
 
   db.exec(`
@@ -148,6 +156,7 @@ export function createPersistence(dbPath?: string): Persistence {
       reason TEXT NOT NULL,
       source TEXT NOT NULL,
       model TEXT,
+      tasks TEXT,
       hit_count INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL
     );
@@ -162,7 +171,8 @@ export function createPersistence(dbPath?: string): Persistence {
       file_path TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('pass','fail','unreviewed')),
       reason TEXT,
-      ts INTEGER NOT NULL
+      ts INTEGER NOT NULL,
+      task_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_review_results_path_ts ON review_results(file_path, ts);
     CREATE TABLE IF NOT EXISTS app_meta (
@@ -291,32 +301,34 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     // —— 评审缓存（内容寻址）——
     getCachedReview(cacheKey) {
-      const r = db.prepare("SELECT status, reason, source, model FROM review_cache WHERE cache_key = ?").get(cacheKey) as
-        { status: string; reason: string; source: string; model: string | null } | undefined;
+      const r = db.prepare("SELECT status, reason, source, model, tasks FROM review_cache WHERE cache_key = ?").get(cacheKey) as
+        { status: string; reason: string; source: string; model: string | null; tasks: string | null } | undefined;
       if (!r) return null;
       db.prepare("UPDATE review_cache SET hit_count = hit_count + 1 WHERE cache_key = ?").run(cacheKey);
       return { status: r.status as ReviewResult["status"], reason: r.reason,
-        reviewedAt: 0, model: r.model ?? "", source: r.source as ReviewResult["source"] };
+        reviewedAt: 0, model: r.model ?? "", source: r.source as ReviewResult["source"],
+        ...(r.tasks ? { tasks: JSON.parse(r.tasks) as ReviewResult["tasks"] } : {}) };
     },
     saveReviewCache(row) {
-      db.prepare(`INSERT INTO review_cache (cache_key, status, reason, source, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO review_cache (cache_key, status, reason, source, model, tasks, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(cache_key) DO UPDATE SET status = excluded.status, reason = excluded.reason,
-          source = excluded.source, model = excluded.model`)
-        .run(row.cacheKey, row.review.status, row.review.reason, row.review.source, row.review.model, Date.now());
+          source = excluded.source, model = excluded.model, tasks = excluded.tasks`)
+        .run(row.cacheKey, row.review.status, row.review.reason, row.review.source, row.review.model,
+          row.review.tasks ? JSON.stringify(row.review.tasks) : null, Date.now());
     },
-    // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2）——
+    // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2；多任务题逐任务一行带 task_id）——
     saveReviewResult(row) {
-      db.prepare(`INSERT INTO review_results (student_id, class_id, file_path, status, reason, ts)
-        VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(row.studentId, row.classId, row.filePath, row.status, row.reason, row.ts);
+      db.prepare(`INSERT INTO review_results (student_id, class_id, file_path, status, reason, ts, task_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(row.studentId, row.classId, row.filePath, row.status, row.reason, row.ts, row.taskId ?? null);
     },
     getReviewResultsSince(windowStartMs) {
       return db.prepare(`SELECT r.student_id AS studentId, COALESCE(ro.student_name, r.student_id) AS studentName,
-          r.file_path AS filePath, r.status, r.reason, r.ts
+          r.file_path AS filePath, r.status, r.reason, r.ts, r.task_id AS taskId
         FROM review_results r LEFT JOIN roster ro ON ro.student_id = r.student_id
         WHERE r.ts >= ? ORDER BY r.ts`).all(windowStartMs) as
-        { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number }[];
+        { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; ts: number; taskId: string | null }[];
     },
     getRunEventsSince(windowStartMs) {
       // trace_events.ts 为 ISO-8601 文本（字典序即时间序），窗口起点转 ISO 比较

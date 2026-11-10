@@ -122,3 +122,88 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     expect(items.find((i) => i.id === "l1/b.py")).toMatchObject({ unreviewed: 1 });
   });
 });
+
+describe("ExerciseProgressTracker 多任务桶（spec 2026-11-09 §5）", () => {
+  const TASKS = ["任务一", "任务二", "任务三"];
+
+  it("逐任务独立桶：任务二 fail 不影响任务一 pass；tasks[] 随 item 下发", () => {
+    const t = createExerciseProgressTracker();
+    t.registerTasks("l1/a.py", TASKS);
+    t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, "练习一", "任务一");
+    t.applyReview("s1", "张三", "l1/a.py", "fail", NOW + 1000, "练习一", "任务二");
+    const item = t.list(TODAY_START)[0];
+    expect(item.tasks).toEqual([
+      { taskId: "任务一", passed: 1, stuck: 0, unreviewed: 0, firstTs: NOW, latestTs: NOW },
+      { taskId: "任务二", passed: 0, stuck: 1, unreviewed: 0, firstTs: NOW + 1000, latestTs: NOW + 1000 },
+      { taskId: "任务三", passed: 0, stuck: 0, unreviewed: 0, firstTs: 0, latestTs: 0 },   // 无格子桶：时间归零
+    ]);
+    // 文件级聚合：s1 任务一 pass + 任务二 fail → 任一 fail → stuck
+    expect(item).toMatchObject({ passed: 0, stuck: 1, unreviewed: 0, title: "练习一" });
+  });
+
+  it("只写任务一的学生：文件级 = unreviewed（部分完成不虚报全过）", () => {
+    const t = createExerciseProgressTracker();
+    t.registerTasks("l1/a.py", TASKS);
+    t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, "任务一");
+    const item = t.list(TODAY_START)[0];
+    expect(item).toMatchObject({ passed: 0, stuck: 0, unreviewed: 1 });
+    expect(item.tasks?.find((b) => b.taskId === "任务一")).toMatchObject({ passed: 1 });
+  });
+
+  it("全任务 pass 的学生 → 文件级 passed", () => {
+    const t = createExerciseProgressTracker();
+    t.registerTasks("l1/a.py", TASKS);
+    for (const task of TASKS) t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, task);
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 1, stuck: 0, unreviewed: 0 });
+  });
+
+  it("run 语义修正：注册后 run 失败不判任何任务 fail，仅推进涌现；注册前维持整文件 fail", () => {
+    const before = createExerciseProgressTracker();   // 未注册（尚无评审）→ 现状整文件 fail
+    before.applyRunFailure("s1", "张三", "l1/a.py", NOW);
+    expect(before.list(TODAY_START)[0]).toMatchObject({ stuck: 1 });
+
+    const after = createExerciseProgressTracker();
+    after.registerTasks("l1/a.py", TASKS);
+    after.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, "任务一");
+    after.applyRunFailure("s2", "李四", "l1/a.py", NOW + 1000);   // 学生 F5 失败
+    const item = after.list(TODAY_START)[0];
+    expect(item.tasks?.every((b) => b.stuck === 0)).toBe(true);   // 任务不被连坐
+    expect(item.tasks?.every((b) => b.unreviewed >= 1 || b.passed >= 1)).toBe(true);   // 仅涌现（unreviewed 格子）
+    expect(item).toMatchObject({ stuck: 0 });
+  });
+
+  it("run 成功弱信号/降级升级应用到全部任务桶", () => {
+    const t = createExerciseProgressTracker();
+    t.registerTasks("l1/a.py", TASKS);
+    t.applyRunSuccess("s1", "张三", "l1/a.py", NOW);
+    // 逐任务 unreviewed（LLM 不可用兜底路径）
+    for (const task of TASKS) t.applyUnreviewed("s1", "张三", "l1/a.py", NOW + 1000, undefined, task);
+    const item = t.list(TODAY_START)[0];
+    expect(item.tasks?.every((b) => b.passed === 1)).toBe(true);   // 全桶降级通过
+    expect(item).toMatchObject({ passed: 1 });
+  });
+
+  it("warmUpFromReviews 带 taskId 行重建注册表并回放任务桶", () => {
+    const t = createExerciseProgressTracker();
+    t.warmUpFromReviews([
+      { studentId: "s1", studentName: "张三", filePath: "l1/a.py", status: "pass", ts: NOW, taskId: "任务一" },
+      { studentId: "s1", studentName: "张三", filePath: "l1/a.py", status: "unreviewed", ts: NOW + 100, taskId: "任务二" },
+      { studentId: "s2", studentName: "李四", filePath: "l1/a.py", status: "unreviewed", ts: NOW + 200, taskId: "任务一" },
+    ]);
+    const item = t.list(TODAY_START)[0];
+    expect(item.tasks).toHaveLength(2);   // 仅 2 个声明 → 多任务
+    expect(item.tasks?.find((b) => b.taskId === "任务一")).toMatchObject({ passed: 1, unreviewed: 1 });
+    expect(item.tasks?.find((b) => b.taskId === "任务二")).toMatchObject({ unreviewed: 1 });
+    // 重启后 run 失败按注册语义抑制
+    t.applyRunFailure("s3", "王五", "l1/a.py", NOW + 300);
+    expect(t.list(TODAY_START)[0].stuck).toBe(0);
+  });
+
+  it("未注册任务名的 applyReview（taskName 单个）不构成多任务 → 整文件单桶现状", () => {
+    const t = createExerciseProgressTracker();
+    t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, "任务一");   // 未 registerTasks
+    const item = t.list(TODAY_START)[0];
+    expect(item.tasks).toBeUndefined();
+    expect(item).toMatchObject({ passed: 1 });
+  });
+});

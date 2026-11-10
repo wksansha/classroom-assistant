@@ -8,8 +8,9 @@ import { logEvent } from "../logger";
 
 export type { ReviewLlmOptions };
 
-/** 评审输入：filePath 定位（回填/监控锚点），code = 组装后评审输入全文（单文件=原文件，项目=多文件拼接） */
-export interface ReviewInput { filePath: string; code: string }
+/** 评审输入：filePath 定位（回填/监控锚点），code = 组装后评审输入全文（单文件=原文件，项目=多文件拼接）；
+ * tasks = 题面声明的任务名清单（≥2 = 多任务题，逐任务评审，spec 2026-11-09 §4） */
+export interface ReviewInput { filePath: string; code: string; tasks?: string[] }
 
 export interface ReviewService {
   review(input: ReviewInput): Promise<ReviewResult>;
@@ -26,7 +27,7 @@ export function createReviewService(p: Persistence, opts: ReviewLlmOptions = {})
   return {
     async review(input) {
       const cacheKey = computeReviewCacheKey(input.filePath, input.code);
-      const attempt = () => limit(() => callReviewLLM({ code: input.code }, opts));
+      const attempt = () => limit(() => callReviewLLM({ code: input.code, tasks: input.tasks }, opts));
       const result = await cache.getReview({ cacheKey }, attempt);
       // LLM 故障自愈（方案A配套）：繁忙/超时/抖动类失败 → 随机等 5~15 秒重试一次（not_configured 是配置缺失，重试无意义）；
       // unreviewed 不落缓存，重试会真实再打一次 LLM；学员请求同步等待最终结论

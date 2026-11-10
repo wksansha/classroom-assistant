@@ -29,6 +29,19 @@ describe("按天窗口与 V2 快照（spec dashboard-v2）", () => {
     expect(res.body.classSession).toBeUndefined();
   });
 
+  it("本节课文件预选（spec 2026-11-09 §7）：POST 写入 → GET 读回；非法路径 400；tree 未配置 Gitea 返回 available=false", async () => {
+    const { app } = makeApp();
+    await request(app).get("/api/classroom/lesson-files").expect(200, { files: [] });
+    await request(app).post("/api/classroom/lesson-files")
+      .send({ files: ["l21/main_four_imports.py", "l21/main_call_path.py"] })
+      .expect(200, { ok: true, files: ["l21/main_four_imports.py", "l21/main_call_path.py"] });
+    await request(app).get("/api/classroom/lesson-files").expect(200, { files: ["l21/main_four_imports.py", "l21/main_call_path.py"] });
+    await request(app).post("/api/classroom/lesson-files").send({ files: ["../evil.py"] }).expect(400);
+    await request(app).post("/api/classroom/lesson-files").send({ files: "not-array" }).expect(400);
+    const tree = await request(app).get("/api/exercises/tree").expect(200);
+    expect(tree.body).toEqual({ available: false, folders: [] });   // 测试环境无 Gitea 配置
+  });
+
   it("edit 事件：首次跨边界推快照 + lastActivityAt 推进；同窗口连续 edit 不再推；幂等命中不推；活动不点亮在线（登录态模型）", async () => {
     const { app, pushes } = makeApp();
     await request(app).post("/api/events").send(editBody(1)).expect(200);

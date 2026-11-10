@@ -12,23 +12,66 @@ export interface ReviewLlmOptions {
   retryDelayMs?: number | (() => number);
 }
 
-export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: string };
+export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: string; tasks?: { name: string; status: "pass" | "fail" | "unreviewed"; reason: string }[] };
 
-export function parseReviewResponse(raw: string): ParsedReview | null {
+type Status = "pass" | "fail" | "unreviewed";
+const STATUS_SET = new Set(["pass", "fail", "unreviewed"]);
+const ICON: Record<Status, string> = { pass: "✅", fail: "❌", unreviewed: "⬜" };
+
+function verdictOf(v: unknown): { status: Status; reason: string } | null {
+  const o = v as { status?: string; reason?: string };
+  if (o && typeof o.status === "string" && STATUS_SET.has(o.status)
+    && typeof o.reason === "string" && o.reason.length > 0) {
+    return { status: o.status as Status, reason: o.reason.slice(0, 50) };
+  }
+  return null;
+}
+
+/** 多任务题逐任务结论 → 整体三态 + 拼接摘要（spec 2026-11-09 §4） */
+function summarizeTasks(verdicts: { name: string; status: Status; reason: string }[]):
+  { status: Status; reason: string } {
+  const status: Status = verdicts.some((v) => v.status === "fail") ? "fail"
+    : verdicts.every((v) => v.status === "pass") ? "pass" : "unreviewed";
+  const reason = verdicts
+    .map((v) => `${ICON[v.status]}${v.name}：${v.status === "unreviewed" ? "未开始" : v.reason}`)
+    .join(" / ")
+    .slice(0, 300);
+  return { status, reason };
+}
+
+export function parseReviewResponse(raw: string, declaredTasks?: string[]): ParsedReview | null {
   const stripped = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
   const start = stripped.indexOf("{");
   const end = stripped.lastIndexOf("}");
   if (start === -1 || end <= start) return null;
+  let obj: Record<string, unknown>;
   try {
-    const obj = JSON.parse(stripped.slice(start, end + 1));
-    if ((obj.status === "pass" || obj.status === "fail" || obj.status === "unreviewed")
-      && typeof obj.reason === "string" && obj.reason.length > 0) {
-      return { status: obj.status, reason: obj.reason.slice(0, 100) };
-    }
-    return null;
+    obj = JSON.parse(stripped.slice(start, end + 1));
   } catch {
     return null;
   }
+
+  // ── 多任务题（声明 ≥2）：逐任务清单，宽松匹配声明名；缺任务 = unreviewed 未开始 ──
+  if (declaredTasks && declaredTasks.length >= 2) {
+    const rawTasks = Array.isArray(obj.tasks) ? (obj.tasks as unknown[]) : null;
+    const verdicts = declaredTasks.map((t) => {
+      const matched = rawTasks
+        ?.map((v) => (typeof v === "object" && v !== null ? (v as { name?: string }) : null))
+        .find((v) => typeof v?.name === "string"
+          && (v.name === t || v.name.includes(t) || t.includes(v.name)));
+      const verdict = matched ? verdictOf(matched) : null;
+      return { name: t, status: (verdict?.status ?? "unreviewed") as Status, reason: verdict?.reason ?? "" };
+    });
+    const { status, reason } = summarizeTasks(verdicts);
+    return { status, reason, tasks: verdicts };
+  }
+
+  // ── 单任务（现状语义）──
+  if ((obj.status === "pass" || obj.status === "fail" || obj.status === "unreviewed")
+    && typeof obj.reason === "string" && obj.reason.length > 0) {
+    return { status: obj.status, reason: obj.reason.slice(0, 100) };
+  }
+  return null;
 }
 
 export function mockReview(model: string): ReviewResult {
@@ -41,7 +84,7 @@ export function notConfiguredReview(model: string): ReviewResult {
 }
 
 export async function callReviewLLM(
-  input: { code: string },
+  input: { code: string; tasks?: string[] },
   opts: ReviewLlmOptions = {},
 ): Promise<ReviewResult> {
   const apiKey = opts.apiKey ?? process.env.LLM_API_KEY ?? "";
@@ -51,10 +94,10 @@ export async function callReviewLLM(
   const doFetch = opts.fetchImpl ?? fetch;
   if (!apiKey) return notConfiguredReview(model);
 
-  const prompt = buildReviewPrompt({ studentCode: input.code });
+  const prompt = buildReviewPrompt({ studentCode: input.code, tasks: input.tasks });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  logEvent({ event: "review.llm_started", level: "debug", data: { model, promptLen: prompt.length, timeoutMs } });
+  logEvent({ event: "review.llm_started", level: "debug", data: { model, promptLen: prompt.length, timeoutMs, tasks: input.tasks?.length ?? 0 } });
   try {
     const res = await doFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -68,7 +111,7 @@ export async function callReviewLLM(
       return mockReview(model);
     }
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    const parsed = parseReviewResponse(data.choices?.[0]?.message?.content ?? "");
+    const parsed = parseReviewResponse(data.choices?.[0]?.message?.content ?? "", input.tasks);
     if (!parsed) {
       return { status: "unreviewed", reason: "LLM 返回不可解析", reviewedAt: Date.now(), model, source: "llm" };
     }

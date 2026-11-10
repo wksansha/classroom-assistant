@@ -79,13 +79,26 @@ export interface ActivityFeedItem {
  * 仅用于服务端内部计数，快照不输出学生名单（2026-10-22 拍板） */
 export type ExerciseStatus = "pass" | "fail" | "unreviewed";
 
+/** 单文件多任务：一个任务桶（spec 2026-11-09 §5）。多任务题（任务声明 ≥2）逐任务一桶 */
+export interface TaskBucket {
+  /** 任务名（题面声明 [任务X] 短名 / 第X部分分节名；文件内唯一） */
+  taskId: string;
+  /** 人数口径与文件级三态一致：当天窗口内该任务桶的学生计数 */
+  passed: number;
+  stuck: number;
+  unreviewed: number;
+  /** 桶涌现时间（首个学生首个任务事件；min 口径） */
+  firstTs: number;
+  latestTs: number;
+}
+
 export interface ExerciseProgressItem {
   /** 文件路径（当天涌现，决策 #18） */
   id: string;
   /** 文件名（basename，兼容 Windows 反斜杠路径） */
   displayName: string;
   isProject: boolean;
-  /** 均为当天人数 */
+  /** 均为当天人数；多任务题 = 学生聚合（全部任务 pass → passed / 任一任务 fail → stuck / 其余 unreviewed） */
   passed: number;
   stuck: number;
   unreviewed: number;
@@ -99,6 +112,8 @@ export interface ExerciseProgressItem {
   latestTs: number;
   /** 题面名（评审输入代码分隔线前首行注释；无评审时回退文件名） */
   title: string;
+  /** 多任务题的任务桶数组（任务声明 ≥2 时非空；单任务题缺省 = 整文件一桶走 top-level 字段） */
+  tasks?: TaskBucket[];
 }
 
 export interface TrendBucket {

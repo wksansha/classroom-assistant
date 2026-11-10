@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, watch, nextTick, ref } from "vue";
+import type { ExerciseProgressItem, TaskBucket } from "@classroom/shared";
 import {
   Chart, BarController, BarElement,
   LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
 } from "chart.js";
 import { useClassroom } from "../stores/classroom";
+import { AUTO_FILE_ID, mergeFileOptions, pickDefaultTask, pickFocusFile } from "../focusSelection";
 
 Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 Chart.defaults.color = "#9fd4ff";
@@ -91,27 +93,72 @@ const lineRef = ref<HTMLCanvasElement | null>(null);
 let barChart: Chart | null = null;
 let lineChart: Chart | null = null;
 
-// —— 作业完成度（单题水桶模式）：聚焦最新进行中的题，液面 = 已通过/总人数 ——
+// —— 作业完成度（单题水桶 + 多任务桶，spec 2026-11-09 §6）：文件下拉 + 任务 tab ——
 const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
-const activeItems = computed(() => allItems.value.filter((e) => e.passed < e.total));
 const completionEmpty = computed(() =>
   allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
-// 选题消失（课间重置、新一天）时回落到最新进行中题；回落时优先选有评审牵引（已通过>0）的题，
-// 纯 run 报错涌现的题（尚无一人评审，必然 0%）不抢占水桶焦点（0% 液面不可见，会被误读成"没数据"）
-const sortedItems = computed(() => [...allItems.value].sort((a, b) => b.firstTs - a.firstTs));
-const selectedId = ref<string | null>(null);
-watch(sortedItems, (list) => {
-  if (selectedId.value && !list.some((e) => e.id === selectedId.value)) selectedId.value = null;
-  if (!selectedId.value && activeItems.value.length) {
-    selectedId.value = [...activeItems.value]
-      .sort((a, b) => ((b.passed > 0 ? 1 : 0) - (a.passed > 0 ? 1 : 0)) || (b.firstTs - a.firstTs))[0].id;
+
+// 文件下拉：预选清单（管理页 lesson-files 接口，未上线时为空）∪ 涌现题；null = 「最新动态」自动挑题
+const lessonFiles = ref<string[]>([]);
+const selectedFileId = ref<string | null>(null);
+const fileOptions = computed(() => mergeFileOptions(lessonFiles.value, allItems.value));
+const lessonOptions = computed(() => fileOptions.value.filter((o) => o.group === "lesson"));
+const emergedOptions = computed(() => fileOptions.value.filter((o) => o.group === "emerged"));
+const selectModel = computed({
+  get: () => selectedFileId.value ?? AUTO_FILE_ID,
+  set: (v: string) => { selectedFileId.value = v === AUTO_FILE_ID ? null : v; },
+});
+// 「最新动态」自动挑题：有评审牵引（passed>0）优先 → 涌现时间最新
+const autoFocusId = computed(() => pickFocusFile(allItems.value));
+// 锁定文件消失（课间重置）且不在预选清单 → 回「最新动态」
+watch(allItems, (items) => {
+  if (selectedFileId.value && !items.some((e) => e.id === selectedFileId.value)
+    && !lessonFiles.value.includes(selectedFileId.value)) {
+    selectedFileId.value = null;
   }
 });
-const displayItem = computed(() =>
-  allItems.value.find((e) => e.id === selectedId.value) ?? null);
-const focusPct = computed(() =>
-  displayItem.value ? Math.round((displayItem.value.passed / displayItem.value.total) * 100) : 0);
+// 预选清单：挂载拉取一次，失败静默（下拉退化为仅涌现组）
+onMounted(() => {
+  fetch("/api/classroom/lesson-files")
+    .then((r) => (r.ok ? r.json() : { files: [] }))
+    .then((d: { files?: string[] }) => { lessonFiles.value = d.files ?? []; })
+    .catch(() => { /* 接口未上线/离线：下拉仅涌现组 */ });
+});
+
+// 焦点题：教师锁定优先，否则「最新动态」；预选未涌现 → 零进度虚拟桶（0/花名册人数，液面 0%）
+const displayItem = computed<ExerciseProgressItem | null>(() => {
+  const targetId = selectedFileId.value ?? autoFocusId.value;
+  if (!targetId) return null;
+  const found = allItems.value.find((e) => e.id === targetId);
+  if (found) return found;
+  if (!lessonFiles.value.includes(targetId)) return null;
+  const label = targetId.split(/[\\/]/).pop() ?? targetId;
+  return {
+    id: targetId, displayName: label, isProject: false,
+    passed: 0, stuck: 0, unreviewed: 0,
+    total: store.snapshot?.stats.total ?? 0, passRate: 0,
+    firstTs: 0, latestTs: 0, title: label,
+  };
+});
+
+// 任务 tab：多任务题（任务声明 ≥2）显示；换文件重置选中；默认第一个未全员通过的桶
+const selectedTaskId = ref<string | null>(null);
+const activeTasks = computed<TaskBucket[]>(() => displayItem.value?.tasks ?? []);
+watch(() => displayItem.value?.id, () => { selectedTaskId.value = null; });
+const activeTask = computed<TaskBucket | null>(() => {
+  const tasks = activeTasks.value;
+  if (!tasks.length) return null;
+  const total = displayItem.value?.total ?? 0;
+  return tasks.find((b) => b.taskId === selectedTaskId.value)
+    ?? tasks.find((b) => b.taskId === pickDefaultTask(tasks, total))
+    ?? tasks[0];
+});
+const focusPassed = computed(() => activeTask.value?.passed ?? displayItem.value?.passed ?? 0);
 // 液面高度 = 已通过/总人数，与中央百分比严格一致；绿液涨到顶 = 全员通过
+const focusPct = computed(() => {
+  const total = displayItem.value?.total ?? 0;
+  return total > 0 ? Math.round((focusPassed.value / total) * 100) : 0;
+});
 
 /** 错误TOP3 数据引用（tooltip 悬停显示涉事学员名单用） */
 const top3Agg = computed(() => store.snapshot?.aggregates.slice(0, 3) ?? []);
@@ -275,6 +322,22 @@ watch(
     </div>
     <div class="chart-card tech-card completion">
       <h2 class="tech-title">作业完成度</h2>
+      <select v-if="fileOptions.length" v-model="selectModel" class="file-select" title="切换焦点题：最新动态 = 系统自动挑题">
+        <option :value="AUTO_FILE_ID">最新动态</option>
+        <optgroup v-if="lessonOptions.length" label="本节课文件">
+          <option v-for="o in lessonOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+        </optgroup>
+        <optgroup v-if="emergedOptions.length" label="课堂涌现">
+          <option v-for="o in emergedOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+        </optgroup>
+      </select>
+      <div v-if="activeTasks.length >= 2" class="task-tabs">
+        <button
+          v-for="b in activeTasks" :key="b.taskId"
+          class="task-tab" :class="{ active: activeTask?.taskId === b.taskId }"
+          @click="selectedTaskId = b.taskId"
+        >{{ b.taskId }}</button>
+      </div>
       <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
         <div class="tank-wrap">
@@ -291,8 +354,8 @@ watch(
         <div class="focus-info">
           <div class="focus-name" :title="displayItem.displayName">{{ displayItem.title }}</div>
           <div class="focus-nums">
-            <span class="ok"><i class="dot" />已通过 <b>{{ displayItem.passed }} 人</b></span>
-            <span class="doing"><i class="dot" />编码中 <b>{{ displayItem.total - displayItem.passed }} 人</b></span>
+            <span class="ok"><i class="dot" />已通过 <b>{{ focusPassed }} 人</b></span>
+            <span class="doing"><i class="dot" />编码中 <b>{{ displayItem.total - focusPassed }} 人</b></span>
           </div>
         </div>
       </div>
@@ -318,7 +381,27 @@ watch(
 .rhythm-legend .runs .lg { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .rhythm-legend .errs { color: var(--tech-red); }
 .rhythm-legend .errs .lg { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.8); }
-/* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨 —— */
+/* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨；文件下拉 + 任务 tab（spec 2026-11-09 §6）—— */
+.completion { position: relative; }   /* 文件下拉 absolute 锚点 */
+.file-select {
+  position: absolute; top: 10px; right: 12px; z-index: 5; max-width: 42%;
+  padding: 3px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+  color: var(--text-secondary); background: rgba(20, 50, 100, 0.5);
+  border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
+}
+.file-select:hover { border-color: var(--tech-cyan); }
+.file-select option, .file-select optgroup { background: #0a1830; color: var(--text-primary); }
+.task-tabs { flex: none; display: flex; justify-content: center; gap: 8px; }
+.task-tab {
+  padding: 2px 14px; font-size: 14px; cursor: pointer; border-radius: 2px;
+  border: 1px solid rgba(63, 140, 255, 0.3); background: transparent; color: var(--text-dim);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.task-tab:hover { color: var(--text-secondary); }
+.task-tab.active {
+  border-color: var(--tech-cyan); color: var(--tech-cyan);
+  background: rgba(63, 169, 255, 0.12); text-shadow: 0 0 6px rgba(80, 220, 255, 0.5);
+}
 .completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 56px; min-height: 0; }   /* 居中：左右空白近似相等 */
 .tank-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: stretch; justify-content: center; }
 .tank {

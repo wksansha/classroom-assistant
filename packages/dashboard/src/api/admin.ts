@@ -64,4 +64,11 @@ export const adminApi = {
   /** 大屏重置（课间换场）：清空大屏统计从零开始；归档保留，服务器重启不复活（前端已二次确认） */
   resetDashboard: () =>
     send<{ ok: true; anchor: number }>("/api/admin/reset", "POST"),
+  /** 题库目录树（本节课文件面板数据源；Gitea 未配置 → available=false） */
+  exerciseTree: () =>
+    get<{ available: boolean; folders: { name: string; files: string[] }[] }>("/api/exercises/tree"),
+  /** 本节课预选文件（大屏完成度卡下拉预选组） */
+  lessonFiles: () => get<{ files: string[] }>("/api/classroom/lesson-files"),
+  setLessonFiles: (files: string[]) =>
+    send<{ ok: true; files: string[] }>("/api/classroom/lesson-files", "POST", { files }),
 };

@@ -4,6 +4,7 @@ import type { ReviewService } from "../reviewService";
 import type { StateManager } from "../stateManager";
 import type { ExerciseProgressTracker } from "../exerciseProgress";
 import type { ActivityFeed } from "../activityFeed";
+import { parseExerciseHeader } from "../exerciseHeader";
 import { logEvent } from "../logger";
 
 export interface ReviewRequestDeps {
@@ -53,42 +54,18 @@ export function buildProjectReviewInput(files: SubmissionFile[]): string {
     .join("\n\n");
 }
 
-/** 题面名提取：代码里「# ===== 代码区 =====」分隔线前找「练习N：标题（备注）」行，只留「练习N：标题」；
- * 无该格式时兜底取第一行非空 # 注释；都没有则 undefined（进度表回退文件名） */
-function extractExerciseTitle(code: string | undefined): string | undefined {
-  if (!code) return undefined;
-  const head = code.split(/={3,}\s*代码区\s*={3,}/)[0] ?? "";
-  for (const line of head.split("\n")) {
-    const m = line.match(/练习\s*([^\s：:]{1,6})\s*[：:]\s*(.+)/);
-    if (m) {
-      const rest = m[2].replace(/\s*[（(][^）)]*[）)]\s*$/, "").trim();   // 去掉尾部（…）备注
-      return `练习${m[1]}：${rest}`.slice(0, 40);
-    }
-  }
-  for (const line of head.split("\n")) {
-    const t = line.trim().replace(/^#+\s*/, "").trim();
-    if (t) return t.slice(0, 40);
-  }
-  return undefined;
-}
-
-/** 评审结果落库 + 喂养题目进度（spec dashboard-v2 §5.2/§5.3）：pass/fail/unreviewed 三态均落行
- * （本表是题目进度事实源，unreviewed 落行支撑重启回放；缓存表「unreviewed 不缓存」约束不变）；
+/** 评审结果落库（spec dashboard-v2 §5.2/§5.3；多任务题逐任务一行带 taskId，spec 2026-11-09 §5）：
+ * 三态均落行（unreviewed 落行支撑重启回放）；缓存表「unreviewed 不缓存」约束不变；
  * 写失败不阻塞评审响应（log warn 后继续） */
 function persistReviewResult(
   deps: ReviewRequestDeps,
-  args: { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; title?: string },
+  args: { studentId: string; studentName: string; filePath: string; status: "pass" | "fail" | "unreviewed"; reason: string | null; title?: string; taskId?: string },
 ): void {
   try {
     deps.persistence.saveReviewResult({
       studentId: args.studentId, classId: null, filePath: args.filePath,
-      status: args.status, reason: args.reason, ts: Date.now(),
+      status: args.status, reason: args.reason, ts: Date.now(), taskId: args.taskId ?? null,
     });
-    if (args.status === "unreviewed") {
-      deps.exerciseProgress.applyUnreviewed(args.studentId, args.studentName, args.filePath, Date.now(), args.title);
-    } else {
-      deps.exerciseProgress.applyReview(args.studentId, args.studentName, args.filePath, args.status, Date.now(), args.title);
-    }
   } catch (err) {
     logEvent({ event: "review.result_persist_failed", level: "warn", data: {
       studentId: args.studentId, error: err instanceof Error ? err.message : String(err),
@@ -162,9 +139,12 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
     return { ok: false, status: 400, error: "代码超过 50KB 限制" };
   }
 
+  const header = parseExerciseHeader(input.code);
   const reviewCode = input.files ? buildProjectReviewInput(input.files) : input.code;
-  const title = extractExerciseTitle(input.code);
-  const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode });
+  const title = header.title;
+  const tasks = header.tasks;   // 任务声明 ≥2 = 多任务题（spec 2026-11-09 §3）
+  if (tasks.length >= 2) deps.exerciseProgress.registerTasks(input.filePath, tasks);
+  const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode, tasks: tasks.length >= 2 ? tasks : undefined });
 
   // 课堂动态：代码 LRU（悬浮代码卡懒加载源）+ 评审条目（unreviewed 只计数不产生条目 = LLM 降级自动满足）
   if (deps.activityFeed) {
@@ -175,22 +155,33 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
     });
   }
 
-  // 评审结果驱动教师端状态（notify 已退役）：fail 等同报错进告警/聚合；pass 置绿（清零连续错误）；
+  // 逐任务/整文件落行 + 喂养进度桶（多任务题每任务一行一桶；LLM 不可用兜底 = 逐声明任务 unreviewed 行）：
+  const verdicts: { name: string | null; status: typeof review.status; reason: string }[] = tasks.length >= 2
+    ? (review.tasks ?? tasks.map((t) => ({ name: t, status: review.status, reason: review.reason })))
+    : [{ name: null, status: review.status, reason: review.reason }];
+  for (const v of verdicts) {
+    persistReviewResult(deps, {
+      studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath,
+      status: v.status, reason: v.reason, title, taskId: v.name ?? undefined,
+    });
+  }
+  for (const v of verdicts) {
+    if (v.status === "unreviewed") {
+      deps.exerciseProgress.applyUnreviewed(rosterEntry.studentId, rosterEntry.studentName, input.filePath, Date.now(), title, v.name ?? undefined);
+    } else {
+      deps.exerciseProgress.applyReview(rosterEntry.studentId, rosterEntry.studentName, input.filePath, v.status, Date.now(), title, v.name ?? undefined);
+    }
+  }
+
+  // 评审结果驱动教师端状态（文件级，沿用现状语义）：fail 等同报错进告警/聚合；pass 置绿（清零连续错误）；
   // unreviewed 为瞬态，不改变学生状态
   if (review.status === "fail") {
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "fail", reason: review.reason, title });
     injectReviewFail(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
   } else if (review.status === "pass") {
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "pass", reason: review.reason, title });
     injectReviewPass(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, review });
-  } else {
-    // unreviewed（spec 决策 #14）：落进度事实表 + 待评审计数。
-    // LLM 可用但拿不准（source === "llm"）→ 瞬态不变学生状态；
+  } else if (review.source !== "llm") {
     // LLM 不可用类（not_configured/timeout/mock 兜底）→ run 成功降级置绿（清零连续错误），不卡黄
-    persistReviewResult(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, filePath: input.filePath, status: "unreviewed", reason: review.reason, title });
-    if (review.source !== "llm") {
-      injectLlmUnavailableResolve(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, reason: review.reason });
-    }
+    injectLlmUnavailableResolve(deps, { studentId: rosterEntry.studentId, studentName: rosterEntry.studentName, reason: review.reason });
   }
   return { ok: true, review };
 }

@@ -116,6 +116,79 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(counters.snapshotPushes).toBe(1);
   });
 
+  it("单文件多任务：逐任务落行 + 逐任务进度桶 + 整体注入（任一 fail → review_fail）", async () => {
+    const p = seedPersistence();
+    const tasksJson = JSON.stringify({
+      tasks: [
+        { name: "任务一", status: "pass", reason: "实现正确" },
+        { name: "任务二", status: "fail", reason: "分隔符不符" },
+        { name: "任务三", status: "unreviewed", reason: "未开始" },
+      ],
+    });
+    const fetchImpl = (async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: tasksJson } }] }),
+    })) as unknown as typeof fetch;
+    const reviewService = createReviewService(p, { apiKey: "k", fetchImpl, retryDelayMs: 0 });
+    const deps: ReviewRequestDeps = {
+      persistence: p, reviewService, stateManager: createStateManager(),
+      exerciseProgress: createExerciseProgressTracker(), publishSnapshot: () => {},
+    };
+    const code = [
+      "# 练习1：推导式",
+      "# [任务一] 基础推导式",
+      "# [任务二] 条件推导式",
+      "# [任务三] 排序",
+      "# ===== 代码区 =====",
+      "pass",
+    ].join("\n");
+    const r = await requestReview(deps, { studentId: "2025001", studentName: "张三", filePath: "l15/a.py", code, commitHash: "c" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("fail");                 // 任一任务 fail → 整体 fail
+    expect(r.review.reason).toContain("✅任务一");
+    expect(r.review.reason).toContain("❌任务二");
+    expect(r.review.tasks).toHaveLength(3);
+    // 逐任务落行（review_results.task_id）
+    const rows = p.getReviewResultsSince(0);
+    expect(rows).toHaveLength(3);
+    expect(rows.find((x) => x.taskId === "任务一")).toMatchObject({ status: "pass" });
+    expect(rows.find((x) => x.taskId === "任务二")).toMatchObject({ status: "fail" });
+    // 逐任务进度桶
+    const item = deps.exerciseProgress.list(0)[0];
+    expect(item.tasks?.find((b) => b.taskId === "任务一")).toMatchObject({ passed: 1 });
+    expect(item.tasks?.find((b) => b.taskId === "任务二")).toMatchObject({ stuck: 1 });
+    // 整体注入 fail（文件级状态语义不变）
+    const rec = deps.stateManager.listRecords()[0];
+    expect(rec.events.at(-1)).toMatchObject({ success: false, subtype: "review_fail" });
+  });
+
+  it("单文件多任务 + LLM 不可用兜底：逐声明任务落 unreviewed 行（降级路径）", async () => {
+    const p = seedPersistence();
+    const reviewService = createReviewService(p, { apiKey: "", retryDelayMs: 0 });   // not_configured
+    const deps: ReviewRequestDeps = {
+      persistence: p, reviewService, stateManager: createStateManager(),
+      exerciseProgress: createExerciseProgressTracker(), publishSnapshot: () => {},
+    };
+    const code = [
+      "# 练习1：推导式",
+      "# [任务一] 基础推导式",
+      "# [任务二] 条件推导式",
+      "# ===== 代码区 =====",
+      "pass",
+    ].join("\n");
+    const r = await requestReview(deps, { studentId: "2025001", studentName: "张三", filePath: "l15/a.py", code, commitHash: "c" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.review.status).toBe("unreviewed");
+    expect(r.review.tasks).toBeUndefined();   // 兜底无逐任务结论
+    const rows = p.getReviewResultsSince(0);
+    expect(rows).toHaveLength(2);             // 逐声明任务落行
+    expect(rows.every((x) => x.status === "unreviewed" && x.taskId)).toBe(true);
+    const item = deps.exerciseProgress.list(0)[0];
+    expect(item.tasks?.every((b) => b.unreviewed === 1)).toBe(true);
+  });
+
   it("评审 unreviewed（LLM 可用但拿不准，source=llm）：瞬态，不改变学生状态、不推快照", async () => {
     const { deps, counters, stateManager } = makeDeps("unreviewed");
     const r = await requestReview(deps, fileInput);

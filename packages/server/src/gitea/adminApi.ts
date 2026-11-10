@@ -9,6 +9,12 @@ export interface GiteaAdminDeps {
   fetchImpl?: typeof fetch;
 }
 
+/** 题库作业文件夹（spec 2026-11-09 §7）：一级目录 + 文件夹内 .py 文件（相对路径） */
+export interface ExerciseFolder {
+  name: string;
+  files: string[];
+}
+
 export interface GiteaAdmin {
   /** 每生一 Gitea 账户（用户名=学号），密码收敛为服务端持有的 gitSecret；返回该生 gitSecret（学生 git 用「学号:密码」Basic 认证） */
   ensureStudentAccount(studentId: string): Promise<string>;
@@ -18,6 +24,8 @@ export interface GiteaAdmin {
   addCollaborator(studentId: string): Promise<void>;
   /** 硬删除联动（spec roster §1.1）：删分支保护规则 → 删 student-<id> 分支 → 删 Gitea 账户；任一步 404 视为已完成继续 */
   purgeStudent(studentId: string): Promise<void>;
+  /** 题库目录树（spec 2026-11-09 §7 管理页「本节课文件」）：main 分支一级目录 → 文件夹内 .py；失败返回 null */
+  listExerciseTree(): Promise<ExerciseFolder[] | null>;
 }
 
 export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
@@ -76,6 +84,26 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
       // 3. 删 Gitea 账户（404=已删，视为已完成）
       const delUser = await api(`/api/v1/admin/users/${studentId}`, "DELETE");
       if (!delUser.ok && delUser.status !== 404) throw new Error(`gitea user delete failed: ${delUser.status}`);
+    },
+    async listExerciseTree(): Promise<ExerciseFolder[] | null> {
+      const root = await api(`/api/v1/repos/${deps.repo}/contents?ref=main`, "GET");
+      if (!root.ok) {
+        logEvent({ event: "gitea.tree_root_failed", level: "warn", data: { status: root.status } });
+        return null;
+      }
+      const entries = (await root.json()) as Array<{ type: string; name: string }>;
+      const dirs = entries.filter((e) => e.type === "dir" && !e.name.startsWith("_"));
+      const folders: ExerciseFolder[] = [];
+      for (const d of dirs) {
+        const r = await api(`/api/v1/repos/${deps.repo}/contents/${encodeURIComponent(d.name)}?ref=main`, "GET");
+        if (!r.ok) continue;   // 单目录失败跳过（不影响其余文件夹）
+        const files = (await r.json()) as Array<{ type: string; name: string }>;
+        folders.push({
+          name: d.name,
+          files: files.filter((f) => f.type === "file" && f.name.endsWith(".py")).map((f) => `${d.name}/${f.name}`),
+        });
+      }
+      return folders;
     },
   };
 }
