@@ -1,5 +1,5 @@
 import type { ReviewResult } from "@classroom/shared";
-import { buildReviewPrompt } from "@classroom/shared";
+import { buildReviewPrompt, REVIEW_CATEGORIES } from "@classroom/shared";
 import { logEvent } from "../logger";
 
 export interface ReviewLlmOptions {
@@ -12,31 +12,38 @@ export interface ReviewLlmOptions {
   retryDelayMs?: number | (() => number);
 }
 
-export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: string; tasks?: { name: string; status: "pass" | "fail" | "unreviewed"; reason: string }[] };
+export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: string; category?: string; tasks?: { name: string; status: "pass" | "fail" | "unreviewed"; reason: string; category?: string }[] };
 
 type Status = "pass" | "fail" | "unreviewed";
 const STATUS_SET = new Set(["pass", "fail", "unreviewed"]);
 const ICON: Record<Status, string> = { pass: "✅", fail: "❌", unreviewed: "⬜" };
+const CATEGORY_SET = new Set<string>(REVIEW_CATEGORIES);
 
-function verdictOf(v: unknown): { status: Status; reason: string } | null {
-  const o = v as { status?: string; reason?: string };
+/** 分类白名单校验：清单外（LLM 幻觉/旧格式）→ undefined，注入层回退缺省文案 */
+function categoryOf(v: unknown): string | undefined {
+  return typeof v === "string" && CATEGORY_SET.has(v) ? v : undefined;
+}
+
+function verdictOf(v: unknown): { status: Status; reason: string; category?: string } | null {
+  const o = v as { status?: string; reason?: string; category?: string };
   if (o && typeof o.status === "string" && STATUS_SET.has(o.status)
     && typeof o.reason === "string" && o.reason.length > 0) {
-    return { status: o.status as Status, reason: o.reason.slice(0, 50) };
+    return { status: o.status as Status, reason: o.reason.slice(0, 50), category: categoryOf(o.category) };
   }
   return null;
 }
 
-/** 多任务题逐任务结论 → 整体三态 + 拼接摘要（spec 2026-11-09 §4） */
-function summarizeTasks(verdicts: { name: string; status: Status; reason: string }[]):
-  { status: Status; reason: string } {
+/** 多任务题逐任务结论 → 整体三态 + 拼接摘要（spec 2026-11-09 §4）；分类取首个 fail 任务 */
+function summarizeTasks(verdicts: { name: string; status: Status; reason: string; category?: string }[]):
+  { status: Status; reason: string; category?: string } {
   const status: Status = verdicts.some((v) => v.status === "fail") ? "fail"
     : verdicts.every((v) => v.status === "pass") ? "pass" : "unreviewed";
   const reason = verdicts
     .map((v) => `${ICON[v.status]}${v.name}：${v.status === "unreviewed" ? "未开始" : v.reason}`)
     .join(" / ")
     .slice(0, 300);
-  return { status, reason };
+  const category = verdicts.find((v) => v.status === "fail")?.category;
+  return { status, reason, ...(category ? { category } : {}) };
 }
 
 export function parseReviewResponse(raw: string, declaredTasks?: string[]): ParsedReview | null {
@@ -60,16 +67,17 @@ export function parseReviewResponse(raw: string, declaredTasks?: string[]): Pars
         .find((v) => typeof v?.name === "string"
           && (v.name === t || v.name.includes(t) || t.includes(v.name)));
       const verdict = matched ? verdictOf(matched) : null;
-      return { name: t, status: (verdict?.status ?? "unreviewed") as Status, reason: verdict?.reason ?? "" };
+      return { name: t, status: (verdict?.status ?? "unreviewed") as Status, reason: verdict?.reason ?? "", category: verdict?.category };
     });
-    const { status, reason } = summarizeTasks(verdicts);
-    return { status, reason, tasks: verdicts };
+    const { status, reason, category } = summarizeTasks(verdicts);
+    return { status, reason, ...(category ? { category } : {}), tasks: verdicts };
   }
 
   // ── 单任务（现状语义）──
   if ((obj.status === "pass" || obj.status === "fail" || obj.status === "unreviewed")
     && typeof obj.reason === "string" && obj.reason.length > 0) {
-    return { status: obj.status, reason: obj.reason.slice(0, 100) };
+    const category = categoryOf(obj.category);
+    return { status: obj.status, reason: obj.reason.slice(0, 100), ...(category ? { category } : {}) };
   }
   return null;
 }

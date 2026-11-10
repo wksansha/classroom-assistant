@@ -11,6 +11,11 @@ function err(ts: number, subtype: string, category = "类型错误"): StoredEven
   return { ts, eventType: "run", success: false, subtype, category, knowledge: "知识点", rawMessage: "m" };
 }
 
+/** 评审失败合成事件（reviewController 注入）：subtype = 教学分类，source: "review" */
+function reviewFail(ts: number, subtype = "边界未处理"): StoredEvent {
+  return { ts, eventType: "run", success: false, subtype, category: "逻辑错误", knowledge: "未处理空列表", rawMessage: "评审未通过：未处理空列表", source: "review" };
+}
+
 function student(id: string, name: string, events: StoredEvent[], consecutiveErrors = events.filter(e => !e.success).length): StudentRecord {
   const errors = events.filter(e => !e.success);
   return {
@@ -91,6 +96,25 @@ describe("recompute：完整快照", () => {
     const snap = agg.recompute(recs, NOW, WIN_START);
     const s = snap.suggestions.find(x => x.id === "class-review:缺少冒号");
     expect(s?.acked).toBe(true);
+  });
+
+  it("评审失败合成事件（source: review）不进 TOP3 聚合、不触发建议；告警显示教学分类（旧数据回退「评审未通过」）", () => {
+    const recs = [
+      student("stu001", "张三", [reviewFail(NOW - MIN)]),
+      student("stu002", "李四", [reviewFail(NOW - MIN, "空值未处理"), err(NOW - 2 * MIN, "缺少冒号")]),
+      student("stu003", "王五", [err(NOW - MIN, "缺少冒号")]),
+      student("stu004", "赵六", [err(NOW - MIN, "缺少冒号")]),
+    ];
+    const snap = createAggregator().recompute(recs, NOW, WIN_START);
+    // 聚合只出现真实错误类型「缺少冒号」，教学分类（边界未处理/空值未处理）不进 TOP3
+    expect(snap.aggregates.map(a => a.subtype)).toEqual(["缺少冒号"]);
+    expect(snap.aggregates[0].count).toBe(3); // 含只报评审失败的张三（他也是报错学员）
+    // 张三只有评审失败：仍进告警，subtype 显示教学分类「边界未处理」
+    const alert = snap.alerts.find(a => a.studentId === "stu001");
+    expect(alert).toBeTruthy();
+    expect(alert!.subtype).toBe("边界未处理");
+    // 不生成按教学分类触发的讲评/讨论建议
+    expect(snap.suggestions.some(s => s.id.endsWith("边界未处理") || s.id.endsWith("空值未处理"))).toBe(false);
   });
 
   it("小样本防误报：仅 1 人报错不触发全班讲评/小组讨论", () => {

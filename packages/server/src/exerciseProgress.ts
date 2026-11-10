@@ -47,8 +47,9 @@ export interface ExerciseProgressTracker {
   /** 课间重置（大屏重置）：清空内存格子，从零统计新课 */
   reset(): void;
   /** 当天涌现题（spec 决策 #18）：任一格 lastTs >= dayStartMs 的题才输出；多任务题输出 tasks[] 桶数组；
-   * 文件级 top-level = 学生聚合（全部任务 pass → passed / 任一 fail → stuck / 其余 unreviewed） */
-  list(dayStartMs: number): Omit<ExerciseProgressItem, "total" | "passRate">[];
+   * 文件级 top-level = 学生聚合（全部任务 pass → passed / 任一 fail → stuck / 其余 unreviewed）。
+   * isOnline 缺省 = 全量（回放/测试）；传入时离线学生的格子不计入 passed/stuck/unreviewed（在线口径） */
+  list(dayStartMs: number, isOnline?: (studentId: string) => boolean): Omit<ExerciseProgressItem, "total" | "passRate">[];
 }
 
 export function createExerciseProgressTracker(): ExerciseProgressTracker {
@@ -146,7 +147,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
       bucketTitles.clear();
       fileTitles.clear();
     },
-    list(dayStartMs) {
+    list(dayStartMs, isOnline) {
       // 桶 key 按 filePath 分组
       const groups = new Map<string, { keys: string[]; taskNames: Map<string, string> }>();
       for (const key of buckets.keys()) {
@@ -172,8 +173,9 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           let active = false;
           let firstTs = Number.MAX_SAFE_INTEGER;
           let latestTs = 0;
-          for (const e of students.values()) {
+          for (const [studentId, e] of students) {
             if (e.lastTs < dayStartMs) continue;   // 当天口径：只统计今天动过的格子
+            if (isOnline && !isOnline(studentId)) continue;   // 在线口径：离线学生不计入人数
             active = true;
             firstTs = Math.min(firstTs, e.firstTs);
             latestTs = Math.max(latestTs, e.lastTs);
@@ -206,6 +208,7 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
           let bucketActive = false;
           for (const [studentId, e] of students) {
             if (e.lastTs < dayStartMs) continue;
+            if (isOnline && !isOnline(studentId)) continue;   // 在线口径：离线学生不计入人数
             bucketActive = true;
             b.firstTs = Math.min(b.firstTs, e.firstTs);
             b.latestTs = Math.max(b.latestTs, e.lastTs);

@@ -108,32 +108,35 @@ onMounted(() => void checkSession());
 </template>
 
 <style scoped>
+/* 与花名册/本节课文件同一卡片语言：白卡 + border；危险语义只保留在标题和按钮上 */
 .danger-zone {
-  margin: 24px auto 40px;
-  max-width: 720px;
-  padding: 16px 20px;
-  border: 1px solid #f0c2c2;
+  padding: 12px;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff7f7;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .danger-zone h3 {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 15px;
-  color: #b42318;
+  color: var(--red);
 }
 .danger-hint {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 13px;
-  color: #7a4a46;
+  color: var(--muted);
   line-height: 1.6;
 }
 .danger-btn {
-  padding: 8px 18px;
-  border: 1px solid #d92d20;
+  align-self: flex-start;
+  padding: 4px 14px;
+  border: 1px solid var(--red);
   border-radius: 6px;
-  background: #d92d20;
+  background: var(--red);
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 .danger-btn:disabled {
@@ -141,10 +144,10 @@ onMounted(() => void checkSession());
   cursor: not-allowed;
 }
 .danger-btn:hover:not(:disabled) {
-  background: #b42318;
+  filter: brightness(0.92);
 }
 .reset-ok {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 13px;
   color: #067647;
 }

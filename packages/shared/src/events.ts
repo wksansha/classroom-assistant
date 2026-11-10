@@ -22,6 +22,8 @@ export interface Explanation {
   category: string;
   subtype: string;
   knowledge: string;
+  /** 评审失败合成事件的标记（reviewController 注入）：聚合层据此排除，不进 TOP3 */
+  source?: "review";
 }
 
 export const TRACE_SURFACES = ["edit", "run", "chat", "debug", "diag", "behavior"] as const;

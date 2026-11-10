@@ -11,7 +11,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); }
-.app { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 24px; }
+.app { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 8px; min-height: 100vh; }   /* 底部内边距 24→8（用户 2026-11-10：页面下方约 30px 空白太高） */
 .app-header { display: flex; align-items: center; justify-content: space-between; background: #1e293b; color: #fff; margin: 0 -16px; padding: 12px 20px; }
 .app-header h1 { font-size: 18px; margin: 0; }
 .conn { font-size: 12px; }
@@ -165,6 +165,8 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
   min-height: 100vh;
   height: 100vh;
   overflow: hidden;   /* 投屏 1080p 一屏铺满：内容不足时图表行弹性拉伸补位，超出时内部滚动 */
+  display: grid;   /* 上下两行按比例分配视口高（用户 2026-11-10：下排三模块离页底空白大）：顶栏 auto / 上排 1fr / 下排 1.2fr */
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.2fr);
   color: var(--text-primary);
   /* 星空渐变底 + 两层 36px 网格纹理 + 四角暗蓝 vignette（多背景分层避免伪元素遮挡内容） */
   background:
@@ -199,6 +201,6 @@ div.drawer .history-item.active { border-color: var(--accent); color: var(--acce
 
 /* —— 三图表行（课堂节奏/作业完成度/错误TOP3；列宽 3fr 2fr 2fr 与主区三列接缝对齐）—— */
 /* min-height 240px：图表行保底高度（卡头+图区≥160px），主区内容再多也不被压瘪 */
-.app .charts-row { display: grid; grid-template-columns: 3fr 2fr 2fr; gap: 12px; align-items: stretch; flex: 1; min-height: 240px; }
+.app .charts-row { display: grid; grid-template-columns: 3fr 2fr 2fr; gap: 12px; align-items: stretch; min-height: 240px; }   /* 行高由 .app 的 grid-template-rows(1.2fr) 分配，不再用 flex:1 */
 .app .charts-row > .chart-card { min-width: 0; }
 .app .chart-wrap canvas { max-width: 100%; }

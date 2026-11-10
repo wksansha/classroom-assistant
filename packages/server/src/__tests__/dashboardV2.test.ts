@@ -55,15 +55,20 @@ describe("按天窗口与 V2 快照（spec dashboard-v2）", () => {
     expect(summary.body.stats).toMatchObject({ online: 0, total: 1 });   // 活动事件不等于在线，需身份确认（登录态模型）
   });
 
-  it("run 失败事件：当天涌现题 stuck=1 + 通过率（花名册分母）+ 趋势 errors 桶", async () => {
+  it("run 失败事件：当天涌现题 stuck=1 + 通过率（在线人数分母）+ 趋势 errors 桶；离线学生不计入", async () => {
     const { app } = makeApp();
     await request(app).post("/api/roster").send({ text: "2025001 张三\n2025002 李四\n2025003 王五\n2025004 赵六" }).expect(200);
+    await request(app).post("/api/events").send({
+      id: "behavior:login0000000000000000000000d1", ts: Date.now(), surface: "behavior", kind: "identity_confirmed",
+      student_id: "2025001", student_name: "张三", class_id: "3A",
+      payload: { machine_id: "m1", session_id: "win-1" },
+    }).expect(200);
     for (const n of [1, 2, 3]) await request(app).post("/api/events").send(runErrorBody(n)).expect(200);
     const summary = await request(app).get("/api/summary").expect(200);
     expect(summary.body.exerciseProgress[0]).toMatchObject({
       id: "lesson1/a.py", displayName: "a.py", isProject: false,
       passed: 0, stuck: 1, unreviewed: 0,
-      total: 4, passRate: 0,   // 花名册 4 人为分母（决策 #20）
+      total: 1, passRate: 0,   // 在线人数为分母（已通过/编码中只算在线）；未登录的另 3 人不计入
     });
     expect(summary.body.trend[0]).toMatchObject({ runs: 0, errors: 3 });
     expect(summary.body.students[0].status).toBe("red");   // 同 subtype ×3 未解决

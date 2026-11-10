@@ -136,7 +136,7 @@ const displayItem = computed<ExerciseProgressItem | null>(() => {
   return {
     id: targetId, displayName: label, isProject: false,
     passed: 0, stuck: 0, unreviewed: 0,
-    total: store.snapshot?.stats.total ?? 0, passRate: 0,
+    total: store.snapshot?.stats.online ?? 0, passRate: 0,   // 在线口径（服务端已计入在线数，虚拟桶同分母）
     firstTs: 0, latestTs: 0, title: label,
   };
 });
@@ -322,7 +322,9 @@ watch(
     </div>
     <div class="chart-card tech-card completion">
       <h2 class="tech-title">作业完成度</h2>
-      <select v-if="fileOptions.length" v-model="selectModel" class="file-select" title="切换焦点题：最新动态 = 系统自动挑题">
+      <!-- 下拉框独立悬浮（用户 2026-11-10 重申）：不占标题行布局（标题保持绝对居中），
+           top 固定在标题与桶顶之间，left 对齐「度」字左缘（约卡中心+35px） -->
+      <select v-if="displayItem && fileOptions.length" v-model="selectModel" class="file-select" title="切换焦点题：最新动态 = 系统自动挑题">
         <option :value="AUTO_FILE_ID">最新动态</option>
         <optgroup v-if="lessonOptions.length" label="本节课文件">
           <option v-for="o in lessonOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
@@ -331,13 +333,7 @@ watch(
           <option v-for="o in emergedOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
         </optgroup>
       </select>
-      <div v-if="activeTasks.length >= 2" class="task-tabs">
-        <button
-          v-for="b in activeTasks" :key="b.taskId"
-          class="task-tab" :class="{ active: activeTask?.taskId === b.taskId }"
-          @click="selectedTaskId = b.taskId"
-        >{{ b.taskId }}</button>
-      </div>
+      <!-- 层次（用户 2026-11-10 定稿）：左水桶居中，右列 = 任务 tab + 已通过/编码中 整体垂直居中 -->
       <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
         <div class="tank-wrap">
@@ -351,8 +347,14 @@ watch(
           </div>
           <div class="tank-base" />
         </div>
-        <div class="focus-info">
-          <div class="focus-name" :title="displayItem.displayName">{{ displayItem.title }}</div>
+        <div class="side-col">
+          <div v-if="activeTasks.length >= 2" class="task-tabs">
+            <button
+              v-for="b in activeTasks" :key="b.taskId"
+              class="task-tab" :class="{ active: activeTask?.taskId === b.taskId }"
+              @click="selectedTaskId = b.taskId"
+            >{{ b.taskId }}</button>
+          </div>
           <div class="focus-nums">
             <span class="ok"><i class="dot" />已通过 <b>{{ focusPassed }} 人</b></span>
             <span class="doing"><i class="dot" />编码中 <b>{{ displayItem.total - focusPassed }} 人</b></span>
@@ -381,18 +383,29 @@ watch(
 .rhythm-legend .runs .lg { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .rhythm-legend .errs { color: var(--tech-red); }
 .rhythm-legend .errs .lg { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.8); }
-/* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨；文件下拉 + 任务 tab（spec 2026-11-09 §6）—— */
-.completion { position: relative; }   /* 文件下拉 absolute 锚点 */
-.file-select {
-  position: absolute; top: 10px; right: 12px; z-index: 5; max-width: 42%;
+/* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨；文件下拉 + 任务 tab（spec 2026-11-09 §6）——
+ * 下拉框在标题下自成一行（右对齐，流式布局），物理上不可能遮挡标题 */
+.completion .file-select {
+  flex: none; width: 170px;   /* 与水桶同宽，右列视觉统一（用户 2026-11-10） */
   padding: 3px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
   color: var(--text-secondary); background: rgba(20, 50, 100, 0.5);
   border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
+  text-overflow: ellipsis;
 }
 .file-select:hover { border-color: var(--tech-cyan); }
 .file-select option, .file-select optgroup { background: #0a1830; color: var(--text-primary); }
-.task-tabs { flex: none; display: flex; justify-content: center; gap: 8px; }
+/* 任务 tab 竖排靠右（用户 2026-11-10 反馈）：focus 行内右侧栏，高度自适应任务数，
+ * 极端超多任务 → 本列内部滚动（max-height 不超 focus 高），水桶/人数完全不受挤压 */
+.task-tabs {
+  width: 150px;   /* 固定宽：嵌套 flex 里百分比宽度会塌陷成 "t…"（38% 相对父列解析过小）；列内位置由 side-col 整体居中控制（margin-top:auto 沉底方案已弃——中间空洞不美观，用户 2026-11-10） */
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: 4px; flex: 0 1 auto; min-height: 72px; max-height: 168px;   /* 任务区整体压缩（用户 2026-11-10）：高度只缩不涨（不抢水桶空间），保底约 3 个、封顶 168；超出内部滚动（滚动条已隐藏） */
+  overflow-y: auto; padding: 2px;
+}
+.task-tabs { scrollbar-width: none; -ms-overflow-style: none; }   /* 隐藏滚动条（用户 2026-11-10），滚轮仍可滚动 */
+.task-tabs::-webkit-scrollbar { display: none; }
 .task-tab {
+  flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding: 2px 14px; font-size: 14px; cursor: pointer; border-radius: 2px;
   border: 1px solid rgba(63, 140, 255, 0.3); background: transparent; color: var(--text-dim);
   transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -402,10 +415,16 @@ watch(
   border-color: var(--tech-cyan); color: var(--tech-cyan);
   background: rgba(63, 169, 255, 0.12); text-shadow: 0 0 6px rgba(80, 220, 255, 0.5);
 }
-.completion .focus { flex: 1; display: flex; align-items: center; justify-content: center; gap: 56px; min-height: 0; }   /* 居中：左右空白近似相等 */
-.tank-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: stretch; justify-content: center; }
+.completion { gap: 14px; position: relative; }   /* 标题与内容拉开；relative 供下拉框 absolute 定位（用户 2026-11-10） */
+/* 下拉框悬浮定位（用户 2026-11-10 重申）：垂直在「作业完成度」标题与桶顶之间的缝隙带（top 22px），
+ * 水平左缘对齐标题「度」字左缘——标题 5 字居中，度字左缘 ≈ 卡中心 + 35px。
+ * 不占文档流，标题保持绝对居中，不再被 grid 列挤偏 */
+.completion .file-select { position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2; }   /* top 50（用户 2026-11-10 指定）：标题行之下再往下沉，桶顶之上 */
+.completion .focus { flex: 1; display: flex; align-items: stretch; justify-content: center; gap: 48px; min-height: 0; }   /* 两列拉伸填满剩余高度（底部不留白，用户 2026-11-10）：水桶顶=下拉框顶、水桶底≈人数列底 */
+.completion .side-col { flex: none; width: 150px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; min-height: 0; height: 100%; }   /* 宽度锁 150：任务 tab 出现/消失不改变列宽，切换下拉时水桶不左右移动（用户 2026-11-10）；两块整体垂直居中，中线与水桶一致 */
+.tank-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: center; }
 .tank {
-  position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;
+  position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;   /* 随卡片拉伸但收上限 380（用户 2026-11-10：去上限后太高，380 为平衡值），min 260 保底 */
   border: 1px solid var(--tech-card-border); border-top: none;
   border-radius: 4px 4px 16px 16px;
   /* 玻璃管容器感：底槽渐暗 + 两侧 1px 高光（::after 绘制），不再是画在背景上的涂色柱 */
@@ -462,9 +481,7 @@ watch(
   text-shadow: 0 0 16px rgba(80, 220, 255, 0.9); font-variant-numeric: tabular-nums;
 }
 .tank-pct small { font-size: 20px; font-weight: 600; }
-.completion .focus-info { display: flex; flex-direction: column; gap: 52px; max-width: 230px; align-self: center; }   /* 贴内容收缩（写死宽度会在右侧留一大块空白导致视觉不居中）；题名超长时按 230px 换行 */
-.completion .focus-name { color: var(--text-primary); font-size: 20px; font-weight: 700; line-height: 1.45; text-align: left; margin: 0; overflow-wrap: anywhere; text-shadow: 0 0 10px rgba(80, 160, 255, 0.6); }
-.completion .focus-nums { display: flex; flex-direction: column; gap: 16px; font-size: 17px; }
+.completion .focus-nums { flex: none; display: flex; flex-direction: column; gap: 16px; font-size: 17px; white-space: nowrap; margin-top: 2px; }   /* 人数列不收缩（用户 2026-11-10：不被任务列挤压，保持原样） */
 .completion .focus-nums span { display: flex; align-items: center; gap: 9px; }
 .completion .focus-nums .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .completion .focus-nums b { margin-left: 14px; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }   /* 人数紧跟状态名固定间距，两行等宽标签天然上下对齐 */

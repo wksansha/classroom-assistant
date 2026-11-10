@@ -73,7 +73,8 @@ function persistReviewResult(
   }
 }
 
-/** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合（评审失败等同报错） */
+/** fail 合成事件注入 stateManager（spec §4.3）：进告警面板 + 知识点聚合（评审失败等同报错）。
+ * 分类用 LLM 输出的教学分类（旧缓存无 category 回退「评审未通过」）；source: "review" 供聚合层排除 TOP3 */
 function injectReviewFail(
   deps: ReviewRequestDeps,
   args: { studentId: string; studentName: string; review: ReviewResult },
@@ -84,7 +85,13 @@ function injectReviewFail(
     errorType: "review_fail", errorMessage: args.review.reason, samples: [],
     rawMessage: `评审未通过：${args.review.reason}`, cacheKey: null, ts: Date.now(),
   };
-  deps.stateManager.apply(ev, { category: "逻辑错误", subtype: "review_fail", knowledge: args.review.reason });
+  const category = args.review.category;
+  deps.stateManager.apply(ev, {
+    category: category ?? "逻辑错误",
+    subtype: category ?? "评审未通过",
+    knowledge: args.review.reason,
+    source: "review",
+  });
   deps.publishSnapshot();
   logEvent({ event: "review.fail_injected", level: "info", data: { studentId: args.studentId, reason: args.review.reason } });
 }

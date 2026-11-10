@@ -55,15 +55,17 @@ const sortedEvents = computed(() => [...(detail.value?.events ?? [])].sort((a, b
 </template>
 
 <style scoped>
-.drawer-mask { position: fixed; inset: 0; background: rgba(2, 6, 12, 0.6); display: flex; justify-content: flex-end; z-index: 10; }
-/* 科技感抽屉：与 tech-card 同族的渐变底/发光描边/四角折角标
-   固定框结构：抽屉恒为视口高度，头部/停留信息钉死，历史区独立滚动（内容再多不撑破） */
+.drawer-mask { position: fixed; inset: 0; background: rgba(2, 6, 12, 0.6); display: flex; align-items: center; justify-content: center; z-index: 10; }
+/* 科技感弹窗（用户 2026-11-10：从右侧抽屉改为居中模态——右侧盖住 AI 建议/TOP3，居中视线聚焦）：
+   与 tech-card 同族的渐变底/发光描边/四角折角标
+   固定框结构：头部/停留信息钉死，历史区独立滚动（内容再多不撑破） */
 .drawer {
-  position: relative; width: 380px; height: 100%; padding: 18px 16px; overflow: hidden;
+  position: relative; width: 420px; height: min(560px, 86vh); padding: 18px 16px; overflow: hidden;
   display: flex; flex-direction: column;
   background: var(--tech-card-grad);
-  border-left: 1px solid var(--tech-card-border);
-  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.55), var(--tech-card-glow);
+  border: 1px solid var(--tech-card-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), var(--tech-card-glow);
   color: var(--text-primary);
 }
 .drawer::before, .drawer::after { content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid var(--tech-corner); }

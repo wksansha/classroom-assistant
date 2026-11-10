@@ -282,3 +282,62 @@ describe("purgeStudent（spec roster §1.1 硬删除联动）", () => {
     await expect(admin.purgeStudent("0001")).rejects.toThrow("gitea branch protection delete failed: 500");
   });
 });
+
+describe("listExerciseTree（题库目录树，管理页「本节课文件」）", () => {
+  /** 按 Gitea contents API 模拟多级目录树 */
+  function treeFake(tree: Record<string, Array<{ type: string; name: string }>>) {
+    const f: typeof fetch = async (url) => {
+      const u = String(url);
+      const m = u.match(/\/contents\/?(?:([^?]+))?\?ref=main/);
+      const dir = m?.[1] ? decodeURIComponent(m[1]) : "";
+      const list = tree[dir];
+      if (!list) return new Response("not found", { status: 404 });
+      return new Response(JSON.stringify(list), { status: 200 });
+    };
+    return f;
+  }
+
+  it("递归收集：大文件夹套小文件夹，孙子层 .py 也列出（用户 2026-11-10）", async () => {
+    const f = treeFake({
+      "": [
+        { type: "dir", name: "第3章" },
+        { type: "dir", name: "_drafts" },      // 下划线开头跳过
+        { type: "file", name: "root.py" },     // 根级散文件不归任何文件夹
+      ],
+      "第3章": [
+        { type: "file", name: "a.py" },
+        { type: "dir", name: "循环专项" },
+        { type: "file", name: "notes.md" },    // 非 .py 不收
+      ],
+      "第3章/循环专项": [
+        { type: "file", name: "while_break.py" },
+        { type: "dir", name: "进阶" },
+      ],
+      "第3章/循环专项/进阶": [
+        { type: "file", name: "water_flower.py" },
+      ],
+      _drafts: [{ type: "file", name: "x.py" }],
+    });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    const folders = await admin.listExerciseTree();
+    expect(folders).toEqual([
+      { name: "第3章", files: ["第3章/a.py", "第3章/循环专项/while_break.py", "第3章/循环专项/进阶/water_flower.py"] },
+    ]);
+  });
+
+  it("单目录 404 → 该目录跳过不影响其余；根接口失败 → null", async () => {
+    const f = treeFake({
+      "": [{ type: "dir", name: "ok目录" }, { type: "dir", name: "坏目录" }],
+      "ok目录": [{ type: "file", name: "b.py" }],
+      // "坏目录" 无 mock → 404
+    });
+    const admin = createGiteaAdmin({ ...baseDeps, fetchImpl: f });
+    expect(await admin.listExerciseTree()).toEqual([{ name: "ok目录", files: ["ok目录/b.py"] }]);
+
+    const admin404 = createGiteaAdmin({
+      ...baseDeps,
+      fetchImpl: (async () => new Response("no", { status: 404 })) as typeof fetch,
+    });
+    expect(await admin404.listExerciseTree()).toBeNull();
+  });
+});

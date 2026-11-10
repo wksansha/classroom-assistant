@@ -52,9 +52,10 @@ function tooltip(s: StudentState): string {
 <style scoped>
 .matrix {
   padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
-  /* 高度固定（≈5 行半瓦片，1080p 下 40vh，第 6 行露半行提示可滚动）：主区行高由本卡决定，
-     课堂动态/AI 面板对齐此高度；学生超出可视行数时 .grid 内部滚动，滚动条隐藏 */
-  height: clamp(400px, 40vh, 470px);
+  /* 跟随 main-grid 行高拉伸（用户 2026-11-10：固定 clamp 高度导致与课堂动态/AI 面板底部不齐，
+     窗口模式偏高、F11 后偏矮）；行高由 .app 的 1fr 统一分配，三卡永远等底，
+     学生瓦片超出时 .grid 内部滚动（滚动条隐藏） */
+  height: 100%; min-height: 0;
 }
 .counts { display: flex; gap: 14px; font-size: 15px; justify-content: center; }
 /* 图例发光圆点：正常用青色（绿色只留给作业完成度的「已通过」，避免跨卡歧义） */

@@ -93,15 +93,29 @@ export function createGiteaAdmin(deps: GiteaAdminDeps): GiteaAdmin {
       }
       const entries = (await root.json()) as Array<{ type: string; name: string }>;
       const dirs = entries.filter((e) => e.type === "dir" && !e.name.startsWith("_"));
+      // 递归收集 dir 下所有 .py 相对路径（用户 2026-11-10：题库大文件夹里还套小文件夹，不能只扫一层）
+      // 返回 null = 目录列表失败（对齐旧语义：该文件夹整体跳过）；[] = 成功但无 .py
+      const collect = async (dir: string, depth: number): Promise<string[] | null> => {
+        if (depth > 5) return [];   // 防御上限：题库不至于嵌套超 5 层
+        const url = dir.split("/").map(encodeURIComponent).join("/");
+        const r = await api(`/api/v1/repos/${deps.repo}/contents/${url}?ref=main`, "GET");
+        if (!r.ok) return null;
+        const list = (await r.json()) as Array<{ type: string; name: string }>;
+        const out: string[] = [];
+        for (const e of list) {
+          const p = `${dir}/${e.name}`;
+          if (e.type === "file" && e.name.endsWith(".py")) out.push(p);
+          else if (e.type === "dir" && !e.name.startsWith("_")) {
+            const sub = await collect(p, depth + 1);
+            if (sub) out.push(...sub);
+          }
+        }
+        return out;
+      };
       const folders: ExerciseFolder[] = [];
       for (const d of dirs) {
-        const r = await api(`/api/v1/repos/${deps.repo}/contents/${encodeURIComponent(d.name)}?ref=main`, "GET");
-        if (!r.ok) continue;   // 单目录失败跳过（不影响其余文件夹）
-        const files = (await r.json()) as Array<{ type: string; name: string }>;
-        folders.push({
-          name: d.name,
-          files: files.filter((f) => f.type === "file" && f.name.endsWith(".py")).map((f) => `${d.name}/${f.name}`),
-        });
+        const files = await collect(d.name, 1);
+        if (files) folders.push({ name: d.name, files });   // 单目录失败跳过（不影响其余文件夹）
       }
       return folders;
     },

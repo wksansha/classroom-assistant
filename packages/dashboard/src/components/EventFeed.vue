@@ -16,7 +16,6 @@ const pending = ref<ActivityFeedItem[]>([]);
 const hoverPause = ref(false);
 const popHover = ref(false);
 const hoverCount = ref(0);
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 const pendingCount = computed(() => (hoverPause.value ? pending.value.length : 0));
 
@@ -49,29 +48,43 @@ watch(
   },
 );
 
-/* —— 悬浮即暂停：120ms 宽限允许 条目↔代码卡 之间移动不闪断 —— */
-function maybeResume() {
-  if (hoverCount.value > 0 || popHover.value) return;
-  if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = setTimeout(() => {
-    if (hoverCount.value === 0 && !popHover.value) {
-      hoverPause.value = false;
-      applyNew(pending.value.splice(0), true);
-    }
-  }, 120);
+/* —— 悬浮即暂停；离开延迟收起 ——
+ * 行与代码卡之间有 14px 间隙，且代码卡要能移入滚动：离开行不立即销毁，
+ * 延迟到期且指针既不在行上也不在卡上，才收起并一次性恢复动态流 */
+let hideTimer: ReturnType<typeof setTimeout> | null = null;
+const HIDE_DELAY_MS = 200;
+
+function cancelHide() {
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+}
+function scheduleHide() {
+  cancelHide();
+  hideTimer = setTimeout(() => {
+    hideTimer = null;
+    if (hoverCount.value > 0 || popHover.value) return;
+    hidePop();
+    if (hoverPause.value) { hoverPause.value = false; applyNew(pending.value.splice(0), true); }
+  }, HIDE_DELAY_MS);
 }
 function onRowEnter(item: ActivityFeedItem) {
   hoverCount.value += 1;
   hoverPause.value = true;
-  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  cancelHide();
   showPop(item);
 }
 function onRowLeave() {
   hoverCount.value = Math.max(0, hoverCount.value - 1);
-  hidePop();
-  maybeResume();
+  scheduleHide();
 }
-/* —— 安全网：Chromium 偶发不派发 mouseleave 边界事件（实测），指针离开「行+代码卡」即收起并恢复流，
+function onPopEnter() {
+  popHover.value = true;
+  cancelHide();
+}
+function onPopLeave() {
+  popHover.value = false;
+  scheduleHide();
+}
+/* —— 安全网：Chromium 偶发不派发 mouseleave 边界事件（实测），指针离开「行+代码卡」即安排收起并恢复流，
  * 不依赖 mouseleave 是否送达。rAF 节流，pointermove 被动监听不影响滚动性能 —— */
 function onDocPointerMove(e: PointerEvent) {
   if (!pop.value) return;
@@ -79,9 +92,7 @@ function onDocPointerMove(e: PointerEvent) {
   if (t?.closest?.(".lb-row") || t?.closest?.(".code-pop")) return;
   if (hoverCount.value > 0) hoverCount.value = 0;
   popHover.value = false;
-  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  hidePop();
-  if (hoverPause.value) { hoverPause.value = false; applyNew(pending.value.splice(0), true); }
+  scheduleHide();
 }
 let rafId = 0;
 function onDocMove(e: PointerEvent) {
@@ -92,7 +103,7 @@ onMounted(() => document.addEventListener("pointermove", onDocMove, { passive: t
 onBeforeUnmount(() => {
   document.removeEventListener("pointermove", onDocMove);
   if (rafId) cancelAnimationFrame(rafId);
-  if (flushTimer) clearTimeout(flushTimer);
+  cancelHide();
 });
 
 /* —— 心跳条：从展示列表按生聚合最近 8 次（混排运行+评审，最新在最右）—— */
@@ -196,8 +207,8 @@ onMounted(() => {
         v-if="pop"
         class="code-pop"
         :style="{ left: pop.x + 'px', top: pop.y + 'px' }"
-        @mouseenter="popHover = true"
-        @mouseleave="popHover = false; maybeResume()"
+        @mouseenter="onPopEnter"
+        @mouseleave="onPopLeave"
       >
         <div class="pop-head">
           <span class="stu">{{ pop.item.studentName }}</span>

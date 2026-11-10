@@ -102,18 +102,35 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(ep2.list(0)[0]).toMatchObject({ title: "题：两数之和" });
   });
 
-  it("评审 fail：等同报错，无条件注入（无任何提交行也注入）+ 快照推送", async () => {
+  it("评审 fail：等同报错，无条件注入（无任何提交行也注入）+ 快照推送；无分类时回退「评审未通过」", async () => {
     const { deps, counters, stateManager } = makeDeps("fail");
     const r = await requestReview(deps, fileInput);
     expect(r.ok).toBe(true);
     const rec = stateManager.listRecords()[0];
     expect(rec).toBeTruthy();
-    const failEvents = rec!.events.filter((e) => e.subtype === "review_fail");
+    const failEvents = rec!.events.filter((e) => e.source === "review");
     expect(failEvents.length).toBe(1);
+    expect(failEvents[0]).toMatchObject({ subtype: "评审未通过", category: "逻辑错误" });
     expect(failEvents[0].knowledge).toBe("死循环风险");
     expect(rec!.consecutiveErrors).toBe(1);
     expect(rec!.lastResolvedAt).toBeNull();
     expect(counters.snapshotPushes).toBe(1);
+  });
+
+  it("评审 fail 带 LLM 分类：注入事件 subtype = 教学分类", async () => {
+    const p = seedPersistence();
+    const fetchImpl = (async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ status: "fail", reason: "未处理空列表", category: "空值未处理" }) } }] }),
+    })) as unknown as typeof fetch;
+    const reviewService = createReviewService(p, { apiKey: "k", fetchImpl, retryDelayMs: 0 });
+    const deps: ReviewRequestDeps = {
+      persistence: p, reviewService, stateManager: createStateManager(),
+      exerciseProgress: createExerciseProgressTracker(), publishSnapshot: () => {},
+    };
+    await requestReview(deps, fileInput);
+    const rec = deps.stateManager.listRecords()[0];
+    expect(rec.events.at(-1)).toMatchObject({ success: false, subtype: "空值未处理", source: "review", knowledge: "未处理空列表" });
   });
 
   it("单文件多任务：逐任务落行 + 逐任务进度桶 + 整体注入（任一 fail → review_fail）", async () => {
@@ -158,9 +175,9 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     const item = deps.exerciseProgress.list(0)[0];
     expect(item.tasks?.find((b) => b.taskId === "任务一")).toMatchObject({ passed: 1 });
     expect(item.tasks?.find((b) => b.taskId === "任务二")).toMatchObject({ stuck: 1 });
-    // 整体注入 fail（文件级状态语义不变）
+    // 整体注入 fail（文件级状态语义不变；逐任务结论无 category → 回退「评审未通过」）
     const rec = deps.stateManager.listRecords()[0];
-    expect(rec.events.at(-1)).toMatchObject({ success: false, subtype: "review_fail" });
+    expect(rec.events.at(-1)).toMatchObject({ success: false, subtype: "评审未通过", source: "review" });
   });
 
   it("单文件多任务 + LLM 不可用兜底：逐声明任务落 unreviewed 行（降级路径）", async () => {

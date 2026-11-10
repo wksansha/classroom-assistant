@@ -22,6 +22,9 @@ export function fallbackSubtype(errorType?: string | null, rawMessage?: string |
   const name = (errorType ?? "").trim();
   if (name && name !== "DiagnosticError") return name;
   const firstLine = (rawMessage ?? "").split("\n").map((s) => s.trim()).find(Boolean) ?? "";
+  // TOP3/告警只展示错误类型名（如 NameError），不跟具体原因（用户 2026-11-10）
+  const m = firstLine.match(/^([A-Za-z_][\w]*(?:Error|Exception))\b/);
+  if (m) return m[1];
   return firstLine ? firstLine.slice(0, 40) : "其他错误";
 }
 

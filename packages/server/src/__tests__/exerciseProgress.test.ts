@@ -101,6 +101,18 @@ describe("ExerciseProgressTracker（当天涌现，spec dashboard-v2 §5.3 / 决
     expect(Object.keys(item).sort()).toEqual(["displayName", "firstTs", "id", "isProject", "latestTs", "passed", "stuck", "title", "unreviewed"]);
   });
 
+  it("在线口径：isOnline 传入时离线学生不计入 passed/stuck；缺省全量（回放兼容）", () => {
+    const t = createExerciseProgressTracker();
+    t.applyReview("s1", "张三", "l1/a.py", "pass", NOW);
+    t.applyRunFailure("s2", "李四", "l1/a.py", NOW);
+    // 全量（缺省，兼容旧调用）
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 1, stuck: 1 });
+    // 只有 s1 在线 → s2 的 fail 格子不计入
+    expect(t.list(TODAY_START, (id) => id === "s1")[0]).toMatchObject({ passed: 1, stuck: 0 });
+    // 全部离线 → 无活跃格子，题目不涌现
+    expect(t.list(TODAY_START, () => false)).toEqual([]);
+  });
+
   it("题面名：applyReview 带 title 时优先展示，未带时回退文件名", () => {
     const t = createExerciseProgressTracker();
     t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, "输出问候语");

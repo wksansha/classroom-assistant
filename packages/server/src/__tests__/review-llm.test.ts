@@ -16,6 +16,23 @@ describe("parseReviewResponse", () => {
     expect(parseReviewResponse("废话")).toBeNull();
     expect(parseReviewResponse('{"status":"maybe"}')).toBeNull();
   });
+  it("fail 带 category：清单内透传，清单外/非字符串丢弃（防幻觉）", () => {
+    expect(parseReviewResponse('{"status":"fail","reason":"空列表崩溃","category":"空值未处理"}'))
+      .toEqual({ status: "fail", reason: "空列表崩溃", category: "空值未处理" });
+    expect(parseReviewResponse('{"status":"fail","reason":"x","category":"我不存在的分类"}'))
+      .toEqual({ status: "fail", reason: "x" });
+    expect(parseReviewResponse('{"status":"pass","reason":"ok","category":"边界未处理"}'))
+      .toEqual({ status: "pass", reason: "ok", category: "边界未处理" });
+  });
+  it("多任务：整体分类取首个 fail 任务的 category", () => {
+    const raw = JSON.stringify({ tasks: [
+      { name: "任务一", status: "pass", reason: "对" },
+      { name: "任务二", status: "fail", reason: "越界", category: "边界未处理" },
+    ] });
+    const r = parseReviewResponse(raw, ["任务一", "任务二"]);
+    expect(r).toMatchObject({ status: "fail", category: "边界未处理" });
+    expect(r?.tasks?.[1]).toMatchObject({ status: "fail", category: "边界未处理" });
+  });
 });
 
 describe("callReviewLLM（A4/A11）", () => {

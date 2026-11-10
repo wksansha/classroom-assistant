@@ -107,6 +107,10 @@ export function createPersistence(dbPath?: string): Persistence {
   if (tableExists("review_cache") && !colsOf("review_cache").includes("tasks")) {
     db.exec("ALTER TABLE review_cache ADD COLUMN tasks TEXT");
   }
+  // —— 评审失败教学分类（REVIEW_CATEGORIES；无则旧缓存行命中后回退「评审未通过」）——
+  if (tableExists("review_cache") && !colsOf("review_cache").includes("category")) {
+    db.exec("ALTER TABLE review_cache ADD COLUMN category TEXT");
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS trace_events (
@@ -157,6 +161,7 @@ export function createPersistence(dbPath?: string): Persistence {
       source TEXT NOT NULL,
       model TEXT,
       tasks TEXT,
+      category TEXT,
       hit_count INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL
     );
@@ -301,21 +306,22 @@ export function createPersistence(dbPath?: string): Persistence {
     },
     // —— 评审缓存（内容寻址）——
     getCachedReview(cacheKey) {
-      const r = db.prepare("SELECT status, reason, source, model, tasks FROM review_cache WHERE cache_key = ?").get(cacheKey) as
-        { status: string; reason: string; source: string; model: string | null; tasks: string | null } | undefined;
+      const r = db.prepare("SELECT status, reason, source, model, tasks, category FROM review_cache WHERE cache_key = ?").get(cacheKey) as
+        { status: string; reason: string; source: string; model: string | null; tasks: string | null; category: string | null } | undefined;
       if (!r) return null;
       db.prepare("UPDATE review_cache SET hit_count = hit_count + 1 WHERE cache_key = ?").run(cacheKey);
       return { status: r.status as ReviewResult["status"], reason: r.reason,
         reviewedAt: 0, model: r.model ?? "", source: r.source as ReviewResult["source"],
+        ...(r.category ? { category: r.category } : {}),
         ...(r.tasks ? { tasks: JSON.parse(r.tasks) as ReviewResult["tasks"] } : {}) };
     },
     saveReviewCache(row) {
-      db.prepare(`INSERT INTO review_cache (cache_key, status, reason, source, model, tasks, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO review_cache (cache_key, status, reason, source, model, tasks, category, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(cache_key) DO UPDATE SET status = excluded.status, reason = excluded.reason,
-          source = excluded.source, model = excluded.model, tasks = excluded.tasks`)
+          source = excluded.source, model = excluded.model, tasks = excluded.tasks, category = excluded.category`)
         .run(row.cacheKey, row.review.status, row.review.reason, row.review.source, row.review.model,
-          row.review.tasks ? JSON.stringify(row.review.tasks) : null, Date.now());
+          row.review.tasks ? JSON.stringify(row.review.tasks) : null, row.review.category ?? null, Date.now());
     },
     // —— 评审结果持久化（题目进度/重启回放，spec dashboard-v2 §5.2；多任务题逐任务一行带 task_id）——
     saveReviewResult(row) {

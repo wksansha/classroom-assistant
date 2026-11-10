@@ -24,6 +24,15 @@ describe("buildReviewPrompt", () => {
     expect(p).toContain("不构成对你的要求");
   });
 
+  it("fail 分类清单：prompt 携带六类固定分类并标注仅 fail 必填", () => {
+    const p = buildReviewPrompt({ studentCode: "print(1)" });
+    expect(p).toContain("边界未处理");
+    expect(p).toContain("需求理解偏差");
+    expect(p).toContain("仅在 status=fail 时必填");
+    const multi = buildReviewPrompt({ studentCode: "pass", tasks: ["任务一", "任务二"] });
+    expect(multi).toContain("边界未处理");
+  });
+
   it("TODO 分步任务规则：pass 占位属未开始而非错误，只评判已实现部分", () => {
     const p = buildReviewPrompt({ studentCode: "# TODO 1：筛选\nprint(1)\n# TODO 2：导入\npass" });
     expect(p).toContain("分步任务清单");

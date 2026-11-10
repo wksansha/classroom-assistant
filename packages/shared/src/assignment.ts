@@ -8,6 +8,8 @@ export interface ReviewTaskVerdict {
   name: string;               // 与题面声明的任务名一致
   status: ReviewStatus;
   reason: string;             // ≤50 字
+  /** fail 时的教学分类（REVIEW_CATEGORIES 六选一）；旧缓存/LLM 未输出时缺省 */
+  category?: string;
 }
 
 export interface ReviewResult {
@@ -16,6 +18,8 @@ export interface ReviewResult {
   reviewedAt: number;
   model: string;              // 审计
   source: "llm" | "mock" | "timeout" | "not_configured";
+  /** fail 时的教学分类（REVIEW_CATEGORIES 六选一，多任务题取首个 fail 任务的分类）；旧数据/不可用兜底时缺省 */
+  category?: string;
   /** 多任务题逐任务结论；单任务题/LLM 不可用兜底时缺省 */
   tasks?: ReviewTaskVerdict[];
 }

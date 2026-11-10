@@ -117,10 +117,12 @@ export function createAggregator(): Aggregator {
       const alertSummary = `其余 ${normalCount} 人正常`;
 
       // ── 聚合（按 subtype，count=人数，仅课堂窗口内）─────────────
+      // 评审失败合成事件（source: "review"，spec §4.3）只用于告警/评分：
+      // 其 subtype 是教学分类不是运行错误类型，不进 TOP3 聚合、不触发讲评/讨论建议
       const groups = new Map<string, SubtypeGroup>();
       for (const r of records) {
         for (const e of r.events) {
-          if (e.success || !e.subtype || !isWithinClassWindow(e.ts, windowStart)) continue;
+          if (e.success || !e.subtype || e.source === "review" || !isWithinClassWindow(e.ts, windowStart)) continue;
           let g = groups.get(e.subtype);
           if (!g) {
             g = { subtype: e.subtype, category: e.category ?? "其他", knowledge: "", latestTs: -1, students: [] };

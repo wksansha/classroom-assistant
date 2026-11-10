@@ -10,6 +10,8 @@ export interface StoredEvent {
   knowledge: string | null;
   rawMessage: string;
   codeSnippet?: string;
+  /** 评审失败合成事件标记（reviewController 注入）：聚合层据此排除，不进 TOP3 */
+  source?: "review";
 }
 
 /** 机器级登录会话（登录态在线模型）：键 = vscode.env.machineId，同机多窗口 upsert 幂等 */
@@ -111,6 +113,7 @@ export function createStateManager(): StateManager {
         knowledge: ev.success ? null : (explanation?.knowledge ?? null),
         rawMessage: ev.rawMessage,
         codeSnippet: ev.codeSnippet,
+        ...(explanation?.source ? { source: explanation.source } : {}),
       };
       r.events.push(storedEvent);
       if (r.events.length > MAX_EVENTS) r.events.splice(0, r.events.length - MAX_EVENTS);

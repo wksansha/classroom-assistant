@@ -90,7 +90,6 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
     const windowStart = classWindowStart(now);   // 大屏数据窗口：当天 0 点与重置锚点取较晚者
     const agg = aggregator.recompute(allRecords, now, windowStart);
     const trendBuckets = trend.list(windowStart);
-    const rosterTotal = persistence.getRoster().length;   // 班级总人数（通过率分母，决策 #20）
     // 建议文案增强：已缓存的要点拼到文案尾部；未缓存的触发异步 LLM 生成（完成后重推快照）
     const suggestions = agg.suggestions.map((s) => {
       if (s.kind === "individual") return s;
@@ -105,19 +104,21 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       suggestionEnricher.ensure(s.kind, subtype, knowledge, () => hub.publish(buildSnapshot()));
     }
     // V1 单班级：records[0]?.classId 作为 classId 来源（未来多班级需改为聚合所有班级）
+    const onlineStudents = agg.students.filter((s) => s.online);   // 登录态在线（身份确认 + 心跳存活）
+    const onlineIds = new Set(onlineStudents.map((s) => s.studentId));
     return {
       ts: now,
       classId: records[0]?.classId ?? "default",
       ...agg,
       suggestions,   // 文案增强版（覆盖 agg.suggestions；未命中缓存的保持原文案）
-      exerciseProgress: exerciseProgress.list(windowStart).map((e) => ({
+      exerciseProgress: exerciseProgress.list(windowStart, (id) => onlineIds.has(id)).map((e) => ({
         ...e,
-        total: rosterTotal,
-        passRate: rosterTotal === 0 ? 0 : e.passed / rosterTotal,   // 每题通过率（决策 #20）
+        total: onlineIds.size,
+        passRate: onlineIds.size === 0 ? 0 : e.passed / onlineIds.size,   // 在线人数为分母（已通过/编码中只算在线）
       })),
       trend: trendBuckets,
       stats: {
-        online: agg.students.filter((s) => s.online).length,   // 登录态在线：已确认身份且机器存活（心跳未超时）
+        online: onlineStudents.length,   // 登录态在线：已确认身份且机器存活（心跳未超时）
         total: agg.students.length,
         needHelp: agg.students.filter((s) => s.status === "red").length,
         runs: trendBuckets.reduce((sum, b) => sum + b.runs, 0),
