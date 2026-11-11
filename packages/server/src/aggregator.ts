@@ -142,29 +142,35 @@ export function createAggregator(): Aggregator {
         .map((g) => ({ subtype: g.subtype, category: g.category, knowledge: g.knowledge, count: g.students.length, students: g.students }))
         .sort((a, b) => b.count - a.count);
 
-      // ── 建议（分母 = 课堂窗口内上报过错误的学生数）──────────
-      // 全班讲评要求报错学员 ≥4 人（否则 1-3 人报错时占比虚高误触发）；小组讨论要求 ≥2 人
-      const errorStudents = records.filter((r) => r.events.some((e) => !e.success && isWithinClassWindow(e.ts, windowStart))).length;
+      // ── 建议（分母 = 实时心跳在线人数，与大屏首行「在线 N 人」同源同口径；用户 2026-11-11）──────────
+      // 兼顾大小班（用户 2026-11-11 定稿）：绝对线兜底 + 比例线取大
+      //   全班讲评 = max(3, ceil(online×25%))；小组讨论 = max(2, ceil(online×15%))
+      //   小班 4 人：2 人同错→讨论、3 人→讲评；大班 20 人：3 人→讨论、5 人→讲评
+      // 聚集人数只算在线学生：离线者的窗口内历史错误不参与（否则会出现「没人在线却出讲评」的幽灵建议）
+      const onlineRecords = records.filter((r) => isStudentOnline(r));
+      const onlineIds = new Set(onlineRecords.map((r) => r.studentId));
       const suggestions: SuggestionItem[] = [];
-      if (errorStudents > 0) {
+      if (onlineRecords.length > 0) {
+        const reviewMin = Math.max(3, Math.ceil(onlineRecords.length * 0.25));
+        const discussMin = Math.max(2, Math.ceil(onlineRecords.length * 0.15));
         for (const g of groups.values()) {
-          const ratio = g.students.length / errorStudents;
-          if (errorStudents >= 4 && ratio >= 0.4) {
+          const members = g.students.filter((s) => onlineIds.has(s.studentId));
+          if (members.length >= reviewMin) {
             suggestions.push({
               id: `class-review:${g.subtype}`, kind: "class-review",
-              text: `⚠️ ${g.students.length} 人卡在「${g.subtype}」，建议全班讲评`,
+              text: `⚠️ ${members.length} 人卡在「${g.subtype}」，建议全班讲评`,
               acked: acked.has(`class-review:${g.subtype}`),
             });
-          } else if (g.students.length >= 2 && ratio >= 0.2) {
+          } else if (members.length >= discussMin) {
             suggestions.push({
               id: `group-discuss:${g.subtype}`, kind: "group-discuss",
-              text: `💡 ${g.students.length} 人遇到「${g.subtype}」，可小组讨论`,
+              text: `💡 ${members.length} 人遇到「${g.subtype}」，可小组讨论`,
               acked: acked.has(`group-discuss:${g.subtype}`),
             });
           }
         }
         // 连续报错只认课堂窗口内
-        const stuck = records.filter((r) =>
+        const stuck = onlineRecords.filter((r) =>
           r.events.some((e) => !e.success && isWithinClassWindow(e.ts, windowStart)) &&
           r.consecutiveErrors >= 3
         );

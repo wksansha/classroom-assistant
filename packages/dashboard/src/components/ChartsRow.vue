@@ -322,12 +322,13 @@ watch(
     </div>
     <div class="chart-card tech-card completion">
       <h2 class="tech-title">作业完成度</h2>
-      <!-- 用户 2026-11-10：有预选 → 下拉只列预选文件（保存顺序、默认第一个，完全以教师选择为准）；
-           无预选 → 无下拉，原下拉位置显示当前桶展示的文件名 -->
-      <select v-if="lessonFiles.length" v-model="selectModel" class="file-select" title="切换焦点文件">
+      <!-- 用户 2026-11-11 定稿：顶部（对齐「度」字）下拉/文件名只在多任务时显示；单任务时右列任务区放
+           下拉（有预选，可直接切换）或文件名（无预选），顶部留空 -->
+      <select v-if="lessonFiles.length && activeTasks.length >= 2" v-model="selectModel" class="file-select" title="切换焦点文件">
         <option v-for="o in fileOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
       </select>
-      <span v-else-if="displayItem" class="focus-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
+      <!-- 无预选多任务：顶部显示当前文件名（17px 与已通过同字号） -->
+      <span v-else-if="displayItem && activeTasks.length >= 2" class="focus-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
       <!-- 层次（用户 2026-11-10 定稿）：左水桶居中，右列 = 任务 tab + 已通过/编码中 整体垂直居中 -->
       <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
       <div v-else class="focus">
@@ -349,6 +350,14 @@ watch(
               class="task-tab" :class="{ active: activeTask?.taskId === b.taskId }"
               @click="selectedTaskId = b.taskId"
             >{{ b.taskId }}</button>
+          </div>
+          <!-- 单任务/无任务题（用户 2026-11-11 定稿）：任务区补位——有预选放下拉（流式，可切换文件），无预选放文件名；
+               复用 task-tabs 容器保持布局高度稳定 -->
+          <div v-else class="task-tabs">
+            <select v-if="lessonFiles.length" v-model="selectModel" class="file-select in-task" title="切换焦点文件">
+              <option v-for="o in fileOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+            </select>
+            <span v-else class="task-tab file-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
           </div>
           <div class="focus-nums">
             <span class="ok"><i class="dot" />已通过 <b>{{ focusPassed }} 人</b></span>
@@ -382,7 +391,7 @@ watch(
  * 下拉框在标题下自成一行（右对齐，流式布局），物理上不可能遮挡标题 */
 .completion .file-select {
   flex: none; width: 170px;   /* 与水桶同宽，右列视觉统一（用户 2026-11-10） */
-  padding: 3px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+  padding: 3px 8px; font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号（用户 2026-11-11） */
   color: var(--text-secondary); background: rgba(20, 50, 100, 0.5);
   border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
   text-overflow: ellipsis;
@@ -406,6 +415,7 @@ watch(
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .task-tab:hover { color: var(--text-secondary); }
+.task-tab.file-name { cursor: default; color: var(--text-secondary); }   /* 单任务题文件名占位块（用户 2026-11-11）：静态不可点 */
 .task-tab.active {
   border-color: var(--tech-cyan); color: var(--tech-cyan);
   background: rgba(63, 169, 255, 0.12); text-shadow: 0 0 6px rgba(80, 220, 255, 0.5);
@@ -415,11 +425,12 @@ watch(
  * 水平左缘对齐标题「度」字左缘——标题 5 字居中，度字左缘 ≈ 卡中心 + 35px。
  * 不占文档流，标题保持绝对居中，不再被 grid 列挤偏 */
 .completion .file-select { position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2; }   /* top 50（用户 2026-11-10 指定）：标题行之下再往下沉，桶顶之上 */
+.completion .file-select.in-task { position: static; width: 150px; }   /* 单任务补位下拉（用户 2026-11-11）：流式放进右列任务区，宽度对齐任务列 */
 /* 无预选模式（用户 2026-11-10）：不下拉，原下拉位置静态显示当前焦点文件名（与下拉同位同字号） */
 .completion .focus-name {
   position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2;
-  max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; color: var(--text-secondary);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 17px; color: var(--text-secondary);   /* 17px 与「已通过」同字号（用户 2026-11-11） */
 }
 .completion .focus { flex: 1; display: flex; align-items: stretch; justify-content: center; gap: 48px; min-height: 0; }   /* 两列拉伸填满剩余高度（底部不留白，用户 2026-11-10）：水桶顶=下拉框顶、水桶底≈人数列底 */
 .completion .side-col { flex: none; width: 150px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; min-height: 0; height: 100%; }   /* 宽度锁 150：任务 tab 出现/消失不改变列宽，切换下拉时水桶不左右移动（用户 2026-11-10）；两块整体垂直居中，中线与水桶一致 */

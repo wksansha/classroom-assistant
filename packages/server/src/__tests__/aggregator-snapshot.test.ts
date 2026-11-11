@@ -62,11 +62,12 @@ describe("recompute：完整快照", () => {
     expect(agg[1]).toMatchObject({ subtype: "意外缩进", count: 1 });
   });
 
-  it("建议规则：≥40% 全班讲评；≥20% 小组讨论；连续≥3 单独辅导", () => {
-    // 10 人班：stu1-4 报「缺少冒号」(4/7=57%→class-review)
-    //          stu5-6 报「意外缩进」(2/7=29%→group-discuss)
-    //          stu7 连续 3 次不同 subtype（→individual）
-    //          分母=7（上报过错误的学生），stu8-10 无错误
+  it("建议规则（用户 2026-11-11）：讲评=max(3,在线25%)、讨论=max(2,在线15%)，连续≥3 单独辅导", () => {
+    // 10 人班（全部在线）：讲评门槛 max(3,ceil(2.5))=3、讨论门槛 max(2,ceil(1.5))=2
+    //   stu1-4 报「缺少冒号」(4≥3→class-review)
+    //   stu5-6 报「意外缩进」(2≥2 且 <3→group-discuss)
+    //   stu7 连续 3 次不同 subtype（→individual）
+    //   分母=在线 10 人，stu8-10 在线但无错误
     const recs = [
       ...[1, 2, 3, 4].map(i => student(`stu00${i}`, `学生${i}`, [err(NOW - MIN, "缺少冒号")])),
       ...[5, 6].map(i => student(`stu00${i}`, `学生${i}`, [err(NOW - MIN, "意外缩进")])),
@@ -117,10 +118,30 @@ describe("recompute：完整快照", () => {
     expect(snap.suggestions.some(s => s.id.endsWith("边界未处理") || s.id.endsWith("空值未处理"))).toBe(false);
   });
 
-  it("小样本防误报：仅 1 人报错不触发全班讲评/小组讨论", () => {
+  it("在线分母：仅 1 人在线报错不触发全班讲评/小组讨论（讨论门槛兜底 2 人）", () => {
     const agg = createAggregator();
     const recs = [student("stu001", "张三", [err(NOW - MIN, "缺少冒号")])];
     const snap = agg.recompute(recs, NOW, WIN_START);
-    expect(snap.suggestions).toHaveLength(0);   // 1/1=100% 也不触发（讲评需报错学员≥4、小组讨论需≥2）
+    expect(snap.suggestions).toHaveLength(0);   // 1/1=100% 也不触发：讲评需≥max(3,1)=3、讨论需≥max(2,1)=2
+  });
+
+  it("在线分母：离线学生的错误不参与聚集（幽灵建议防护，用户 2026-11-11）", () => {
+    const agg = createAggregator();
+    // 3 人在线，其中 2 人报「缺少冒号」→ 讲评门槛 max(3,1)=3 不够、讨论门槛 2 够 → group-discuss
+    // 第 4 人离线但窗口内有 10 条同错历史：不参与聚集（否则 12 人 ≥ 讲评门槛误触发）
+    const offline = { ...student("stu004", "赵六", Array.from({ length: 10 }, () => err(NOW - MIN, "缺少冒号"))) };
+    offline.machines = new Map();   // 无存活机器 → 离线
+    const recs = [
+      student("stu001", "张三", [err(NOW - MIN, "缺少冒号")]),
+      student("stu002", "李四", [err(NOW - MIN, "缺少冒号")]),
+      student("stu003", "王五", []),
+      offline,
+    ];
+    const snap = agg.recompute(recs, NOW, WIN_START);
+    const ids = snap.suggestions.map(s => s.id);
+    expect(ids).toContain("group-discuss:缺少冒号");
+    expect(ids).not.toContain("class-review:缺少冒号");
+    const g = snap.suggestions.find(s => s.id === "group-discuss:缺少冒号")!;
+    expect(g.text).toBe("💡 2 人遇到「缺少冒号」，可小组讨论");   // 只算在线 2 人，不算离线的赵六
   });
 });

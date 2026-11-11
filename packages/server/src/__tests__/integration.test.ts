@@ -80,8 +80,12 @@ describe("GET /api/student/:id", () => {
 describe("POST /api/suggestions/ack", () => {
   it("ack 后 summary 中该建议标记已处理；缺 id 400", async () => {
     const a = app();
-    // 全班讲评门槛 = 报错学员 ≥4 且占比 ≥40%（0847f3a 防 1/1=100% 误报）：4 人报同一错 → class-review
+    // 建议分母 = 实时心跳在线人数（用户 2026-11-11）：先心跳让 4 人在线，再各报同一错
+    // 讲评门槛 = max(3, ceil(4×25%)) = 3 → 4 人报「除数为0」→ class-review
     const ids = ["stu001", "stu002", "stu003", "stu004"];
+    for (let i = 0; i < ids.length; i++) {
+      await request(a).post("/api/heartbeat").send({ student_id: ids[i], student_name: `学生${i + 1}`, machine_id: `pc-${i}` });
+    }
     for (let i = 0; i < ids.length; i++) {
       await request(a).post("/api/events").send({ ...flatError, id: `run:it-ack-${i}`, student_id: ids[i], student_name: `学生${i + 1}` });
     }
