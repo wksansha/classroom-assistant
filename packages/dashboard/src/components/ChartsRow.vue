@@ -388,19 +388,25 @@ watch(
 /* —— 单题水桶模式（完成度卡）：竖直水桶 + 液面随通过人数上涨；文件下拉 + 任务 tab（spec 2026-11-09 §6）——
  * 下拉框在标题下自成一行（右对齐，流式布局），物理上不可能遮挡标题 */
 .completion .file-select {
-  flex: none; width: 170px;   /* 与水桶同宽，右列视觉统一（用户 2026-11-10） */
-  padding: 3px 26px 3px 8px;   /* 右侧留足箭头+安全距：文件名截断的省略号落在边框内侧，右边框始终完整（用户 2026-11-11） */
-  font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号（用户 2026-11-11） */
-  color: var(--text-secondary); background: rgba(20, 50, 100, 0.5);
+  flex: none; width: 200px;   /* 顶部下拉（用户 2026-11-11 加宽：170 → 200，减少截断） */
+  padding: 4px 30px 4px 10px;   /* 右侧留出自绘箭头+安全距：截断省略号落在边框内侧，右边框始终完整 */
+  font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号 */
+  color: var(--text-secondary); background-color: rgba(20, 50, 100, 0.5);
+  color-scheme: dark;   /* 弹出选项列表深色渲染（Chrome/Edge），不再突兀白框 */
+  appearance: none;   /* 去系统原生框和灰箭头，换自绘青色 chevron，融入科技风 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' stroke='%237fd7ff' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
   border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
   text-overflow: ellipsis;
 }
 .file-select:hover { border-color: var(--tech-cyan); }
-.file-select option, .file-select optgroup { background: #0a1830; color: var(--text-primary); }
+.file-select:focus { border-color: var(--tech-cyan); box-shadow: 0 0 10px rgba(124, 231, 255, 0.25); }   /* 聚焦辉光与瓦片 hover 同语义 */
+.file-select option, .file-select optgroup { background: #0a1830; color: var(--text-primary); padding: 6px 10px; }
 /* 任务 tab 竖排靠右（用户 2026-11-10 反馈）：focus 行内右侧栏，高度自适应任务数，
  * 极端超多任务 → 本列内部滚动（max-height 不超 focus 高），水桶/人数完全不受挤压 */
 .task-tabs {
-  width: 150px;   /* 固定宽：嵌套 flex 里百分比宽度会塌陷成 "t…"（38% 相对父列解析过小）；列内位置由 side-col 整体居中控制（margin-top:auto 沉底方案已弃——中间空洞不美观，用户 2026-11-10） */
+  width: 190px;   /* 固定宽：嵌套 flex 里百分比宽度会塌陷成 "t…"（38% 相对父列解析过小）；列内位置由 side-col 整体居中控制（margin-top:auto 沉底方案已弃——中间空洞不美观，用户 2026-11-10）；2026-11-11 加宽 150 → 190 减少文件名/任务名截断 */
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
   gap: 4px; flex: 0 1 auto; min-height: 72px; max-height: 168px;   /* 任务区整体压缩（用户 2026-11-10）：高度只缩不涨（不抢水桶空间），保底约 3 个、封顶 168；超出内部滚动（滚动条已隐藏） */
   overflow-y: auto; padding: 2px;
@@ -424,7 +430,7 @@ watch(
  * 水平左缘对齐标题「度」字左缘——标题 5 字居中，度字左缘 ≈ 卡中心 + 35px。
  * 不占文档流，标题保持绝对居中，不再被 grid 列挤偏 */
 .completion .file-select { position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2; }   /* top 50（用户 2026-11-10 指定）：标题行之下再往下沉，桶顶之上 */
-.completion .file-select.in-task { position: static; width: 150px; }   /* 单任务补位下拉（用户 2026-11-11）：流式放进右列任务区，宽度对齐任务列 */
+.completion .file-select.in-task { position: static; width: 190px; }   /* 单任务补位下拉（用户 2026-11-11）：流式放进右列任务区，宽度对齐任务列（2026-11-11 加宽 150 → 190） */
 /* 无预选模式（用户 2026-11-10）：不下拉，原下拉位置静态显示当前焦点文件名（与下拉同位同字号） */
 .completion .focus-name {
   position: absolute; top: 50px; left: calc(50% + 35px); z-index: 2;
@@ -432,7 +438,7 @@ watch(
   font-size: 17px; color: var(--text-secondary);   /* 17px 与「已通过」同字号（用户 2026-11-11） */
 }
 .completion .focus { flex: 1; display: flex; align-items: stretch; justify-content: center; gap: 48px; min-height: 0; }   /* 两列拉伸填满剩余高度（底部不留白，用户 2026-11-10）：水桶顶=下拉框顶、水桶底≈人数列底 */
-.completion .side-col { flex: none; width: 150px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; min-height: 0; height: 100%; }   /* 宽度锁 150：任务 tab 出现/消失不改变列宽，切换下拉时水桶不左右移动（用户 2026-11-10）；两块整体垂直居中，中线与水桶一致 */
+.completion .side-col { flex: none; width: 190px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; min-height: 0; height: 100%; }   /* 宽度锁 190（2026-11-11 加宽对齐任务列）：任务 tab 出现/消失不改变列宽，切换下拉时水桶不左右移动（用户 2026-11-10）；两块整体垂直居中，中线与水桶一致 */
 .tank-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: center; }
 .tank {
   position: relative; width: 170px; height: 100%; max-height: 380px; min-height: 260px;   /* 随卡片拉伸但收上限 380（用户 2026-11-10：去上限后太高，380 为平衡值），min 260 保底 */
