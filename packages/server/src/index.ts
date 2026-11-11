@@ -9,7 +9,7 @@ import { createCache } from "./explainService/cache";
 import { createExplainService } from "./explainService";
 import { createStateManager } from "./stateManager";
 import { createAggregator } from "./aggregator";
-import { createActivityFeed } from "./activityFeed";
+import { createActivityFeed, reviewRowsToFeedRows } from "./activityFeed";
 import { dayStart } from "./classDay";
 import { createExerciseProgressTracker } from "./exerciseProgress";
 import { createTrendTracker } from "./trend";
@@ -143,22 +143,15 @@ export function createApp(deps: AppDeps = {}): { app: Express; hub: TeacherHub }
       exerciseProgress.applyRunSuccess(s.studentId, s.studentName, s.filePath, s.ts);
     }
     for (const r of persistence.getRunEventsSince(windowStart)) trend.record(r.ts, r.success);
-    // 课堂动态回放：run 成功 + 评审三态（unreviewed 只计数）；按 ts 升序喂入 → 缓冲新的在前。
+    // 课堂动态回放：run 成功 + 评审行（reviewRowsToFeedRows：单任务 1:1、多任务聚合 partial，unreviewed 只计数）；
+    // 按 ts 升序喂入 → 缓冲新的在前。
     // run_fail 不回放（events 表未归档 error_type），重启后失败条目从零累计（计数含历史成功，不回零）
     const feedRows = [
       ...persistence.getRunSuccessesSince(windowStart).map((s) => ({
         kind: "run_ok" as const, studentId: s.studentId, studentName: s.studentName,
         filePath: s.filePath, ts: s.ts,
       })),
-      ...persistence.getReviewResultsSince(windowStart).map((r) => ({
-        kind: r.status === "pass" ? ("review_pass" as const)
-          : r.status === "fail" ? ("review_fail" as const)
-          : ("review_count" as const),
-        studentId: r.studentId, studentName: r.studentName,
-        filePath: r.filePath, ts: r.ts,
-        reasonTag: r.status === "fail" ? "评审意见" : null,
-        reason: r.status === "fail" ? r.reason : null,
-      })),
+      ...reviewRowsToFeedRows(persistence.getReviewResultsSince(windowStart)),
     ].sort((a, b) => a.ts - b.ts);
     activityFeed.replay(feedRows);
   } catch (err) {

@@ -54,7 +54,7 @@ export interface SuggestionItem {
 }
 
 /** 课堂动态条目四态（spec 课堂动态）：评审 unreviewed 不产生条目 = LLM 降级自动只显示运行类 */
-export type ActivityKind = "run_ok" | "run_fail" | "review_pass" | "review_fail";
+export type ActivityKind = "run_ok" | "run_fail" | "review_pass" | "review_fail" | "review_partial";
 
 export interface ActivityFeedItem {
   /** 去重/进入动画 key：`{studentId}:{kind}:{seq}` */

@@ -153,12 +153,17 @@ export async function requestReview(deps: ReviewRequestDeps, input: ReviewReques
   if (tasks.length >= 2) deps.exerciseProgress.registerTasks(input.filePath, tasks);
   const review = await deps.reviewService.review({ filePath: input.filePath, code: reviewCode, tasks: tasks.length >= 2 ? tasks : undefined });
 
-  // 课堂动态：代码 LRU（悬浮代码卡懒加载源）+ 评审条目（unreviewed 只计数不产生条目 = LLM 降级自动满足）
+  // 课堂动态：代码 LRU（悬浮代码卡懒加载源）+ 评审条目。
+  // 多任务「部分完成」：整体 unreviewed 但至少一个任务有真实结论 → partial 照常进 feed（任务清单可见）；
+  // 纯 unreviewed（LLM 降级/无结论）→ 只计数不刷屏
   if (deps.activityFeed) {
     deps.activityFeed.stashCode({ studentId: rosterEntry.studentId, filePath: input.filePath, code: reviewCode, title });
+    const feedStatus = review.status === "unreviewed" && review.tasks?.some((v) => v.status !== "unreviewed")
+      ? ("partial" as const)
+      : review.status;
     deps.activityFeed.recordReview({
       studentId: rosterEntry.studentId, studentName: rosterEntry.studentName,
-      filePath: input.filePath, ts: Date.now(), status: review.status, reason: review.reason, title,
+      filePath: input.filePath, ts: Date.now(), status: feedStatus, reason: review.reason, title,
     });
   }
 
