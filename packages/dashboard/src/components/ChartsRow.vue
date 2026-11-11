@@ -95,8 +95,6 @@ let lineChart: Chart | null = null;
 
 // —— 作业完成度（单题水桶 + 多任务桶，spec 2026-11-09 §6）：文件下拉 + 任务 tab ——
 const allItems = computed(() => store.snapshot?.exerciseProgress ?? []);
-const completionEmpty = computed(() =>
-  allItems.value.length === 0 ? "暂无题目数据" : "全员通过，干得漂亮");
 
 // 文件焦点（用户 2026-11-10 交互重做）：有预选 → 下拉只列预选文件（保存顺序、默认第一个），
 // 完全以教师选择为准（不混入涌现/自动模式）；无预选 → 无下拉，自动挑题，原下拉位置显示当前文件名
@@ -325,12 +323,12 @@ watch(
       <!-- 用户 2026-11-11 定稿：顶部（对齐「度」字）下拉/文件名只在多任务时显示；单任务时右列任务区放
            下拉（有预选，可直接切换）或文件名（无预选），顶部留空 -->
       <select v-if="lessonFiles.length && activeTasks.length >= 2" v-model="selectModel" class="file-select" title="切换焦点文件">
-        <option v-for="o in fileOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+        <option v-for="o in fileOptions" :key="o.id" :value="o.id" :title="o.label">{{ o.label }}</option>
       </select>
       <!-- 无预选多任务：顶部显示当前文件名（17px 与已通过同字号） -->
       <span v-else-if="displayItem && activeTasks.length >= 2" class="focus-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
       <!-- 层次（用户 2026-11-10 定稿）：左水桶居中，右列 = 任务 tab + 已通过/编码中 整体垂直居中 -->
-      <p v-if="!displayItem" class="empty">{{ completionEmpty }}</p>
+      <p v-if="!displayItem" class="empty">暂无题目数据</p>
       <div v-else class="focus">
         <div class="tank-wrap">
           <div class="tank">
@@ -355,7 +353,7 @@ watch(
                复用 task-tabs 容器保持布局高度稳定 -->
           <div v-else class="task-tabs">
             <select v-if="lessonFiles.length" v-model="selectModel" class="file-select in-task" title="切换焦点文件">
-              <option v-for="o in fileOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+              <option v-for="o in fileOptions" :key="o.id" :value="o.id" :title="o.label">{{ o.label }}</option>
             </select>
             <span v-else class="task-tab file-name" :title="displayItem.displayName">{{ displayItem.displayName }}</span>
           </div>
@@ -391,7 +389,8 @@ watch(
  * 下拉框在标题下自成一行（右对齐，流式布局），物理上不可能遮挡标题 */
 .completion .file-select {
   flex: none; width: 170px;   /* 与水桶同宽，右列视觉统一（用户 2026-11-10） */
-  padding: 3px 8px; font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号（用户 2026-11-11） */
+  padding: 3px 26px 3px 8px;   /* 右侧留足箭头+安全距：文件名截断的省略号落在边框内侧，右边框始终完整（用户 2026-11-11） */
+  font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号（用户 2026-11-11） */
   color: var(--text-secondary); background: rgba(20, 50, 100, 0.5);
   border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
   text-overflow: ellipsis;
@@ -415,7 +414,7 @@ watch(
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .task-tab:hover { color: var(--text-secondary); }
-.task-tab.file-name { cursor: default; color: var(--text-secondary); }   /* 单任务题文件名占位块（用户 2026-11-11）：静态不可点 */
+.task-tab.file-name { cursor: default; color: var(--text-secondary); border: none; font-size: 17px; }   /* 无预选单任务题：文件名纯文本无方框（用户 2026-11-11），17px 与「已通过」同字号 */
 .task-tab.active {
   border-color: var(--tech-cyan); color: var(--tech-cyan);
   background: rgba(63, 169, 255, 0.12); text-shadow: 0 0 6px rgba(80, 220, 255, 0.5);

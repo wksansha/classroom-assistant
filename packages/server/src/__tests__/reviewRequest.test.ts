@@ -163,8 +163,8 @@ describe("运行触发评审（reviews/request，notify 已退役：评审结果
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.review.status).toBe("fail");                 // 任一任务 fail → 整体 fail
-    expect(r.review.reason).toContain("✅任务一");
     expect(r.review.reason).toContain("❌任务二");
+    expect(r.review.reason).not.toContain("任务一");   // reason 只拼失败任务意见（用户 2026-11-11 定稿），通过任务不拼接
     expect(r.review.tasks).toHaveLength(3);
     // 逐任务落行（review_results.task_id）
     const rows = p.getReviewResultsSince(0);

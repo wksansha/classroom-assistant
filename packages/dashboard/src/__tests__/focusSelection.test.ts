@@ -38,27 +38,22 @@ describe("findItemByBase（预选路径 ↔ 涌现 id 按文件名匹配）", ()
   });
 });
 
-describe("pickFocusFile（「最新动态」自动挑题）", () => {
-  it("有评审牵引优先，同牵引按涌现时间最新", () => {
+describe("pickFocusFile（「最新动态」自动挑题，用户 2026-11-11 定稿：latestTs 最新优先）", () => {
+  it("按最近活跃时间（latestTs）最新优先，跟随课堂注意力", () => {
     const items = [
-      item({ id: "a.py", passed: 3, firstTs: 1000 }),
-      item({ id: "b.py", passed: 0, firstTs: 9000 }),
-      item({ id: "c.py", passed: 1, firstTs: 5000 }),
+      item({ id: "a.py", passed: 3, firstTs: 1000, latestTs: 5000 }),
+      item({ id: "b.py", firstTs: 9000, latestTs: 9000 }),
+      item({ id: "c.py", passed: 1, firstTs: 5000, latestTs: 7000 }),
     ];
-    expect(pickFocusFile(items)).toBe("c.py");   // a/c 有牵引，c 更新
+    expect(pickFocusFile(items)).toBe("b.py");   // b 动态最新
   });
 
-  it("全员通过 → null（卡片显示「全员通过」空态）", () => {
-    expect(pickFocusFile([item({ id: "a.py", passed: 20, total: 20 })])).toBeNull();
+  it("全员通过的题不排除：课堂安静时焦点停在最后活跃题（100% 水桶）", () => {
+    expect(pickFocusFile([item({ id: "a.py", passed: 20, total: 20, firstTs: 1000, latestTs: 8000 })])).toBe("a.py");
+  });
+
+  it("空清单 → null", () => {
     expect(pickFocusFile([])).toBeNull();
-  });
-
-  it("全为涌现中的 0% 题（无牵引）→ 涌现时间最新", () => {
-    const items = [
-      item({ id: "a.py", firstTs: 1000 }),
-      item({ id: "b.py", firstTs: 8000 }),
-    ];
-    expect(pickFocusFile(items)).toBe("b.py");
   });
 });
 

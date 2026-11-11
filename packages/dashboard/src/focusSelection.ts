@@ -24,12 +24,12 @@ export function findItemByBase(items: ExerciseProgressItem[], targetId: string):
   return items.find((i) => baseName(i.id) === t);
 }
 
-/** 自动挑题（「最新动态」语义）：未全员通过的题里，有评审牵引（passed>0）优先，再按涌现时间最新 */
+/** 自动挑题（「最新动态」语义，用户 2026-11-11 定稿）：按最近活跃时间（latestTs）最新优先，跟随课堂注意力。
+ * 全员通过的题不排除：保持显示 100% 水桶（终点文案已废弃，避免课间误报「干得漂亮」），
+ * 新题涌现后 latestTs 更新自然接管焦点。无涌现题 → null */
 export function pickFocusFile(items: ExerciseProgressItem[]): string | null {
-  const active = items.filter((e) => e.passed < e.total);
-  if (!active.length) return null;
-  return [...active]
-    .sort((a, b) => ((b.passed > 0 ? 1 : 0) - (a.passed > 0 ? 1 : 0)) || (b.firstTs - a.firstTs))[0].id;
+  if (!items.length) return null;
+  return [...items].sort((a, b) => b.latestTs - a.latestTs)[0].id;
 }
 
 /** 任务 tab 默认桶：第一个未全员通过的任务；全过则第一个 */

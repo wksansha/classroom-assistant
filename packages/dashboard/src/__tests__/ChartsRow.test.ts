@@ -67,13 +67,17 @@ describe("ChartsRow（底部图表行，spec 2026-11-04 §5）", () => {
     expect(text).not.toContain("done.py");
   });
 
-  it("全部作业已全员通过：显示完成文案", async () => {
+  it("全部作业已全员通过：不显示终点文案，保持最后活跃题的 100% 水桶（用户 2026-11-11 定稿）", async () => {
     const { wrapper, store } = mountWithStore(ChartsRow);
     store.applySnapshot(makeSnapshot({
       exerciseProgress: [{ id: "week2/done.py", displayName: "done.py", isProject: false, passed: 4, stuck: 0, unreviewed: 0, total: 4, passRate: 1, firstTs: 200, latestTs: 300, title: "成绩判断" }],
     }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".completion").text()).toContain("全员通过，干得漂亮");
+    const text = wrapper.find(".completion").text();
+    expect(text).not.toContain("全员通过，干得漂亮");
+    expect(text).toContain("done.py");
+    expect(text).toContain("已通过 4 人");
+    expect(text).toContain("100%");
   });
 
   it("有数据时渲染两块 canvas（课堂节奏/错误TOP3；完成度为 DOM 水桶；chart.js 已 mock）；无数据卡片显示空态文案", async () => {

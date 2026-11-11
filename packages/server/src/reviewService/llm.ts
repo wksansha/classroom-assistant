@@ -16,7 +16,6 @@ export type ParsedReview = { status: "pass" | "fail" | "unreviewed"; reason: str
 
 type Status = "pass" | "fail" | "unreviewed";
 const STATUS_SET = new Set(["pass", "fail", "unreviewed"]);
-const ICON: Record<Status, string> = { pass: "✅", fail: "❌", unreviewed: "⬜" };
 const CATEGORY_SET = new Set<string>(REVIEW_CATEGORIES);
 
 /** 分类白名单校验：清单外（LLM 幻觉/旧格式）→ undefined，注入层回退缺省文案 */
@@ -35,16 +34,18 @@ function verdictOf(v: unknown): { status: Status; reason: string; category?: str
 
 /** 多任务题逐任务结论 → 整体三态（用户 2026-11-11 定稿）：未开始任务（unreviewed）全部忽略不参与结论；
  * 剩余任务任一 fail → fail；剩余全 pass → pass；全部未开始 → unreviewed（无评审结论，feed 静默/完成度停编码中）。
- * 摘要仍列全部任务（含 ⬜未开始），教师可见进度；分类取首个 fail 任务 */
+ * reason 只拼失败任务意见（用户 2026-11-11 定稿：没问题的任务不拼接，避免 ✅ 前缀把 ❌ 意见挤出 feed 120 字截断线；
+ * 学生弹窗/告警 knowledge 同源受益）；通过/未开始数量一句带过。逐任务完整明细以 review_results 逐任务行与完成度任务桶为准。
+ * 分类取首个 fail 任务 */
 function summarizeTasks(verdicts: { name: string; status: Status; reason: string; category?: string }[]):
   { status: Status; reason: string; category?: string } {
   const judged = verdicts.filter((v) => v.status !== "unreviewed");
   const status: Status = judged.some((v) => v.status === "fail") ? "fail"
     : judged.length > 0 ? "pass" : "unreviewed";
-  const reason = verdicts
-    .map((v) => `${ICON[v.status]}${v.name}：${v.status === "unreviewed" ? "未开始" : v.reason}`)
-    .join(" / ")
-    .slice(0, 300);
+  const fails = verdicts.filter((v) => v.status === "fail");
+  const reason = fails.length > 0
+    ? fails.map((v) => `❌${v.name}：${v.reason}`).join(" / ").slice(0, 300)
+    : `${judged.filter((v) => v.status === "pass").length}/${verdicts.length} 个任务通过`;
   const category = verdicts.find((v) => v.status === "fail")?.category;
   return { status, reason, ...(category ? { category } : {}) };
 }
