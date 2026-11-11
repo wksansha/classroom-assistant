@@ -47,7 +47,7 @@ export interface ExerciseProgressTracker {
   /** 课间重置（大屏重置）：清空内存格子，从零统计新课 */
   reset(): void;
   /** 当天涌现题（spec 决策 #18）：任一格 lastTs >= dayStartMs 的题才输出；多任务题输出 tasks[] 桶数组；
-   * 文件级 top-level = 学生聚合（全部任务 pass → passed / 任一 fail → stuck / 其余 unreviewed）。
+   * 文件级 top-level = 学生聚合（用户 2026-11-11 定稿：任一 fail → stuck / 有 pass 无 fail → passed / 全未开始 → unreviewed）。
    * isOnline 缺省 = 全量（回放/测试）；传入时离线学生的格子不计入 passed/stuck/unreviewed（在线口径） */
   list(dayStartMs: number, isOnline?: (studentId: string) => boolean): Omit<ExerciseProgressItem, "total" | "passRate">[];
 }
@@ -229,13 +229,14 @@ export function createExerciseProgressTracker(): ExerciseProgressTracker {
 
         let passed = 0, stuck = 0, unreviewed = 0;
         for (const s of perStudent.values()) {
-          // 学生未涉及的桶 = unreviewed（未开始）；全部 pass → passed；任一 fail → stuck
+          // 学生未涉及的桶 = unreviewed（未开始，用户 2026-11-11 定稿：不计入结论）；
+          // 任一 fail → stuck；有 pass 无 fail → passed（做一半且已做部分全过 = 已通过）；全未开始 → unreviewed
           const statuses = taskNames!.map((t) => {
             const idx = taskNames!.indexOf(t);
             return s.statuses[idx] ?? "unreviewed";
           });
-          if (statuses.every((st) => st === "pass")) passed++;
-          else if (statuses.some((st) => st === "fail")) stuck++;
+          if (statuses.some((st) => st === "fail")) stuck++;
+          else if (statuses.some((st) => st === "pass")) passed++;
           else unreviewed++;
         }
 

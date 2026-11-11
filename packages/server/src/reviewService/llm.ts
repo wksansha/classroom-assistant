@@ -33,11 +33,14 @@ function verdictOf(v: unknown): { status: Status; reason: string; category?: str
   return null;
 }
 
-/** 多任务题逐任务结论 → 整体三态 + 拼接摘要（spec 2026-11-09 §4）；分类取首个 fail 任务 */
+/** 多任务题逐任务结论 → 整体三态（用户 2026-11-11 定稿）：未开始任务（unreviewed）全部忽略不参与结论；
+ * 剩余任务任一 fail → fail；剩余全 pass → pass；全部未开始 → unreviewed（无评审结论，feed 静默/完成度停编码中）。
+ * 摘要仍列全部任务（含 ⬜未开始），教师可见进度；分类取首个 fail 任务 */
 function summarizeTasks(verdicts: { name: string; status: Status; reason: string; category?: string }[]):
   { status: Status; reason: string; category?: string } {
-  const status: Status = verdicts.some((v) => v.status === "fail") ? "fail"
-    : verdicts.every((v) => v.status === "pass") ? "pass" : "unreviewed";
+  const judged = verdicts.filter((v) => v.status !== "unreviewed");
+  const status: Status = judged.some((v) => v.status === "fail") ? "fail"
+    : judged.length > 0 ? "pass" : "unreviewed";
   const reason = verdicts
     .map((v) => `${ICON[v.status]}${v.name}：${v.status === "unreviewed" ? "未开始" : v.reason}`)
     .join(" / ")

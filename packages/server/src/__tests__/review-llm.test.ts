@@ -33,6 +33,18 @@ describe("parseReviewResponse", () => {
     expect(r).toMatchObject({ status: "fail", category: "边界未处理" });
     expect(r?.tasks?.[1]).toMatchObject({ status: "fail", category: "边界未处理" });
   });
+  it("多任务聚合（用户 2026-11-11 定稿）：未开始任务忽略——部分完成全过 → pass；全未开始 → unreviewed", () => {
+    const partial = JSON.stringify({ tasks: [
+      { name: "任务一", status: "pass", reason: "对" },
+      { name: "任务二", status: "unreviewed", reason: "未开始" },
+    ] });
+    expect(parseReviewResponse(partial, ["任务一", "任务二"])).toMatchObject({ status: "pass" });
+    const none = JSON.stringify({ tasks: [
+      { name: "任务一", status: "unreviewed", reason: "未开始" },
+      { name: "任务二", status: "unreviewed", reason: "未开始" },
+    ] });
+    expect(parseReviewResponse(none, ["任务一", "任务二"])).toMatchObject({ status: "unreviewed" });
+  });
 });
 
 describe("callReviewLLM（A4/A11）", () => {

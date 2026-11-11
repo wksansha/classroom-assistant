@@ -153,13 +153,22 @@ describe("ExerciseProgressTracker 多任务桶（spec 2026-11-09 §5）", () => 
     expect(item).toMatchObject({ passed: 0, stuck: 1, unreviewed: 0, title: "练习一" });
   });
 
-  it("只写任务一的学生：文件级 = unreviewed（部分完成不虚报全过）", () => {
+  it("只写任务一且通过的学生：文件级 = passed（未开始任务不计入结论，用户 2026-11-11 定稿）", () => {
     const t = createExerciseProgressTracker();
     t.registerTasks("l1/a.py", TASKS);
     t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, "任务一");
     const item = t.list(TODAY_START)[0];
-    expect(item).toMatchObject({ passed: 0, stuck: 0, unreviewed: 1 });
+    expect(item).toMatchObject({ passed: 1, stuck: 0, unreviewed: 0 });
     expect(item.tasks?.find((b) => b.taskId === "任务一")).toMatchObject({ passed: 1 });
+    expect(item.tasks?.find((b) => b.taskId === "任务二")).toMatchObject({ passed: 0 });   // 未开始桶停在编码中
+  });
+
+  it("任一任务 fail → 文件级 stuck（即使其余任务全过）", () => {
+    const t = createExerciseProgressTracker();
+    t.registerTasks("l1/a.py", TASKS);
+    t.applyReview("s1", "张三", "l1/a.py", "pass", NOW, undefined, "任务一");
+    t.applyReview("s1", "张三", "l1/a.py", "fail", NOW + 1, undefined, "任务二");
+    expect(t.list(TODAY_START)[0]).toMatchObject({ passed: 0, stuck: 1, unreviewed: 0 });
   });
 
   it("全任务 pass 的学生 → 文件级 passed", () => {

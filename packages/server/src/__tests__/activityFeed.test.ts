@@ -119,16 +119,16 @@ describe("activityFeed 缓冲/重置/回放", () => {
     expect(list[1].attempt).toBe(1);
   });
 
-  it("recordReview partial（多任务部分完成，用户 2026-11-11）：产生条目，reasonTag=部分完成，清单摘要保留", () => {
+  it("recordReview：多任务部分完成（✅任务一 + ⬜任务二未开始）聚合后整体 pass → 进 feed（用户 2026-11-11）", () => {
     const f = createActivityFeed();
-    f.recordReview({ studentId: "s1", studentName: "张三", filePath: "a.py", ts: 100, status: "partial", reason: "✅任务一：正确 / ⬜任务二：未开始" });
+    f.recordReview({ studentId: "s1", studentName: "张三", filePath: "a.py", ts: 100, status: "pass", reason: null });
     const [it] = f.list();
-    expect(it.kind).toBe("review_partial");
-    expect(it.reasonTag).toBe("部分完成");
-    expect(it.reason).toBe("✅任务一：正确 / ⬜任务二：未开始");
+    expect(it.kind).toBe("review_pass");
+    expect(it.reasonTag).toBeNull();
+    expect(it.reason).toBeNull();
   });
 
-  it("reviewRowsToFeedRows：多任务行聚合一条（有结论未全过→partial 含摘要；任一 fail→fail；全 unreviewed→只计数）", () => {
+  it("reviewRowsToFeedRows：多任务行聚合一条（任一 fail→fail 取首个意见；有 pass 无 fail→pass；全 unreviewed→只计数）", () => {
     const rows = [
       { studentId: "s1", studentName: "张三", filePath: "a.py", status: "pass" as const, reason: "正确", ts: 100, taskId: "任务一" },
       { studentId: "s1", studentName: "张三", filePath: "a.py", status: "unreviewed" as const, reason: null, ts: 101, taskId: "任务二" },
@@ -139,9 +139,8 @@ describe("activityFeed 缓冲/重置/回放", () => {
       { studentId: "s4", studentName: "赵六", filePath: "d.py", status: "unreviewed" as const, reason: "评审超时", ts: 106, taskId: null },
     ];
     const out = reviewRowsToFeedRows(rows);
-    expect(out.map((r) => r.kind)).toEqual(["review_partial", "review_fail", "review_count", "review_count"]);
-    expect(out[0].reasonTag).toBe("部分完成");
-    expect(out[0].reason).toBe("✅任务一：正确 / ⬜任务二：未开始");
+    expect(out.map((r) => r.kind)).toEqual(["review_pass", "review_fail", "review_count", "review_count"]);
+    expect(out[0].reasonTag).toBeNull();   // 部分完成 = 通过，无意见
     expect(out[1].reason).toBe("死循环");   // 任一 fail → 首个 fail 意见
     expect(out[1].reasonTag).toBe("评审意见");
   });

@@ -152,10 +152,8 @@ function showPop(item: ActivityFeedItem) {
 function hidePop() { pop.value = null; }
 
 const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-const EVT_LABEL: Record<string, string> = { run_ok: "运行成功", run_fail: "运行失败", review_pass: "AI 评审通过", review_fail: "AI 评审未通过", review_partial: "AI 部分通过" };
+const EVT_LABEL: Record<string, string> = { run_ok: "运行成功", run_fail: "运行失败", review_pass: "AI 评审通过", review_fail: "AI 评审未通过" };
 const isRun = (kind: string) => kind === "run_ok" || kind === "run_fail";
-/** 意见/摘要标签色：运行类与部分完成 = 黄（warn），评审未通过 = 红（err） */
-const tagTone = (kind: string) => (isRun(kind) || kind === "review_partial" ? "warn" : "err");
 
 /* 首载快照（含重启回放数据）：直接铺开不打动画 */
 onMounted(() => {
@@ -197,7 +195,7 @@ onMounted(() => {
             <span class="lb-time">{{ fmtTime(it.ts) }}</span>
           </div>
           <div v-if="it.reason" class="lb-reason">
-            <span class="k-tag" :class="tagTone(it.kind)">{{ it.reasonTag }}</span>{{ it.reason }}
+            <span class="k-tag" :class="isRun(it.kind) ? 'warn' : 'err'">{{ it.reasonTag }}</span>{{ it.reason }}
           </div>
         </div>
       </div>
@@ -274,7 +272,6 @@ onMounted(() => {
 .avatar.run_fail::after { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.8); }
 .avatar.review_pass::after { background: var(--tech-green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); }
 .avatar.review_fail::after { background: var(--tech-red); box-shadow: 0 0 6px rgba(255, 95, 109, 0.8); }
-.avatar.review_partial::after { background: var(--tech-yellow); box-shadow: 0 0 6px rgba(255, 197, 61, 0.8); }
 .avatar.review_fail { animation: av-blink 1.2s ease-in-out 3; }
 @keyframes av-blink { 50% { box-shadow: 0 0 10px rgba(255, 95, 109, 0.5); } }
 
@@ -284,7 +281,6 @@ onMounted(() => {
 .lb-act { font-size: 13.5px; font-weight: 700; white-space: nowrap; }
 .lb-act.run_ok { color: var(--tech-cyan); } .lb-act.run_fail { color: var(--tech-yellow); }
 .lb-act.review_pass { color: var(--tech-green); } .lb-act.review_fail { color: var(--tech-red); }
-.lb-act.review_partial { color: var(--tech-yellow); }
 .lb-try { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .lb-try.hot { color: var(--tech-yellow); text-shadow: 0 0 6px rgba(255, 197, 61, 0.5); }
 .lb-time { font-family: var(--font-num); font-size: 12px; color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -295,7 +291,6 @@ onMounted(() => {
 .hb i.run_fail { background: var(--tech-yellow); }
 .hb i.review_pass { background: var(--tech-green); height: 6px; box-shadow: 0 0 4px rgba(34, 197, 94, 0.7); }
 .hb i.review_fail { background: var(--tech-red); height: 6px; box-shadow: 0 0 4px rgba(255, 95, 109, 0.7); }
-.hb i.review_partial { background: var(--tech-yellow); height: 6px; box-shadow: 0 0 4px rgba(255, 197, 61, 0.7); }
 .hb i.hb-latest { animation: hb-pop 0.4s ease-out; }
 @keyframes hb-pop { 50% { transform: scaleY(2.4); } }
 

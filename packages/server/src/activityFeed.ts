@@ -27,8 +27,7 @@ export interface ReviewRecordArgs {
   studentName: string;
   filePath: string;
   ts: number;
-  /** partial = 多任务题部分完成：整体 unreviewed 但至少一个任务有真实结论（用户 2026-11-11） */
-  status: "pass" | "fail" | "unreviewed" | "partial";
+  status: "pass" | "fail" | "unreviewed";
   reason: string | null;
   title?: string;
 }
@@ -117,15 +116,13 @@ export function createActivityFeed(): ActivityFeed {
     recordReview(args) {
       const attempt = bump(reviewCounts, countKey(args.studentId, args.filePath));
       rememberTitle(args.studentId, args.filePath, args.title);
-      if (args.status === "unreviewed") return;   // LLM 降级/瞬态：只计数不进 feed
+      if (args.status === "unreviewed") return;   // LLM 降级/全部未开始：只计数不进 feed（用户 2026-11-11）
       prepend({
-        kind: args.status === "pass" ? "review_pass"
-          : args.status === "fail" ? "review_fail"
-          : "review_partial",   // partial = 多任务部分完成（含任务清单摘要，教师可见进度）
+        kind: args.status === "pass" ? "review_pass" : "review_fail",
         studentId: args.studentId, studentName: args.studentName, ts: args.ts,
         attempt,
-        reasonTag: args.status === "fail" ? "评审意见" : args.status === "partial" ? "部分完成" : null,
-        reason: args.status === "pass" ? null : (args.reason ?? "").slice(0, REASON_MAX) || null,
+        reasonTag: args.status === "fail" ? "评审意见" : null,
+        reason: args.status === "fail" ? (args.reason ?? "").slice(0, REASON_MAX) || null : null,
         title: args.title ?? stashTitle(args.studentId, args.filePath),
         filePath: args.filePath,
       });
@@ -184,8 +181,8 @@ export function createActivityFeed(): ActivityFeed {
           prepend({
             kind: r.kind, studentId: r.studentId, studentName: r.studentName, ts: r.ts,
             attempt,
-            reasonTag: r.kind === "review_fail" ? "评审意见" : r.kind === "review_partial" ? "部分完成" : null,
-            reason: r.kind === "review_fail" || r.kind === "review_partial" ? (r.reason ?? "").slice(0, REASON_MAX) || null : null,
+            reasonTag: r.kind === "review_fail" ? "评审意见" : null,
+            reason: r.kind === "review_fail" ? (r.reason ?? "").slice(0, REASON_MAX) || null : null,
             title: r.title ?? stashTitle(r.studentId, r.filePath),
             filePath: r.filePath,
           });
@@ -207,11 +204,9 @@ export interface ReviewResultRow {
   taskId: string | null;
 }
 
-const VERDICT_ICON: Record<ReviewResultRow["status"], string> = { pass: "✅", fail: "❌", unreviewed: "⬜" };
-
-/** 评审落库行 → feed 回放行（与实时路径 reviewController 同语义，用户 2026-11-11）：
- * 单任务行 1:1（unreviewed → review_count 只计数）；多任务行（task_id 非空）按 学生+文件 聚合成一条——
- * 任一 fail → review_fail（首个 fail 意见）｜全 pass → review_pass｜有结论未全过 → review_partial（任务清单摘要）｜全 unreviewed → review_count */
+/** 评审落库行 → feed 回放行（与实时路径同语义，用户 2026-11-11）：单任务行 1:1（unreviewed → review_count 只计数）；
+ * 多任务行（task_id 非空）按 学生+文件 聚合一条：任一 fail → review_fail（首个 fail 意见）；
+ * 有 pass 无 fail → review_pass（未开始任务忽略）；全 unreviewed → review_count */
 export function reviewRowsToFeedRows(rows: ReviewResultRow[]): ReplayRow[] {
   const out: ReplayRow[] = [];
   let group: ReviewResultRow[] = [];
@@ -220,22 +215,14 @@ export function reviewRowsToFeedRows(rows: ReviewResultRow[]): ReplayRow[] {
     const g = group;
     group = [];
     const anyFail = g.find((r) => r.status === "fail");
-    const allPass = g.every((r) => r.status === "pass");
-    const anyVerdict = g.some((r) => r.status !== "unreviewed");
-    const kind: ReplayRow["kind"] = anyFail ? "review_fail"
-      : allPass ? "review_pass"
-      : anyVerdict ? "review_partial"
-      : "review_count";
-    const reason = anyFail ? (anyFail.reason ?? "")
-      : kind === "review_partial"
-        ? g.map((r) => `${VERDICT_ICON[r.status]}${r.taskId}：${r.status === "unreviewed" ? "未开始" : r.reason ?? ""}`).join(" / ")
-        : null;
+    const anyPass = g.some((r) => r.status === "pass");
+    const kind: ReplayRow["kind"] = anyFail ? "review_fail" : anyPass ? "review_pass" : "review_count";
     out.push({
       kind,
       studentId: g[0].studentId, studentName: g[0].studentName, filePath: g[0].filePath,
       ts: Math.max(...g.map((r) => r.ts)),
-      reasonTag: kind === "review_fail" ? "评审意见" : kind === "review_partial" ? "部分完成" : null,
-      reason: kind === "review_count" || kind === "review_pass" ? null : reason || null,
+      reasonTag: anyFail ? "评审意见" : null,
+      reason: anyFail ? anyFail.reason : null,
     });
   };
   for (const r of rows) {
