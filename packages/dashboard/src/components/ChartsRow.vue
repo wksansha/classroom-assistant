@@ -389,19 +389,21 @@ watch(
  * 下拉框在标题下自成一行（右对齐，流式布局），物理上不可能遮挡标题 */
 .completion .file-select {
   flex: none; width: 200px;   /* 顶部下拉（用户 2026-11-11 加宽：170 → 200，减少截断） */
-  padding: 4px 30px 4px 10px;   /* 右侧留出自绘箭头+安全距：截断省略号落在边框内侧，右边框始终完整 */
+  padding: 4px 24px 4px 2px;   /* 右侧留出自绘箭头位：截断省略号远离右缘 */
   font-size: 17px; font-family: inherit; cursor: pointer;   /* 17px 与「已通过」同字号 */
-  color: var(--text-secondary); background-color: rgba(20, 50, 100, 0.5);
+  color: var(--text-secondary);
   color-scheme: dark;   /* 弹出选项列表深色渲染（Chrome/Edge），不再突兀白框 */
-  appearance: none;   /* 去系统原生框和灰箭头，换自绘青色 chevron，融入科技风 */
+  appearance: none;   /* 去系统原生框和灰箭头，换自绘青色 chevron */
+  background-color: transparent;   /* 幽灵风（用户 2026-11-11 定稿）：收起时无边框无底色，观感 = 纯文本文件名（与无预选 focus-name 同款），控件感消失 */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' stroke='%237fd7ff' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
-  border: 1px solid rgba(63, 140, 255, 0.35); border-radius: 2px; outline: none;
+  background-position: right 6px center;
+  border: 1px solid transparent; border-radius: 2px; outline: none;
   text-overflow: ellipsis;
+  transition: background-color 0.15s, border-color 0.15s;
 }
-.file-select:hover { border-color: var(--tech-cyan); }
-.file-select:focus { border-color: var(--tech-cyan); box-shadow: 0 0 10px rgba(124, 231, 255, 0.25); }   /* 聚焦辉光与瓦片 hover 同语义 */
+.file-select:hover { border-color: rgba(63, 140, 255, 0.35); background-color: rgba(20, 50, 100, 0.4); }   /* 悬停才显形：淡入底色描边暗示可点击 */
+.file-select:focus { border-color: var(--tech-cyan); background-color: rgba(20, 50, 100, 0.4); box-shadow: 0 0 10px rgba(124, 231, 255, 0.25); }   /* 聚焦辉光与瓦片 hover 同语义 */
 .file-select option, .file-select optgroup { background: #0a1830; color: var(--text-primary); padding: 6px 10px; }
 /* 任务 tab 竖排靠右（用户 2026-11-10 反馈）：focus 行内右侧栏，高度自适应任务数，
  * 极端超多任务 → 本列内部滚动（max-height 不超 focus 高），水桶/人数完全不受挤压 */
